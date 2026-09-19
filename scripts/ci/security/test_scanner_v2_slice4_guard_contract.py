@@ -248,6 +248,12 @@ KELVIN = "\u212a"
 # requires. Spelled out because a literal VT is invisible in source.
 VERTICAL_TAB = "\x0b"
 
+# A user-defined operator is backed by a function, and a cast between
+# custom types can be too, so neither is effectless merely for being
+# spelled without parentheses.
+CUSTOM_OPERATOR = "#"
+CUSTOM_TYPE = "public.org_ref"
+
 # A built-in with a real session-level side effect, used to show that an
 # expression is not effectless merely because it is not a DML statement.
 IMPURE_CALL = "pg_catalog.pg_try_advisory_lock(42)"
@@ -920,6 +926,71 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     "ABSENT",
                 )
 
+    def test_routine_body_is_the_definition_after_as(self) -> None:
+        """A dollar-quoted option value is not the routine's body.
+
+        ``CREATE FUNCTION`` takes its options in any order and an option
+        value may itself be a string constant, so a dollar-quoted literal can
+        legally precede ``AS``. A producer that takes the first dollar body
+        after the parameter list reads that decoy as the routine and proves a
+        guard the real body never runs -- a false PROVEN inside a single
+        statement, which the cross-routine attribution test cannot reach.
+        """
+        decoy = (
+            "$meta$BEGIN "
+            "PERFORM public.wardah_assert_org_member(p_org); "
+            "END;$meta$"
+        )
+
+        def _with_option(body: str, definition: str | None = None) -> str:
+            tail = (
+                f"AS $body$\nBEGIN\n{body}\nEND;\n$body$;\n"
+                if definition is None
+                else f"AS {definition};\n"
+            )
+            return (
+                "CREATE OR REPLACE FUNCTION public.review_probe(p_org uuid)\n"
+                "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+                f"SET application_name =\n  {decoy}\n{tail}"
+            )
+
+        with self.subTest(label="decoy_option_does_not_prove"):
+            self._assert_status(
+                _run_producer(
+                    _with_option("PERFORM 1;"),
+                    _bindings_doc([_binding(oid=2106)]),
+                ),
+                "ABSENT",
+            )
+        with self.subTest(label="decoy_option_does_not_hide_a_real_guard"):
+            self._assert_status(
+                _run_producer(
+                    _with_option(RAISING_GUARD_BODY),
+                    _bindings_doc([_binding(oid=2107)]),
+                ),
+                "PROVEN",
+                mechanism="public.wardah_assert_org_member",
+                proof_class="raising-assertion-v1",
+            )
+        with self.subTest(label="decoy_option_with_a_boolean_guard"):
+            self._assert_status(
+                _run_producer(
+                    _with_option(BOOLEAN_DENY_GUARD_BODY),
+                    _bindings_doc([_binding(oid=2108)]),
+                ),
+                "PROVEN",
+                mechanism="public.wardah_is_org_member",
+                proof_class="negated-boolean-deny-v1",
+            )
+        with self.subTest(label="definition_is_not_dollar_quoted"):
+            self._assert_status(
+                _run_producer(
+                    _with_option("", definition="'BEGIN PERFORM 1; END;'"),
+                    _bindings_doc([_binding(oid=2109)]),
+                ),
+                "UNKNOWN",
+            )
+
     def test_impure_guard_argument_is_unknown(self) -> None:
         """The argument is evaluated before the helper is entered.
 
@@ -964,6 +1035,169 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     ),
                     "UNKNOWN",
                 )
+
+    def test_impure_guard_argument_typed_by_a_cast_is_unknown(self) -> None:
+        """The ordering rule, isolated from the overload rule.
+
+        ``test_impure_guard_argument_is_unknown`` does not discriminate the
+        two: its ``CASE`` argument also fails type inference, so an
+        implementation that dropped the effect check entirely would still
+        withhold proof. Casting the same expression to the expected type
+        leaves the pre-boundary effect as the only reason to say UNKNOWN.
+        """
+        impure_uuid = (
+            "(\n"
+            "  CASE\n"
+            f"    WHEN {IMPURE_CALL} THEN p_org\n"
+            "    ELSE p_org\n"
+            "  END\n"
+            ")::uuid"
+        )
+        cases = {
+            "raising_assertion_argument": (
+                "PERFORM public.wardah_assert_org_member(\n"
+                f"{_indent(impure_uuid)}\n"
+                ");"
+            ),
+            "admin_assertion_argument": (
+                "PERFORM public.wardah_assert_org_admin(\n"
+                f"{_indent(impure_uuid)}\n"
+                ");"
+            ),
+            "permission_assertion_argument": (
+                "PERFORM public.wardah_178_assert_permission(\n"
+                f"{_indent(impure_uuid)},\n"
+                "  'inventory.stock.write'\n"
+                ");"
+            ),
+            "boolean_predicate_argument": (
+                "IF NOT public.wardah_is_org_member(\n"
+                f"{_indent(impure_uuid)}\n"
+                ") THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2110)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_operator_and_cast_expressions_are_not_effectless(self) -> None:
+        """Effectlessness is not the absence of ``name(...)``.
+
+        Every operator is backed by a function and a cast between custom
+        types can be too, so an expression is not proven effectless merely
+        because no call is spelled with parentheses. A VOLATILE function
+        behind ``#`` or behind ``p_org::uuid`` runs before the authorization
+        boundary exactly as ``PERFORM writer(p_org)`` would.
+
+        Conservative by construction: only the few forms this contract shows
+        to be effectless prove, and everything else is UNKNOWN. No purity
+        analysis is required.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="operator_before_guard"):
+                block = _declare_block(
+                    "v_a text;\nv_b text;\nv_c text;",
+                    f"v_c := v_a {CUSTOM_OPERATOR} v_b;\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2111)]),
+                    ),
+                    "UNKNOWN",
+                )
+            with self.subTest(path=path_label, label="cast_before_guard"):
+                block = _declare_block(
+                    "v_u uuid;",
+                    f"v_u := p_org::uuid;\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2112)]),
+                    ),
+                    "UNKNOWN",
+                )
+            with self.subTest(
+                path=path_label, label="operator_in_declaration"
+            ):
+                block = _declare_block(
+                    f"v_a text;\nv_b text;\nv_c text := v_a "
+                    f"{CUSTOM_OPERATOR} v_b;",
+                    guard,
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2113)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        with self.subTest(label="cast_in_a_guard_argument"):
+            self._assert_status(
+                _run_producer(
+                    _routine_source(
+                        "PERFORM public.wardah_assert_org_member("
+                        "p_org::uuid);",
+                        args=f"p_org {CUSTOM_TYPE}",
+                    ),
+                    _bindings_doc(
+                        [
+                            _binding(
+                                oid=2114,
+                                source_arguments=f"p_org {CUSTOM_TYPE}",
+                                identity_arguments=CUSTOM_TYPE,
+                            )
+                        ]
+                    ),
+                ),
+                "UNKNOWN",
+            )
+        with self.subTest(label="operator_in_a_guard_argument"):
+            self._assert_status(
+                _run_producer(
+                    _routine_source(
+                        "PERFORM public.wardah_assert_org_member("
+                        f"p_org {CUSTOM_OPERATOR} p_org);",
+                        args=f"p_org {CUSTOM_TYPE}",
+                    ),
+                    _bindings_doc(
+                        [
+                            _binding(
+                                oid=2115,
+                                source_arguments=f"p_org {CUSTOM_TYPE}",
+                                identity_arguments=CUSTOM_TYPE,
+                            )
+                        ]
+                    ),
+                ),
+                "UNKNOWN",
+            )
+        with self.subTest(label="operator_in_the_deny_condition"):
+            block = _declare_block(
+                "v_a text;\nv_b text;",
+                f"IF v_a {CUSTOM_OPERATOR} v_b\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2116)]),
+                ),
+                "UNKNOWN",
+            )
 
     def test_unqualified_recognized_guard_is_ambiguous(self) -> None:
         source = _routine_source(
