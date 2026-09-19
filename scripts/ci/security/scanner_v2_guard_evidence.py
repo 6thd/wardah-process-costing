@@ -35,7 +35,7 @@ GUARD_SCANNER = "wardah-scanner-v2-guard-evidence-v1"
 BINDING_SCANNER = "wardah-scanner-v2-discovery-binding"
 CONTRACT_SCANNER = "wardah-scanner-v2-guard-contract-oracle-v1"
 
-ERROR_TOKEN = "SCANNER_V2_GUARD_EVIDENCE_ERROR"
+ERROR_MARKER = "SCANNER_V2_GUARD_EVIDENCE_ERROR"
 
 EXPECTED_HELPERS = {
     "public.wardah_assert_org_member(uuid)": "RAISING_ASSERTION",
@@ -471,12 +471,37 @@ def has_call(tokens: list[Token]) -> bool:
     return False
 
 
+# Punctuation that carries no computation of its own. Every OTHER operator
+# is backed by a function -- a user-defined operator explicitly, a cast
+# between custom types potentially -- so none of them is proven effectless.
+SAFE_OPERATORS = {";", ",", ".", "(", ")", ":=", "<<", ">>"}
+
+
 def is_effectless(tokens: list[Token]) -> bool:
-    """Conservative: no effect keyword and no call anywhere in the span."""
-    for token in tokens:
-        if token.kind == "word" and token.upper in EFFECT_WORDS:
-            return False
-    return not has_call(tokens)
+    """Proven effectless, not merely free of ``name(...)``.
+
+    An allowlist: an effect keyword, a call, or any operator beyond plain
+    punctuation leaves the span unproven. A VOLATILE function reached through
+    an operator or a cast runs just as surely as one reached through a call.
+    """
+    for index, token in enumerate(tokens):
+        if token.kind in ("num", "qident"):
+            continue
+        if token.kind == "word":
+            if token.upper in EFFECT_WORDS:
+                return False
+            nxt = tokens[index + 1] if index + 1 < len(tokens) else None
+            if (
+                nxt is not None
+                and nxt.text == "("
+                and token.upper not in NON_CALL_WORDS
+            ):
+                return False
+            continue
+        if token.text in SAFE_OPERATORS:
+            continue
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -612,12 +637,33 @@ def parse_routine(masked: Masked, statement: Statement) -> Routine | None:
 
     language = LANGUAGE_RE.search(text, close, statement.end)
     routine.language = language.group(1).lower() if language else ""
-
-    for start in sorted(masked.dollar_bodies):
-        if close < start < statement.end:
-            routine.body_span = masked.dollar_bodies[start]
-            break
+    routine.body_span = _definition_span(masked, statement, close)
     return routine
+
+
+def _definition_span(
+    masked: Masked, statement: Statement, close: int
+) -> tuple[int, int] | None:
+    """The dollar-quoted body introduced by this statement's own ``AS``.
+
+    CREATE FUNCTION takes its options in any order and an option value may
+    itself be a string constant, so a dollar-quoted literal can legally
+    precede AS. Taking the first one after the parameter list would read that
+    option as the routine's body. More than one top-level AS, or a definition
+    that is not dollar-quoted, is not an attribution this producer can prove.
+    """
+    depth = 0
+    positions: list[int] = []
+    for token in tokenize(masked.text, close + 1, statement.end):
+        if token.text == "(":
+            depth += 1
+        elif token.text == ")":
+            depth -= 1
+        elif token.kind == "word" and token.upper == "AS" and depth == 0:
+            positions.append(token.end)
+    if len(positions) != 1:
+        return None
+    return masked.dollar_bodies.get(masked.skip_gap(positions[0]))
 
 
 def _split_qualified(text: str) -> list[str]:
@@ -956,8 +1002,6 @@ def masked_has_content(start: int, end: int) -> bool:
     return end > start
 
 
-TYPE_CAST_RE = re.compile(r"::\s*([A-Za-z_][A-Za-z_0-9.\"]*)\s*$")
-INT_RE = re.compile(r"^\s*\d+\s*$")
 STR_RE = re.compile(r"^\s*(?:[EeUu]&?)?'.*'\s*$", re.S)
 
 
@@ -966,21 +1010,30 @@ def infer_argument_type(
     span: tuple[int, int],
     scope: dict[str, str],
 ) -> str | None:
+    """The argument's type, and only for a form that is proven effectless.
+
+    A bare parameter or variable reference and a literal are the only shapes
+    whose evaluation cannot reach a function. Anything else -- a cast, an
+    operator, a CASE, a call -- may run code before the helper is entered, so
+    it is on the wrong side of the authorization boundary and is refused
+    here whatever type it would carry.
+    """
     raw = masked.raw[span[0] : span[1]].strip()
-    while raw.startswith("(") and raw.endswith(")"):
-        raw = raw[1:-1].strip()
-    cast = TYPE_CAST_RE.search(raw)
-    if cast is not None:
-        return _fold_identifier(cast.group(1).rpartition(".")[2])
-    lowered = _ascii_lower(raw)
-    if lowered in scope:
-        return scope[lowered]
-    if INT_RE.match(raw):
+    tokens = tokenize(masked.text, span[0], span[1])
+    if not tokens:
+        # The whole argument was masked away, so it was a literal.
+        if STR_RE.match(raw):
+            # An untyped literal is `unknown`, which PostgreSQL resolves to
+            # text in preference to anything else.
+            return "text"
+        return None
+    if len(tokens) != 1:
+        return None
+    token = tokens[0]
+    if token.kind == "num":
         return "integer"
-    if STR_RE.match(raw):
-        # An untyped literal is `unknown`, which PostgreSQL resolves to text
-        # in preference to anything else.
-        return "text"
+    if token.kind == "word":
+        return scope.get(_ascii_lower(token.text))
     return None
 
 
@@ -1258,11 +1311,6 @@ def _resolves_to_helper(
     if len(candidate.args) != len(helper.arg_types):
         return False
     for span, expected in zip(candidate.args, helper.arg_types):
-        argument = tokenize(masked.text, span[0], span[1])
-        if has_call(argument):
-            # Evaluated before the helper is entered, so it is on the wrong
-            # side of the authorization boundary.
-            return False
         if infer_argument_type(masked, span, scope) != expected:
             return False
     return True
@@ -1319,7 +1367,10 @@ def _prove_boolean(
         stripped = _strip_parens(disjunct)
         inner = find_candidates(stripped, helpers)
         if not inner:
-            if has_call(stripped):
+            # Another term of the same condition is evaluated around the
+            # membership boundary, and SQL does not guarantee which operand
+            # of an OR runs first.
+            if not is_effectless(stripped):
                 return None
             continue
         if len(inner) != 1:
@@ -1512,10 +1563,10 @@ def main(argv: list[str] | None = None) -> int:
             contract_doc = json.load(handle)
         payload = produce(source, bindings_doc, contract_doc)
     except EvidenceError as error:
-        print(f"{ERROR_TOKEN}: {error}", file=sys.stderr)
+        print(f"{ERROR_MARKER}: {error}", file=sys.stderr)
         return 2
     except (OSError, ValueError, KeyError, TypeError) as error:
-        print(f"{ERROR_TOKEN}: {error}", file=sys.stderr)
+        print(f"{ERROR_MARKER}: {error}", file=sys.stderr)
         return 2
 
     json.dump(payload, sys.stdout, ensure_ascii=False)
