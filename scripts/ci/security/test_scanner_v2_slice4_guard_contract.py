@@ -254,6 +254,16 @@ VERTICAL_TAB = "\x0b"
 CUSTOM_OPERATOR = "#"
 CUSTOM_TYPE = "public.org_ref"
 
+# A cast declared AS ASSIGNMENT runs implicitly on assignment, and one
+# declared AS IMPLICIT runs implicitly in an expression. Either can be
+# backed by a VOLATILE function, so a conversion is a call even where no
+# operator and no parentheses appear in the source text.
+SOURCE_TYPE = "public.source_type"
+TARGET_TYPE = "public.target_type"
+FLAG_TYPE = "public.flag_type"
+COERCION_ARGS = f"p_org uuid, p_source {SOURCE_TYPE}"
+COERCION_IDENTITY = f"uuid,{SOURCE_TYPE}"
+
 # A built-in with a real session-level side effect, used to show that an
 # expression is not effectless merely because it is not a DML statement.
 IMPURE_CALL = "pg_catalog.pg_try_advisory_lock(42)"
@@ -1114,6 +1124,22 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     ),
                     "UNKNOWN",
                 )
+            with self.subTest(
+                path=path_label, label="operator_in_a_perform_expression"
+            ):
+                # No assignment and no condition, so nothing but the operator
+                # itself can withhold proof here.
+                block = _declare_block(
+                    "v_a text;\nv_b text;",
+                    f"PERFORM v_a {CUSTOM_OPERATOR} v_b;\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2123)]),
+                    ),
+                    "UNKNOWN",
+                )
             with self.subTest(path=path_label, label="cast_before_guard"):
                 block = _declare_block(
                     "v_u uuid;",
@@ -1182,6 +1208,24 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                 ),
                 "UNKNOWN",
             )
+        with self.subTest(label="operator_inside_a_boolean_deny_term"):
+            # Every name here is declared, so the term's TYPE resolves to
+            # boolean; only the operator itself withholds proof.
+            block = _declare_block(
+                "v_a boolean;\nv_b text;\nv_c text;",
+                f"IF v_a AND v_b {CUSTOM_OPERATOR} v_c\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2124)]),
+                ),
+                "UNKNOWN",
+            )
         with self.subTest(label="operator_in_the_deny_condition"):
             block = _declare_block(
                 "v_a text;\nv_b text;",
@@ -1197,6 +1241,164 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     _bindings_doc([_binding(oid=2116)]),
                 ),
                 "UNKNOWN",
+            )
+
+    def test_implicit_coercion_before_the_boundary_is_unknown(self) -> None:
+        """A conversion is a call even with no operator in the text.
+
+        PostgreSQL applies an assignment cast when a value is assigned to a
+        differently typed target, and an implicit cast when an expression is
+        used where another type is expected. Either cast may be declared
+        WITH FUNCTION, and that function may be VOLATILE, so it runs before
+        the authorization boundary exactly as a written call would -- while
+        the statement reads as nothing but two identifiers and ``:=``.
+
+        No catalog lookup is needed to withhold proof: the source already
+        carries both declared types, and a conversion that cannot be shown to
+        be absent is not proven effectless.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="cross_type_assignment"):
+                block = _declare_block(
+                    f"v_target {TARGET_TYPE};",
+                    f"v_target := p_source;\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            block, args=COERCION_ARGS, raw_plpgsql=True
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=2117,
+                                    source_arguments=COERCION_ARGS,
+                                    identity_arguments=COERCION_IDENTITY,
+                                )
+                            ]
+                        ),
+                    ),
+                    "UNKNOWN",
+                )
+            with self.subTest(path=path_label, label="cross_type_initializer"):
+                block = _declare_block(
+                    f"v_target {TARGET_TYPE} := p_source;",
+                    guard,
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            block, args=COERCION_ARGS, raw_plpgsql=True
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=2118,
+                                    source_arguments=COERCION_ARGS,
+                                    identity_arguments=COERCION_IDENTITY,
+                                )
+                            ]
+                        ),
+                    ),
+                    "UNKNOWN",
+                )
+
+        with self.subTest(label="non_boolean_term_in_the_deny_condition"):
+            block = _declare_block(
+                f"v_flag {FLAG_TYPE};",
+                "IF v_flag\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2119)]),
+                ),
+                "UNKNOWN",
+            )
+        with self.subTest(label="non_boolean_condition_before_the_guard"):
+            block = _declare_block(
+                f"v_flag {FLAG_TYPE};",
+                f"IF v_flag THEN\n  NULL;\nEND IF;\n{RAISING_GUARD_BODY}",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2120)]),
+                ),
+                "UNKNOWN",
+            )
+
+    def test_conversion_free_assignments_before_guard_still_prove(
+        self,
+    ) -> None:
+        """The rule is the conversion, not the assignment.
+
+        Counterweight to the coercion cases: where both sides carry the same
+        declared type there is no cast to invoke, so the guard behind them is
+        still an authorization boundary.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            cases = {
+                "same_type_assignment": _declare_block(
+                    f"v_same {SOURCE_TYPE};",
+                    f"v_same := p_source;\n{guard}",
+                ),
+                "same_type_initializer": _declare_block(
+                    f"v_same {SOURCE_TYPE} := p_source;",
+                    guard,
+                ),
+                "parameter_copy": _declare_block(
+                    "v_org uuid;",
+                    f"v_org := p_org;\n{guard}",
+                ),
+            }
+            for label, block in cases.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                block, args=COERCION_ARGS, raw_plpgsql=True
+                            ),
+                            _bindings_doc(
+                                [
+                                    _binding(
+                                        oid=2121,
+                                        source_arguments=COERCION_ARGS,
+                                        identity_arguments=COERCION_IDENTITY,
+                                    )
+                                ]
+                            ),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+        with self.subTest(label="boolean_term_in_the_deny_condition"):
+            block = _declare_block(
+                "v_flag boolean := true;",
+                "IF v_flag\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2122)]),
+                ),
+                "PROVEN",
+                mechanism="public.wardah_is_org_member",
+                proof_class="negated-boolean-deny-v1",
             )
 
     def test_unqualified_recognized_guard_is_ambiguous(self) -> None:
