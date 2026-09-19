@@ -152,16 +152,35 @@ def _routine_source(
     return f"{header}{payload}\n{tag};\n"
 
 
-def _handler_block(guard: str, handler: str) -> str:
-    """Wrap ``guard`` in the routine's own outermost handler block."""
-    indented = "\n".join(
-        f"  {line}" if line else line for line in guard.splitlines()
+def _indent(body: str) -> str:
+    return "\n".join(
+        f"  {line}" if line else line for line in body.splitlines()
     )
+
+
+def _handler_block(guard: str, *handlers: str) -> str:
+    """Wrap ``guard`` in the routine's own outermost handler block.
+
+    An EXCEPTION section is a *list* of WHEN clauses, so several may be
+    passed; PostgreSQL tries each in order and the first match wins.
+    """
+    whens = "\n".join(f"  WHEN {handler} THEN NULL;" for handler in handlers)
     return (
         "BEGIN\n"
-        f"{indented}\n"
+        f"{_indent(guard)}\n"
         "EXCEPTION\n"
-        f"  WHEN {handler} THEN NULL;\n"
+        f"{whens}\n"
+        "END;"
+    )
+
+
+def _declare_block(declarations: str, body: str) -> str:
+    """A routine body with its own DECLARE section."""
+    return (
+        "DECLARE\n"
+        f"{_indent(declarations)}\n"
+        "BEGIN\n"
+        f"{_indent(body)}\n"
         "END;"
     )
 
@@ -808,6 +827,184 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     proof_class="negated-boolean-deny-v1",
                 )
 
+    def test_deny_branch_structure_mutants_are_unknown(self) -> None:
+        """A nearby RAISE is not a denial; the deny branch must abort.
+
+        Carried over from the accepted predecessor's
+        ``NEGATED_RAISE_MUTANTS_MUST_REJECT``. Each shape names the real
+        predicate with the exact oracle signature and contains a real
+        ``RAISE``, yet a non-member walks through every one of them.
+        """
+        cases = {
+            "predicate_not_negated": (
+                "IF public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "raise_only_in_else_branch": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  NULL;\n"
+                "ELSE\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "raise_only_in_elsif_branch": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  NULL;\n"
+                "ELSIF p_org IS NULL THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "raise_only_in_nested_if_false": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  IF false THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "END IF;"
+            ),
+            "raise_only_in_nested_if_true": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  IF true THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "END IF;"
+            ),
+            "raise_only_in_nested_loop": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  WHILE false LOOP\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END LOOP;\n"
+                "END IF;"
+            ),
+            "raise_after_end_if": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  NULL;\n"
+                "END IF;\n"
+                "RAISE NOTICE 'later';"
+            ),
+            "predicate_in_body_not_condition": (
+                "IF true THEN\n"
+                "  PERFORM public.wardah_is_org_member(p_org);\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "quoted_identifier_named_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                '  PERFORM 1 AS "RAISE";\n'
+                "END IF;"
+            ),
+            "quoted_identifier_raise_exception": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                '  PERFORM 1 AS "RAISE EXCEPTION";\n'
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2063)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_non_membership_must_be_a_sole_top_level_term(self) -> None:
+        """Non-membership alone must guarantee entry into the deny branch.
+
+        Carried over from the predecessor's ``SUPPRESSED_DENY_MUST_REJECT``
+        and ``test_top_level_term_analysis``. The predicate IS negated and the
+        branch DOES abort, but a conjunction means a non-member never reaches
+        it. Rejecting only a trailing ``AND false`` leaves the rest open.
+        """
+        rejected = {
+            "negated_predicate_and_false": (
+                "IF NOT public.wardah_is_org_member(p_org) AND false THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "false_and_negated_predicate": (
+                "IF false AND NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "negated_predicate_and_other_condition": (
+                "IF NOT public.wardah_is_org_member(p_org) AND v_flag THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "other_condition_and_negated_predicate": (
+                "IF v_flag AND NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "negated_predicate_inside_parenthesised_and": (
+                "IF (NOT public.wardah_is_org_member(p_org) AND v_flag) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "or_term_is_itself_a_conjunction": (
+                "IF p_org IS NULL\n"
+                "   OR (NOT public.wardah_is_org_member(p_org) AND v_flag)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in rejected.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _declare_block("v_flag boolean := true;", body),
+                            raw_plpgsql=True,
+                        ),
+                        _bindings_doc([_binding(oid=2064)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        accepted = {
+            "parenthesised_sole_term": (
+                "IF (NOT public.wardah_is_org_member(p_org)) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "spaced_sole_term": (
+                "IF   NOT  public.wardah_is_org_member ( p_org )   THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "parenthesised_or_term": (
+                "IF p_org IS NULL\n"
+                "   OR (NOT public.wardah_is_org_member(p_org))\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "or_term_is_last_disjunct": (
+                "IF p_org IS NULL OR v_flag\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in accepted.items():
+            with self.subTest(accept=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _declare_block("v_flag boolean := true;", body),
+                            raw_plpgsql=True,
+                        ),
+                        _bindings_doc([_binding(oid=2065)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_is_org_member",
+                    proof_class="negated-boolean-deny-v1",
+                )
+
     def test_boolean_deny_non_guaranteeing_shapes_are_unknown(self) -> None:
         cases = {
             "and_false": (
@@ -1033,6 +1230,76 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     "UNKNOWN",
                 )
 
+    def test_later_when_clause_still_catches_the_denial(self) -> None:
+        """An EXCEPTION section is a list; the first WHEN is not the section.
+
+        P0001 does not match ``unique_violation``, so PostgreSQL moves to the
+        next WHEN clause. A parser that inspects only the first one sees an
+        unrelated handler and proves a guard whose denial is swallowed.
+        """
+        blocking = {
+            "second_clause_named": ("unique_violation", "raise_exception"),
+            "second_clause_others": ("unique_violation", "OTHERS"),
+            "second_clause_sqlstate": (
+                "unique_violation",
+                "SQLSTATE 'P0001'",
+            ),
+            "third_clause_class_sqlstate": (
+                "unique_violation",
+                "foreign_key_violation",
+                "SQLSTATE 'P0000'",
+            ),
+            "third_clause_compound": (
+                "unique_violation",
+                "SQLSTATE '23503'",
+                "check_violation OR plpgsql_error",
+            ),
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, handlers in blocking.items():
+                with self.subTest(path=path_label, handlers=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, *handlers),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2066)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+        allowing = {
+            "two_unrelated_clauses": (
+                "unique_violation",
+                "foreign_key_violation",
+            ),
+            "three_unrelated_clauses": (
+                "unique_violation",
+                "SQLSTATE '23503'",
+                "check_violation OR division_by_zero",
+            ),
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, handlers in allowing.items():
+                with self.subTest(path=path_label, handlers=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, *handlers),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2067)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
     def test_compound_exception_handler_conditions(self) -> None:
         """A ``WHEN a OR b`` handler catches the union of its conditions."""
         blocking = {
@@ -1238,9 +1505,7 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
         self,
     ) -> None:
         """Reachability parity for the boolean path."""
-        indented = "\n".join(
-            f"  {line}" for line in BOOLEAN_DENY_GUARD_BODY.splitlines()
-        )
+        indented = _indent(BOOLEAN_DENY_GUARD_BODY)
         cases = {
             "return": f"BEGIN\n  RETURN;\n{indented}\nEND;",
             "raise": (
@@ -1399,6 +1664,135 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                             _bindings_doc([_binding(oid=2041)]),
                         ),
                         "UNKNOWN",
+                    )
+
+    def test_effectful_compound_statement_before_guard_is_unknown(
+        self,
+    ) -> None:
+        """A compound statement is not harmless because it is compound.
+
+        The mirror of ``test_conditional_raise_before_guard_is_not_a_...``:
+        that control allows a conditional RAISE, so an implementation may
+        treat every outer-level IF/LOOP/CASE/BEGIN before the guard as
+        harmless. Each of these performs the privileged write first.
+        """
+        prefixes = {
+            "if_true": (
+                "IF true THEN\n"
+                "  UPDATE public.bins SET reserved_qty = 0 "
+                "WHERE org_id = p_org;\n"
+                "END IF;"
+            ),
+            "if_conditional": (
+                "IF p_org IS NOT NULL THEN\n"
+                "  UPDATE public.bins SET reserved_qty = 0 "
+                "WHERE org_id = p_org;\n"
+                "END IF;"
+            ),
+            "else_branch": (
+                "IF p_org IS NULL THEN\n"
+                "  NULL;\n"
+                "ELSE\n"
+                "  DELETE FROM public.bins WHERE org_id = p_org;\n"
+                "END IF;"
+            ),
+            "loop": (
+                "FOR i IN 1..1 LOOP\n"
+                "  INSERT INTO public.bins (org_id) VALUES (p_org);\n"
+                "END LOOP;"
+            ),
+            "case_branch": (
+                "CASE WHEN true THEN\n"
+                "  UPDATE public.bins SET reserved_qty = 0 "
+                "WHERE org_id = p_org;\n"
+                "ELSE NULL;\n"
+                "END CASE;"
+            ),
+            "nested_begin": (
+                "BEGIN\n"
+                "  UPDATE public.bins SET reserved_qty = 0 "
+                "WHERE org_id = p_org;\n"
+                "END;"
+            ),
+            "nested_begin_with_handler": (
+                "BEGIN\n"
+                "  PERFORM public.unrelated_writer(p_org);\n"
+                "EXCEPTION\n"
+                "  WHEN unique_violation THEN NULL;\n"
+                "END;"
+            ),
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, prefix in prefixes.items():
+                with self.subTest(path=path_label, prefix=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2068)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_declaration_initializer_before_guard_is_classified(self) -> None:
+        """A DECLARE initializer runs before the block's first statement.
+
+        It is therefore on the wrong side of the authorization boundary even
+        though no statement precedes the guard. A call in an initializer has
+        unknown effects; a parameter or constant does not.
+        """
+        rejected = {
+            "unrelated_writer": (
+                "v_x uuid := public.unrelated_writer(p_org);"
+            ),
+            "unknown_function": (
+                "v_x uuid := public.unknown_function(p_org);"
+            ),
+            "unqualified_call": "v_x uuid := unrelated_writer(p_org);",
+            "default_keyword_call": (
+                "v_x uuid DEFAULT public.unrelated_writer(p_org);"
+            ),
+            "second_declaration_calls": (
+                "v_a uuid := p_org;\n"
+                "v_b uuid := public.unrelated_writer(p_org);"
+            ),
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, declarations in rejected.items():
+                with self.subTest(path=path_label, declaration=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _declare_block(declarations, guard),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2069)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+        accepted = {
+            "uninitialised": "v_x uuid;",
+            "parameter_copy": "v_x uuid := p_org;",
+            "constant": "v_n integer := 1;",
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, declarations in accepted.items():
+                with self.subTest(path=path_label, declaration=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _declare_block(declarations, guard),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2070)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
                     )
 
     def test_effectless_statements_before_guard_still_prove(self) -> None:
