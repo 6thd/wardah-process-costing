@@ -123,6 +123,20 @@ def _guard_contract() -> dict[str, Any]:
     }
 
 
+def _run(argv: list[str]) -> subprocess.CompletedProcess[str]:
+    # argv is built exclusively from sys.executable, fixed repo-local script
+    # paths and tempfile paths this test owns; no external input reaches it.
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+    return subprocess.run(  # nosec B603 - fixed interpreter and repo-local scripts
+        argv,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=20,
+    )
+
+
 def _run_pipeline(
     source: str, runtime_rows: list[dict[str, Any]]
 ) -> PipelineRun:
@@ -142,7 +156,7 @@ def _run_pipeline(
             json.dumps(_guard_contract()), encoding="utf-8"
         )
 
-        binding = subprocess.run(  # nosec B603 - literal argv, repo-local script
+        binding = _run(
             [
                 sys.executable,
                 str(BINDER),
@@ -150,12 +164,7 @@ def _run_pipeline(
                 str(source_path),
                 "--oracle-evidence",
                 str(runtime_path),
-            ],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=20,
+            ]
         )
         if binding.returncode != 0:
             return PipelineRun(binding, None, None, None, None, None)
@@ -163,7 +172,7 @@ def _run_pipeline(
         bindings = json.loads(binding.stdout)
         bindings_path.write_text(binding.stdout, encoding="utf-8")
 
-        guard = subprocess.run(  # nosec B603 - literal argv, repo-local script
+        guard = _run(
             [
                 sys.executable,
                 str(GUARD),
@@ -173,12 +182,7 @@ def _run_pipeline(
                 str(bindings_path),
                 "--guard-contract-evidence",
                 str(contract_path),
-            ],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=20,
+            ]
         )
         if guard.returncode != 0:
             return PipelineRun(binding, guard, None, bindings, None, None)
@@ -186,7 +190,7 @@ def _run_pipeline(
         guards = json.loads(guard.stdout)
         guards_path.write_text(guard.stdout, encoding="utf-8")
 
-        policy = subprocess.run(  # nosec B603 - literal argv, repo-local script
+        policy = _run(
             [
                 sys.executable,
                 str(POLICY),
@@ -194,12 +198,7 @@ def _run_pipeline(
                 str(bindings_path),
                 "--guard-evidence",
                 str(guards_path),
-            ],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=20,
+            ]
         )
         result = json.loads(policy.stdout) if policy.stdout.strip() else None
         return PipelineRun(binding, guard, policy, bindings, guards, result)
