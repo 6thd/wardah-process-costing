@@ -192,7 +192,8 @@ def _labelled_block(
     head = f"<<{label}>>\n{between}"
     if declare:
         head += f"DECLARE\n{_indent(declare)}\n"
-    return f"{head}BEGIN\n{_indent(body)}\nEND {tail};"
+    tail_text = f" {tail}" if tail else ""
+    return f"{head}BEGIN\n{_indent(body)}\nEND{tail_text};"
 
 
 def _declare_block(declarations: str, body: str) -> str:
@@ -220,6 +221,29 @@ NON_ASCII_TAGS = {
     "bom": "$a\ufeff$",
     "private_use": "$\ue000$",
 }
+
+# PostgreSQL clips every identifier to NAMEDATALEN-1 = 63 BYTES, on a
+# character boundary, and downcases UNQUOTED identifiers in ASCII ONLY.
+# A block label and an EXIT target are therefore the same label whenever
+# their canonical forms agree, however differently they are spelled in the
+# source. Slice 4 needs this only for labels; routine, schema and type
+# identity stay on the accepted Slice 2 boundary.
+NAMEDATALEN_LIMIT = 63
+
+# 64 ASCII bytes with the suffix: the suffix is clipped away.
+LONG_ASCII = "a" * NAMEDATALEN_LIMIT
+
+# 32 two-byte Arabic letters are already 64 bytes, so these labels differ
+# only past the limit while being short in CHARACTERS.
+LONG_MULTIBYTE = "\u0645" * 32
+
+# U+212A KELVIN SIGN is 3 UTF-8 bytes; Python's str.lower() turns it into a
+# 1-byte "k", which moves the 63-byte clip and pulls an over-length label
+# back under the limit. PostgreSQL does not fold it at all.
+KELVIN = "\u212a"
+
+# U+1D400 MATHEMATICAL BOLD CAPITAL A: 4 UTF-8 bytes, above the BMP.
+ASTRAL = "\U0001D400"
 
 GUARD_PATHS = {
     "raising_assertion": (
@@ -1302,6 +1326,218 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                         _run_producer(
                             _routine_source(block, raw_plpgsql=True),
                             _bindings_doc([_binding(oid=2077)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_label_identity_is_clipped_to_namedatalen(self) -> None:
+        """Labels agreeing within 63 BYTES are one label to PL/pgSQL.
+
+        Carried over from the predecessor's labelled-EXIT truncation corpus and
+        confirmed there on PostgreSQL 17: the routine is created with a
+        truncation notice and the assertion never executes. Comparing the raw
+        source spelling sees two names where the database sees one, records no
+        jump, and calls the guard reachable.
+        """
+        self.assertGreater(
+            len((LONG_ASCII + "X").encode("utf-8")), NAMEDATALEN_LIMIT
+        )
+        self.assertGreater(
+            len((LONG_MULTIBYTE + "a").encode("utf-8")), NAMEDATALEN_LIMIT
+        )
+        self.assertGreater(
+            len((KELVIN + "a" * 60 + "X").encode("utf-8")), NAMEDATALEN_LIMIT
+        )
+
+        declare = "v_seen boolean := false;"
+        cases = {
+            "ascii_labels_differing_only_after_byte_63": _labelled_block(
+                f"EXIT {LONG_ASCII}Y;\n{RAISING_GUARD_BODY}",
+                label=f"{LONG_ASCII}X",
+                end_label="",
+            ),
+            "truncation_collision_with_a_declare_section": _labelled_block(
+                f"EXIT {LONG_ASCII}Y;\n{RAISING_GUARD_BODY}",
+                label=f"{LONG_ASCII}X",
+                end_label="",
+                declare=declare,
+            ),
+            "multibyte_labels_differing_after_the_byte_limit": (
+                _labelled_block(
+                    f"EXIT {LONG_MULTIBYTE}b;\n{RAISING_GUARD_BODY}",
+                    label=f"{LONG_MULTIBYTE}a",
+                    end_label="",
+                )
+            ),
+            "quoted_labels_colliding_after_byte_63": _labelled_block(
+                f'EXIT "{LONG_ASCII}Y";\n{RAISING_GUARD_BODY}',
+                label=f'"{LONG_ASCII}X"',
+                end_label="",
+            ),
+            "quoted_label_unquoted_over_long_exit": _labelled_block(
+                f"EXIT {LONG_ASCII}Y;\n{RAISING_GUARD_BODY}",
+                label=f'"{LONG_ASCII}X"',
+                end_label="",
+            ),
+            "conditional_exit_with_a_truncation_collision": _labelled_block(
+                f"EXIT {LONG_ASCII}Y WHEN p_org IS NULL;\n"
+                f"{RAISING_GUARD_BODY}",
+                label=f"{LONG_ASCII}X",
+                end_label="",
+            ),
+            "boolean_deny_guard_behind_a_colliding_exit": _labelled_block(
+                f"EXIT {LONG_ASCII}Y;\n{BOOLEAN_DENY_GUARD_BODY}",
+                label=f"{LONG_ASCII}X",
+                end_label="",
+            ),
+            "kelvin_fold_moves_the_namedatalen_clip": _labelled_block(
+                f"EXIT {KELVIN}{'a' * 60}Y;\n{RAISING_GUARD_BODY}",
+                label=f"{KELVIN}{'a' * 60}X",
+                end_label="",
+            ),
+        }
+        for label, block in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2080)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_label_identity_follows_postgresql_folding(self) -> None:
+        """One identifier, spelled several legal ways, is one label.
+
+        An unquoted label folds, in ASCII only, and a quoted one keeps
+        its case. Both spellings name the same block in either direction, so
+        the jump is real and the guard behind it is not an authorization
+        boundary.
+        """
+        declare = "v_seen boolean := false;"
+        cases = {
+            "unquoted_label_quoted_exit": _labelled_block(
+                f'EXIT "auth_block";\n{RAISING_GUARD_BODY}',
+            ),
+            "quoted_label_unquoted_exit": _labelled_block(
+                f"EXIT auth_block;\n{RAISING_GUARD_BODY}",
+                label='"auth_block"',
+                end_label='"auth_block"',
+            ),
+            "unquoted_case_differs_on_both_sides": _labelled_block(
+                f"EXIT AUTH_BLOCK;\n{RAISING_GUARD_BODY}",
+                label="Auth_Block",
+                end_label="Auth_Block",
+            ),
+            "mixed_spelling_across_a_declare_section": _labelled_block(
+                f'EXIT "auth_block";\n{RAISING_GUARD_BODY}',
+                declare=declare,
+            ),
+            "mixed_spelling_before_a_boolean_guard": _labelled_block(
+                f'EXIT "auth_block";\n{BOOLEAN_DENY_GUARD_BODY}',
+            ),
+        }
+        for label, block in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2081)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_label_identity_reads_astral_plane_identifiers(self) -> None:
+        """An identifier above U+FFFF is still one identifier.
+
+        The readable ASCII prefix must not be parsed out as the label: a
+        reader that stops at the first byte it cannot classify sees ``auth``
+        on one side and ``auth`` on the other for different reasons, or fails
+        to record the label at all and never reaches its fail-closed path.
+        """
+        cases = {
+            "astral_label_and_matching_exit": (f"auth{ASTRAL}", ""),
+            "astral_suffix_after_an_ascii_prefix": (
+                "auth\U0001F600",
+                "",
+            ),
+            "astral_first_character": (f"{ASTRAL}auth", ""),
+        }
+        declare = "v_seen boolean := false;"
+        for label, (name, _) in cases.items():
+            for variant, section in (("plain", ""), ("declare", declare)):
+                with self.subTest(label=label, variant=variant):
+                    block = _labelled_block(
+                        f"EXIT {name};\n{RAISING_GUARD_BODY}",
+                        label=name,
+                        end_label=name,
+                        declare=section,
+                    )
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(block, raw_plpgsql=True),
+                            _bindings_doc([_binding(oid=2082)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_distinct_labels_leave_a_later_guard_provable(self) -> None:
+        """Canonical identity must discriminate, not reject every EXIT.
+
+        The counterweight to the three tests above. Each block here is a
+        routine PostgreSQL will actually create: the inner block carries its
+        own label and the EXIT names that inner label, so the jump never
+        leaves the outer block and the guard after it still runs.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            cases = {
+                # Quoted keeps its case, so these are two different labels and
+                # the EXIT resolves to the inner one. A whole-Unicode fold
+                # merges them and loses the guard.
+                "quoted_outer_case_differs_from_inner": _labelled_block(
+                    "<<auth_block>>\nBEGIN\n  EXIT auth_block;\n"
+                    f"END auth_block;\n{guard}",
+                    label='"Auth_Block"',
+                    end_label='"Auth_Block"',
+                ),
+                # Distinct inside the first 63 bytes: two real labels.
+                "distinct_within_the_byte_limit": _labelled_block(
+                    "<<beta_block>>\nBEGIN\n  EXIT beta_block;\n"
+                    f"END beta_block;\n{guard}",
+                    label="alpha_block",
+                    end_label="alpha_block",
+                ),
+                # Over-length, identical, and the inner block exits itself.
+                # An over-length outer label must not swallow the block: the
+                # inner label is distinct well inside the limit and the EXIT
+                # names it, so the jump never leaves the outer block.
+                "inner_block_under_an_over_long_outer_label": (
+                    _labelled_block(
+                        "<<inner_scan>>\nBEGIN\n  EXIT inner_scan;\n"
+                        f"END inner_scan;\n{guard}",
+                        label=f"{LONG_ASCII}Y",
+                        end_label="",
+                    )
+                ),
+                # The guard runs before the colliding jump is issued.
+                "guard_precedes_a_colliding_exit": _labelled_block(
+                    f"{guard}\nEXIT {LONG_ASCII}Y;",
+                    label=f"{LONG_ASCII}X",
+                    end_label="",
+                ),
+            }
+            for label, block in cases.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(block, raw_plpgsql=True),
+                            _bindings_doc([_binding(oid=2083)]),
                         ),
                         "PROVEN",
                         mechanism=mechanism,
