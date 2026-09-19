@@ -1401,6 +1401,200 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                 proof_class="negated-boolean-deny-v1",
             )
 
+    def test_coercion_variants_before_the_boundary_are_unknown(self) -> None:
+        """The conversion rule has to hold in every spelling it can take.
+
+        Three siblings of the coercion family that the first round's rule
+        does not reach: DEFAULT introduces an initializer exactly as ``:=``
+        does, a compound boolean is only boolean when its operands are, and
+        an untyped literal is not conversion-free just because its own type
+        is unnamed -- reaching a custom target it can still pass through that
+        type's own input and coercion machinery before the boundary.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="default_cross_type"):
+                block = _declare_block(
+                    f"v_target {TARGET_TYPE} DEFAULT p_source;", guard
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            block, args=COERCION_ARGS, raw_plpgsql=True
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=2125,
+                                    source_arguments=COERCION_ARGS,
+                                    identity_arguments=COERCION_IDENTITY,
+                                )
+                            ]
+                        ),
+                    ),
+                    "UNKNOWN",
+                )
+            literals = {
+                "untyped_literal_assignment": (
+                    f"v_target {TARGET_TYPE} := 'abc';"
+                ),
+                "untyped_literal_default": (
+                    f"v_target {TARGET_TYPE} DEFAULT 'abc';"
+                ),
+            }
+            for label, declaration in literals.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _declare_block(declaration, guard),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2126)]),
+                        ),
+                        "UNKNOWN",
+                    )
+            predicates = {
+                # IS NULL applies to any type; IS TRUE and IS DISTINCT FROM
+                # want a boolean or a comparable operand, so either can reach
+                # a cast to evaluate a custom one.
+                "is_true_on_a_custom_operand": "v_custom IS TRUE",
+                "is_distinct_from_on_custom_operands": (
+                    "v_custom IS DISTINCT FROM v_other"
+                ),
+            }
+            for label, predicate in predicates.items():
+                with self.subTest(path=path_label, label=label):
+                    block = _declare_block(
+                        f"v_custom {FLAG_TYPE};\nv_other {FLAG_TYPE};",
+                        f"IF {predicate} THEN\n  NULL;\nEND IF;\n{guard}",
+                    )
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(block, raw_plpgsql=True),
+                            _bindings_doc([_binding(oid=2133)]),
+                        ),
+                        "UNKNOWN",
+                    )
+            with self.subTest(
+                path=path_label, label="compound_boolean_operand"
+            ):
+                block = _declare_block(
+                    f"v_custom {FLAG_TYPE};\nv_ok boolean := true;",
+                    "IF v_custom AND v_ok THEN\n  NULL;\nEND IF;\n"
+                    f"{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2127)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        with self.subTest(label="compound_boolean_operand_in_a_deny_term"):
+            block = _declare_block(
+                f"v_custom {FLAG_TYPE};\nv_ok boolean := true;",
+                "IF v_custom AND v_ok\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2128)]),
+                ),
+                "UNKNOWN",
+            )
+        with self.subTest(label="operator_under_a_boolean_typed_term"):
+            # `IS NOT NULL` is boolean whatever its operand's type, so the
+            # term resolves to boolean and only the operator withholds proof.
+            # This is what keeps the type rule and the operator rule from
+            # collapsing into one.
+            block = _declare_block(
+                "v_ok boolean := true;\nv_b text;\nv_c text;",
+                f"IF v_ok AND (v_b {CUSTOM_OPERATOR} v_c) IS NOT NULL\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2129)]),
+                ),
+                "UNKNOWN",
+            )
+
+    def test_conversion_free_coercion_variants_still_prove(self) -> None:
+        """The counterweight for each of the three siblings."""
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="default_same_type"):
+                block = _declare_block(
+                    f"v_same {SOURCE_TYPE} DEFAULT p_source;", guard
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            block, args=COERCION_ARGS, raw_plpgsql=True
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=2130,
+                                    source_arguments=COERCION_ARGS,
+                                    identity_arguments=COERCION_IDENTITY,
+                                )
+                            ]
+                        ),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+            with self.subTest(
+                path=path_label, label="compound_boolean_operands"
+            ):
+                block = _declare_block(
+                    "v_ok boolean := true;\nv_more boolean := false;",
+                    "IF v_ok AND v_more THEN\n  NULL;\nEND IF;\n"
+                    f"{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2131)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+
+        with self.subTest(label="compound_boolean_deny_term"):
+            block = _declare_block(
+                "v_ok boolean := true;\nv_more boolean := false;",
+                "IF v_ok AND v_more\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2132)]),
+                ),
+                "PROVEN",
+                mechanism="public.wardah_is_org_member",
+                proof_class="negated-boolean-deny-v1",
+            )
+
     def test_unqualified_recognized_guard_is_ambiguous(self) -> None:
         source = _routine_source(
             "PERFORM wardah_assert_org_member(p_org);"
