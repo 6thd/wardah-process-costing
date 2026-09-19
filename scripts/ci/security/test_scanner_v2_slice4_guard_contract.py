@@ -864,6 +864,101 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                         proof_class=proof_class,
                     )
 
+    def test_helper_name_must_match_at_identifier_boundaries(self) -> None:
+        """A longer identifier merely containing the helper name is not it.
+
+        Carried over from the predecessor's
+        ``guard_name_is_identifier_suffix``. Both matchers are frozen, since
+        the raising and boolean paths may well be reached by separate
+        recognizers.
+
+        These are ABSENT rather than UNKNOWN: no recognized helper is named at
+        all, which is a different fact from the wrong schema or arity of a
+        helper that IS named — those stay UNKNOWN.
+        """
+        cases = {
+            "raising_prefix": (
+                "PERFORM public.fake_wardah_assert_org_member(p_org);"
+            ),
+            "raising_suffix": (
+                "PERFORM public.wardah_assert_org_member_fake(p_org);"
+            ),
+            "raising_infix": (
+                "PERFORM public.wardah_assert_org_member2(p_org);"
+            ),
+            "admin_prefix": (
+                "PERFORM public.fake_wardah_assert_org_admin(p_org);"
+            ),
+            "permission_suffix": (
+                "PERFORM public.wardah_178_assert_permission_fake("
+                "p_org, 'inventory.stock.write');"
+            ),
+            "boolean_prefix": (
+                "IF NOT public.fake_wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "boolean_suffix": (
+                "IF NOT public.wardah_is_org_member_fake(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2104)]),
+                    ),
+                    "ABSENT",
+                )
+
+    def test_impure_guard_argument_is_unknown(self) -> None:
+        """The argument is evaluated before the helper is entered.
+
+        The ordering rule covers what precedes the guard STATEMENT; this is
+        the expression evaluated as part of the guard call itself, which
+        still runs on the wrong side of the authorization boundary. Both
+        shapes below resolve to ``uuid``, so the overload identity is intact
+        and only the effect distinguishes them.
+        """
+        impure_uuid = (
+            "CASE\n"
+            f"  WHEN {IMPURE_CALL} THEN p_org\n"
+            "  ELSE p_org\n"
+            "END"
+        )
+        cases = {
+            "raising_assertion_argument": (
+                "PERFORM public.wardah_assert_org_member(\n"
+                f"{_indent(impure_uuid)}\n"
+                ");"
+            ),
+            "permission_assertion_argument": (
+                "PERFORM public.wardah_178_assert_permission(\n"
+                f"{_indent(impure_uuid)},\n"
+                "  'inventory.stock.write'\n"
+                ");"
+            ),
+            "boolean_predicate_argument": (
+                "IF NOT public.wardah_is_org_member(\n"
+                f"{_indent(impure_uuid)}\n"
+                ") THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2105)]),
+                    ),
+                    "UNKNOWN",
+                )
+
     def test_unqualified_recognized_guard_is_ambiguous(self) -> None:
         source = _routine_source(
             "PERFORM wardah_assert_org_member(p_org);"
@@ -1277,6 +1372,56 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     mechanism="public.wardah_is_org_member",
                     proof_class="negated-boolean-deny-v1",
                 )
+
+    def test_conditional_return_inside_the_deny_branch_is_unknown(
+        self,
+    ) -> None:
+        """The denial must be reached on EVERY path through the branch.
+
+        Carried over from the predecessor's
+        ``boolean_deny_conditional_return_before_raise``. The contract already
+        rejects a bare ``RETURN`` ahead of the ``RAISE`` and a conditional
+        ``RETURN`` ahead of the whole guard; this is the third shape, where
+        the escape hatch sits inside the deny branch itself and lets a
+        non-member leave without a denial.
+        """
+        body = (
+            "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            "  IF v_soft THEN\n    RETURN;\n  END IF;\n"
+            "  RAISE EXCEPTION 'DENIED';\n"
+            "END IF;"
+        )
+        self._assert_status(
+            _run_producer(
+                _routine_source(
+                    _declare_block("v_soft boolean := false;", body),
+                    raw_plpgsql=True,
+                ),
+                _bindings_doc([_binding(oid=2101)]),
+            ),
+            "UNKNOWN",
+        )
+
+    def test_impure_call_inside_the_deny_branch_is_unknown(self) -> None:
+        """A session-level effect is not authorization-neutral.
+
+        An advisory lock taken between the membership test and the denial has
+        already happened for a non-member by the time the RAISE aborts, so
+        the deny branch is not effectless either.
+        """
+        body = (
+            "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            f"  PERFORM {IMPURE_CALL};\n"
+            "  RAISE EXCEPTION 'DENIED';\n"
+            "END IF;"
+        )
+        self._assert_status(
+            _run_producer(
+                _routine_source(body),
+                _bindings_doc([_binding(oid=2102)]),
+            ),
+            "UNKNOWN",
+        )
 
     def test_boolean_deny_non_guaranteeing_shapes_are_unknown(self) -> None:
         cases = {
@@ -1796,6 +1941,35 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                             _labelled_block(body), raw_plpgsql=True
                         ),
                         _bindings_doc([_binding(oid=2091)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_outer_raise_using_before_assertion_is_unknown(self) -> None:
+        """Parity: an outer-level RAISE terminates in every spelling.
+
+        The boolean path already freezes ``RAISE ... USING ERRCODE`` as a
+        terminator; the raising path only had the bare form, so a producer
+        that recognizes a terminator only as ``RAISE EXCEPTION '<msg>';``
+        proves an assertion sitting in dead code after one.
+        """
+        cases = {
+            "using_errcode": (
+                "RAISE EXCEPTION 'STOP' USING ERRCODE = '22023';"
+            ),
+            "using_message_and_errcode": (
+                "RAISE EXCEPTION USING MESSAGE = 'STOP', ERRCODE = '22023';"
+            ),
+            "condition_name_raise": "RAISE unique_violation;",
+            "sqlstate_raise": "RAISE SQLSTATE '22023';",
+        }
+        for label, terminator in cases.items():
+            with self.subTest(label=label):
+                block = f"BEGIN\n  {terminator}\n  {RAISING_GUARD_BODY}\nEND;"
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2103)]),
                     ),
                     "UNKNOWN",
                 )
