@@ -1860,6 +1860,145 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                         "UNKNOWN",
                     )
 
+    def test_quoted_condition_names_resolve_to_their_condition(self) -> None:
+        """``WHEN "raise_exception"`` catches what ``WHEN raise_exception``
+        catches.
+
+        Carried over from the predecessor's
+        ``test_quoted_condition_names_are_resolved_to_their_condition``. A
+        masker that blanks quoted-identifier content — as this contract
+        already requires it to, for ``PERFORM 1 AS "RAISE"`` — then reads an
+        empty handler condition and calls it unrelated.
+        """
+        blocking = {
+            "quoted_others": '"others"',
+            "quoted_plpgsql_error": '"plpgsql_error"',
+            "quoted_name_as_later_or_term": (
+                'unique_violation OR "raise_exception"'
+            ),
+            "quoted_name_as_later_or_term_category": (
+                'foreign_key_violation OR "plpgsql_error"'
+            ),
+            # PostgreSQL keeps a quoted identifier's case, so this resolves to
+            # no condition at all and cannot compile. Fail closed rather than
+            # inventing a third folding rule to prove it harmless.
+            "quoted_name_in_another_case": '"RAISE_EXCEPTION"',
+            "quoted_others_in_another_case": '"OTHERS"',
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, handler in blocking.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2084)]),
+                        ),
+                        "UNKNOWN",
+                    )
+            with self.subTest(path=path_label, handler="quoted_later_clause"):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _handler_block(
+                                guard, "unique_violation", '"others"'
+                            ),
+                            raw_plpgsql=True,
+                        ),
+                        _bindings_doc([_binding(oid=2085)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        allowing = {
+            "quoted_unique_violation": '"unique_violation"',
+            "quoted_foreign_key_violation": '"foreign_key_violation"',
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, handler in allowing.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2086)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_escape_bearing_sqlstate_chains_fail_closed(self) -> None:
+        """An escape mode spans the whole literal chain, and \\ooo is a BYTE.
+
+        Two historical false-greens the single-segment cases do not reach. A
+        continuation segment carries no prefix of its own but inherits the
+        chain's escape mode, so ``E'P00'`` then ``'0\\x31'`` is P0001. And
+        ``\\ooo`` in an E-string is a byte escape, not a code point: octal 461
+        wraps to 0x31, so ``E'P000\\461'`` is P0001 too.
+
+        The contract does not require the producer to decode any of this. It
+        requires the whole family to fail closed: a backslash anywhere in a
+        SQLSTATE literal chain, or an E/U& prefix on any segment of one, is
+        not a decodable value on either proof path.
+        """
+        handlers = {
+            "octal_escape_wraps_to_p0001": "SQLSTATE E'P000\\461'",
+            "escape_then_ordinary_hex_resolves_to_p0001": (
+                "SQLSTATE E'P00'\n    '0\\x31'"
+            ),
+            "triple_chain_inherits_the_mode": (
+                "SQLSTATE E'P0'\n    '00'\n    '\\x31'"
+            ),
+            # Fail closed on the FORM: an escape-bearing chain is undecodable
+            # whatever value it appears to carry.
+            "escape_then_ordinary_unrelated_code": (
+                "SQLSTATE E'235'\n    '0\\x35'"
+            ),
+            # No leading E, so PostgreSQL keeps the backslash literal — but a
+            # producer that decodes it anyway reads P0001. Conservative rather
+            # than exact: the chain carries a backslash, so it is undecodable.
+            "ordinary_chain_with_a_backslash": (
+                "SQLSTATE 'P00'\n    '0\\x31'"
+            ),
+            # A continuation segment can never carry its own E prefix;
+            # PostgreSQL rejects both orderings outright, so the text cannot be
+            # attributed to a compilable statement.
+            "ordinary_then_escape_prefixed_continuation": (
+                "SQLSTATE 'P0'\n    E'01'"
+            ),
+            "escape_then_escape_prefixed_continuation": (
+                "SQLSTATE E'P0'\n    E'01'"
+            ),
+            "unicode_prefixed_continuation": (
+                "SQLSTATE 'P0'\n    U&'01'"
+            ),
+            "octal_escape_in_a_later_or_term": (
+                "unique_violation OR SQLSTATE E'P000\\461'"
+            ),
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, handler in handlers.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2087)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
     def test_unrelated_sqlstate_literal_forms_still_prove(self) -> None:
         """Decoding must stay exact: an unrelated code is not a catch."""
         handlers = {
@@ -1869,6 +2008,7 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                 "SQLSTATE /* documented reason */ '23505'"
             ),
             "or_list": "SQLSTATE '23505' OR SQLSTATE '23503'",
+            "plain_continuation": "SQLSTATE '235'\n    '05'",
         }
         for path_label, (
             guard,
