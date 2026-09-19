@@ -1,0 +1,68 @@
+name: Scanner v2 runtime privilege proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/security/scanner_v2_runtime_probe.py'
+      - 'scripts/ci/security/acceptance_scanner_v2_runtime_probe.sh'
+      - '.github/workflows/scanner-v2-runtime-proof.yml'
+  workflow_dispatch:
+
+jobs:
+  runtime-proof:
+    name: PostgreSQL final EXECUTE-state proof
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: scanner_v2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: scanner_v2
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: PostgreSQL oracle liveness
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          pg_isready
+          psql -v ON_ERROR_STOP=1 -Atc "SELECT version();"
+
+      - name: Scanner v2 runtime acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/ci/security/acceptance_scanner_v2_runtime_probe.sh \
+            2>&1 | tee /tmp/scanner-v2-runtime-proof.out
+          grep -q 'SCANNER_V2_RUNTIME_PROBE_ACCEPTANCE_PASS' \
+            /tmp/scanner-v2-runtime-proof.out
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanner-v2-runtime-proof-${{ github.run_id }}
+          path: |
+            /tmp/scanner-v2-runtime-proof.out
+            /tmp/scanner-v2-runtime/*.json
+            /tmp/scanner-v2-runtime/*.err
+          retention-days: 30
