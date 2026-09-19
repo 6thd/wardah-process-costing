@@ -385,6 +385,88 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     proof_class="raising-assertion-v1",
                 )
 
+    def test_textual_boolean_deny_mentions_do_not_prove(self) -> None:
+        """The boolean-deny idiom is masked by the same lexical rules.
+
+        ``negated-boolean-deny-v1`` carries its own proof class, so a producer
+        may well reach it through a separate matcher. That matcher must sit
+        behind the same literal/comment masking as the raising path.
+        """
+        cases = {
+            "ordinary_literal": (
+                "PERFORM 'IF NOT public.wardah_is_org_member(p_org) "
+                "THEN RAISE EXCEPTION ''DENIED''; END IF;';"
+            ),
+            "escape_string": (
+                "PERFORM E'IF NOT public.wardah_is_org_member(p_org) "
+                "THEN RAISE EXCEPTION \\'DENIED\\'; END IF;';"
+            ),
+            "unicode_string": (
+                "PERFORM U&'IF NOT public.wardah_is_org_member(p_org) "
+                "THEN RAISE EXCEPTION ''DENIED''; END IF;';"
+            ),
+            "dollar_literal": (
+                "PERFORM $x$IF NOT public.wardah_is_org_member(p_org) "
+                "THEN RAISE EXCEPTION 'DENIED'; END IF;$x$;"
+            ),
+            "line_comment": (
+                "-- IF NOT public.wardah_is_org_member(p_org) "
+                "THEN RAISE EXCEPTION 'DENIED'; END IF;\n"
+                "PERFORM 1;"
+            ),
+            "block_comment": (
+                "/* IF NOT public.wardah_is_org_member(p_org)\n"
+                "   THEN RAISE EXCEPTION 'DENIED'; END IF; */\n"
+                "PERFORM 1;"
+            ),
+            "nested_block_comment": (
+                "/* outer /* inner */\n"
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;\n"
+                "*/\n"
+                "PERFORM 1;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2045)]),
+                    ),
+                    "ABSENT",
+                )
+
+    def test_boundaries_do_not_hide_real_boolean_deny_guards(self) -> None:
+        """Over-consumption mirror for the boolean-deny path."""
+        cases = {
+            "after_escape_string_with_escaped_quote": (
+                "PERFORM E'it\\'s not a guard';\n" + BOOLEAN_DENY_GUARD_BODY
+            ),
+            "after_doubled_quote_literal": (
+                "PERFORM 'it''s not a guard';\n" + BOOLEAN_DENY_GUARD_BODY
+            ),
+            "after_nested_block_comment": (
+                "/* outer /* inner */ still comment */\n"
+                + BOOLEAN_DENY_GUARD_BODY
+            ),
+            "after_dollar_literal": (
+                "PERFORM $x$not a guard$x$;\n" + BOOLEAN_DENY_GUARD_BODY
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2046)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_is_org_member",
+                    proof_class="negated-boolean-deny-v1",
+                )
+
     def test_unqualified_recognized_guard_is_ambiguous(self) -> None:
         source = _routine_source(
             "PERFORM wardah_assert_org_member(p_org);"
@@ -474,6 +556,84 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                 ),
                 "UNKNOWN",
             )
+
+    def test_every_signature_family_rejects_type_mismatch(self) -> None:
+        """Each helper family is frozen on its own complete signature.
+
+        Closing the mismatch only for ``wardah_assert_org_member(uuid)`` and
+        for the permission helper's *first* argument leaves the remaining
+        families provable from name plus arity alone.
+        """
+        assertion_cases = {
+            "admin_cast_to_text": (
+                "PERFORM public.wardah_assert_org_admin(p_org::text);"
+            ),
+            "admin_typed_non_uuid_literal": (
+                "PERFORM public.wardah_assert_org_admin('abc'::text);"
+            ),
+            "admin_untyped_literal": (
+                "PERFORM public.wardah_assert_org_admin('abc');"
+            ),
+            "admin_integer_literal": (
+                "PERFORM public.wardah_assert_org_admin(1);"
+            ),
+            "permission_second_arg_is_uuid": (
+                "PERFORM public.wardah_178_assert_permission(p_org, p_org);"
+            ),
+            "permission_second_arg_cast_to_uuid": (
+                "PERFORM public.wardah_178_assert_permission("
+                "p_org, 'inventory.stock.write'::uuid);"
+            ),
+            "permission_second_arg_integer": (
+                "PERFORM public.wardah_178_assert_permission(p_org, 1);"
+            ),
+        }
+        for label, body in assertion_cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2043)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        boolean_cases = {
+            "member_predicate_cast_to_text": (
+                "IF NOT public.wardah_is_org_member(p_org::text) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "member_predicate_typed_non_uuid_literal": (
+                "IF NOT public.wardah_is_org_member('abc'::text) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "member_predicate_untyped_literal": (
+                "IF NOT public.wardah_is_org_member('abc') THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "member_predicate_wrong_arity": (
+                "IF NOT public.wardah_is_org_member(p_org, p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "member_predicate_wrong_schema": (
+                "IF NOT attacker.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in boolean_cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2044)]),
+                    ),
+                    "UNKNOWN",
+                )
 
     def test_competing_same_arity_overload_is_not_proven(self) -> None:
         """A same-name/same-arity neighbour must not borrow the identity."""
@@ -734,6 +894,40 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     proof_class="negated-boolean-deny-v1",
                 )
 
+    def test_inner_handler_around_denial_blocks_boolean_deny_proof(
+        self,
+    ) -> None:
+        """The denial itself must abort, not just the block enclosing the IF.
+
+        Here the predicate is outer-level and correctly shaped, but the
+        ``RAISE EXCEPTION`` sits in its own block with a handler, so execution
+        continues past the authorization boundary. An implementation that only
+        inspects handlers *enclosing* the IF cannot see this.
+
+        No interpreter is required: any denial wrapped in its own exception
+        block is conservatively ``UNKNOWN``, capturing or not.
+        """
+        handlers = dict(CATCHING_HANDLERS)
+        handlers.update(NONCAPTURING_HANDLERS)
+        for label, handler in handlers.items():
+            with self.subTest(label=label):
+                body = (
+                    "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "  BEGIN\n"
+                    "    RAISE EXCEPTION 'DENIED';\n"
+                    "  EXCEPTION\n"
+                    f"    WHEN {handler} THEN NULL;\n"
+                    "  END;\n"
+                    "END IF;"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2047)]),
+                    ),
+                    "UNKNOWN",
+                )
+
     def test_compound_exception_handler_conditions(self) -> None:
         """A ``WHEN a OR b`` handler catches the union of its conditions."""
         guards = {
@@ -824,6 +1018,18 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                 "EXECUTE 'UPDATE public.bins SET reserved_qty = 0';"
             ),
             "call": "CALL public.unrelated_writer(p_org);",
+            "perform_unrelated_function": (
+                "PERFORM public.unrelated_writer(p_org);"
+            ),
+            "perform_unknown_function": (
+                "PERFORM public.unknown_function(p_org);"
+            ),
+            "perform_unqualified_function": (
+                "PERFORM unrelated_writer(p_org);"
+            ),
+            "select_into_from_function": (
+                "SELECT public.charge_customer(p_org) INTO STRICT p_org;"
+            ),
         }
         guards = {
             "raising_assertion": RAISING_GUARD_BODY,
@@ -841,7 +1047,13 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     )
 
     def test_effectless_statements_before_guard_still_prove(self) -> None:
-        """Ordering must discriminate on effect, not on mere position."""
+        """Ordering must discriminate on effect, not on mere position.
+
+        The contract is not a keyword denylist: any executable outer-level
+        statement that cannot be *proven* effectless blocks proof. Only
+        constant-expression and no-op statements qualify here — notably not
+        ``PERFORM <any function>``, which is covered as UNKNOWN above.
+        """
         prefixes = {
             "perform_constant": "PERFORM 1;",
             "null_statement": "NULL;",
@@ -942,6 +1154,61 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
             _run_producer(source, _bindings_doc([binding]))
         )
 
+    def test_binding_signature_and_kind_mismatch_fail_hard(self) -> None:
+        """Binding integrity is the whole identity, not the routine name.
+
+        Matching a binding to a source statement on ``statement_index`` plus
+        bare name lets the producer analyse one overload's body and attribute
+        the proof to another overload's OID — a direct bypass of the Slice 2
+        exact-identity boundary.
+        """
+        text_overload = _routine_source(RAISING_GUARD_BODY, args="p_org text")
+        procedure_source = _routine_source(
+            RAISING_GUARD_BODY, name="review_proc", kind="PROCEDURE"
+        )
+        function_source = _routine_source(
+            RAISING_GUARD_BODY, name="review_proc"
+        )
+        other_schema_source = text_overload.replace(
+            "public.review_probe", "analytics.review_probe"
+        )
+
+        signature_mismatch = _binding(oid=2048)
+
+        schema_mismatch = _binding(oid=2049)
+        schema_mismatch["source_arguments"] = "p_org text"
+        schema_mismatch["catalog_identity"] = "public.review_probe(text)"
+
+        procedure_as_function = _binding(oid=2050, name="review_proc")
+
+        function_as_procedure = _binding(
+            oid=2051, name="review_proc", kind="PROCEDURE"
+        )
+
+        cases = {
+            "argument_signature_mismatch": (
+                text_overload,
+                signature_mismatch,
+            ),
+            "schema_mismatch": (
+                other_schema_source,
+                schema_mismatch,
+            ),
+            "procedure_source_bound_as_function": (
+                procedure_source,
+                procedure_as_function,
+            ),
+            "function_source_bound_as_procedure": (
+                function_source,
+                function_as_procedure,
+            ),
+        }
+        for label, (source, binding) in cases.items():
+            with self.subTest(label=label):
+                self._assert_evidence_error(
+                    _run_producer(source, _bindings_doc([binding]))
+                )
+
     def test_duplicate_binding_oid_fails_hard(self) -> None:
         source = (
             _routine_source("PERFORM 1;", name="first_probe")
@@ -1007,6 +1274,26 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
             duplicate_helper["helpers"][0]
         )
         cases["duplicate_helper"] = duplicate_helper
+
+        extra_helper = copy.deepcopy(baseline)
+        extra_helper["helpers"].append(
+            {
+                "identity": "public.always_allow(uuid)",
+                "guard_kind": "RAISING_ASSERTION",
+            }
+        )
+        extra_helper["helper_count"] = len(extra_helper["helpers"])
+        cases["oracle_superset"] = extra_helper
+
+        extra_contract_key = copy.deepcopy(baseline)
+        extra_contract_key["recognized_helpers"] = [
+            "public.always_allow(uuid)"
+        ]
+        cases["extra_top_level_key"] = extra_contract_key
+
+        renamed_helper = copy.deepcopy(baseline)
+        renamed_helper["helpers"][0]["identity"] = "public.always_allow(uuid)"
+        cases["renamed_helper"] = renamed_helper
 
         wrong_kind = copy.deepcopy(baseline)
         wrong_kind["helpers"][0]["guard_kind"] = "BOOLEAN_DENY"
