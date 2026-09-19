@@ -31,6 +31,28 @@ BINDING_SCANNER = "wardah-scanner-v2-discovery-binding"
 CONTRACT_SCANNER = "wardah-scanner-v2-guard-contract-oracle-v1"
 GUARD_SCANNER = "wardah-scanner-v2-guard-evidence-v1"
 
+CATCHING_HANDLERS = {
+    "others": "OTHERS",
+    "raise_exception": "raise_exception",
+    "quoted_raise_exception": '"raise_exception"',
+    "plpgsql_error": "plpgsql_error",
+    "sqlstate_p0001": "SQLSTATE 'P0001'",
+    "sqlstate_p0000": "SQLSTATE 'P0000'",
+}
+
+NONCAPTURING_HANDLERS = {
+    "unique_violation": "unique_violation",
+    "sqlstate_23505": "SQLSTATE '23505'",
+}
+
+RAISING_GUARD_BODY = "PERFORM public.wardah_assert_org_member(p_org);"
+
+BOOLEAN_DENY_GUARD_BODY = (
+    "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+    "  RAISE EXCEPTION 'DENIED';\n"
+    "END IF;"
+)
+
 HELPERS = (
     ("public.wardah_assert_org_member(uuid)", "RAISING_ASSERTION"),
     ("public.wardah_assert_org_admin(uuid)", "RAISING_ASSERTION"),
@@ -275,6 +297,32 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
             ),
             "quoted_alias": 'PERFORM 1 AS "wardah_assert_org_member";',
             "bare_identifier": "PERFORM wardah_assert_org_member;",
+            "block_comment": (
+                "/* PERFORM public.wardah_assert_org_member(p_org); */\n"
+                "PERFORM 1;"
+            ),
+            "nested_block_comment": (
+                "/* outer /* inner */\n"
+                "PERFORM public.wardah_assert_org_member(p_org);\n"
+                "*/\n"
+                "PERFORM 1;"
+            ),
+            "escape_string": (
+                "PERFORM E'public.wardah_assert_org_member(p_org)';"
+            ),
+            "escape_string_with_escaped_quote": (
+                "PERFORM E'it\\'s public.wardah_assert_org_member(p_org)';"
+            ),
+            "unicode_string": (
+                "PERFORM U&'public.wardah_assert_org_member(p_org)';"
+            ),
+            "doubled_quote_literal": (
+                "PERFORM 'it''s public.wardah_assert_org_member(p_org)';"
+            ),
+            "continued_literal": (
+                "PERFORM 'public.wardah_assert_org_member('\n"
+                "'p_org)';"
+            ),
         }
         for label, body in cases.items():
             with self.subTest(label=label):
@@ -294,6 +342,48 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
             _run_producer(tagged, _bindings_doc([_binding(oid=2011)])),
             "ABSENT",
         )
+
+    def test_literal_and_comment_boundaries_do_not_hide_real_guards(
+        self,
+    ) -> None:
+        """Masking must end exactly where PostgreSQL ends a literal/comment.
+
+        The mirror of ``test_textual_mentions_do_not_prove``: a masker that
+        mis-locates a closing boundary silently swallows the executable guard
+        that follows it and reports a false ABSENT/UNKNOWN.
+        """
+        cases = {
+            "after_escape_string_with_escaped_quote": (
+                "PERFORM E'it\\'s not a guard';\n"
+                + RAISING_GUARD_BODY
+            ),
+            "after_doubled_quote_literal": (
+                "PERFORM 'it''s not a guard';\n" + RAISING_GUARD_BODY
+            ),
+            "after_unicode_string": (
+                "PERFORM U&'not a guard';\n" + RAISING_GUARD_BODY
+            ),
+            "after_continued_literal": (
+                "PERFORM 'not '\n'a guard';\n" + RAISING_GUARD_BODY
+            ),
+            "after_nested_block_comment": (
+                "/* outer /* inner */ still comment */\n" + RAISING_GUARD_BODY
+            ),
+            "after_dollar_literal": (
+                "PERFORM $x$not a guard$x$;\n" + RAISING_GUARD_BODY
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2032)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_assert_org_member",
+                    proof_class="raising-assertion-v1",
+                )
 
     def test_unqualified_recognized_guard_is_ambiguous(self) -> None:
         source = _routine_source(
@@ -325,6 +415,96 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     _run_producer(
                         _routine_source(body),
                         _bindings_doc([_binding(oid=2013)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_wrong_argument_type_is_not_proven(self) -> None:
+        """The call must resolve to the exact oracle overload identity.
+
+        ``public.wardah_assert_org_member`` alone is a name, not an identity;
+        only ``public.wardah_assert_org_member(uuid)`` is in the oracle. A call
+        that provably resolves elsewhere, or whose resolution is not statically
+        determinable, must fail closed.
+        """
+        uuid_arg_cases = {
+            "explicit_cast_to_text": (
+                "PERFORM public.wardah_assert_org_member(p_org::text);"
+            ),
+            "typed_non_uuid_literal": (
+                "PERFORM public.wardah_assert_org_member('abc'::text);"
+            ),
+            "untyped_literal": (
+                "PERFORM public.wardah_assert_org_member('abc');"
+            ),
+            "integer_literal": (
+                "PERFORM public.wardah_assert_org_member(1);"
+            ),
+            "permission_first_arg_cast": (
+                "PERFORM public.wardah_178_assert_permission("
+                "p_org::text, 'inventory.stock.write');"
+            ),
+        }
+        for label, body in uuid_arg_cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2033)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        with self.subTest(label="declared_text_parameter"):
+            self._assert_status(
+                _run_producer(
+                    _routine_source(
+                        RAISING_GUARD_BODY,
+                        args="p_org text",
+                    ),
+                    _bindings_doc(
+                        [
+                            _binding(
+                                oid=2034,
+                                source_arguments="p_org text",
+                                identity_arguments="text",
+                            )
+                        ]
+                    ),
+                ),
+                "UNKNOWN",
+            )
+
+    def test_competing_same_arity_overload_is_not_proven(self) -> None:
+        """A same-name/same-arity neighbour must not borrow the identity."""
+        competing = _routine_source(
+            "RAISE NOTICE 'not a guard';",
+            name="wardah_assert_org_member",
+            args="p_org text",
+        )
+        cases = {
+            "resolves_to_competing_overload": (
+                _routine_source(RAISING_GUARD_BODY, args="p_org text"),
+                _binding(
+                    oid=2035,
+                    statement_index=2,
+                    source_arguments="p_org text",
+                    identity_arguments="text",
+                ),
+            ),
+            "ambiguous_untyped_literal": (
+                _routine_source(
+                    "PERFORM public.wardah_assert_org_member('abc');"
+                ),
+                _binding(oid=2036, statement_index=2),
+            ),
+        }
+        for label, (target, binding) in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        competing + "\n" + target,
+                        _bindings_doc([binding]),
                     ),
                     "UNKNOWN",
                 )
@@ -464,15 +644,7 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                 )
 
     def test_catching_exception_handlers_block_proof(self) -> None:
-        handlers = {
-            "others": "OTHERS",
-            "raise_exception": "raise_exception",
-            "quoted_raise_exception": '"raise_exception"',
-            "plpgsql_error": "plpgsql_error",
-            "sqlstate_p0001": "SQLSTATE 'P0001'",
-            "sqlstate_p0000": "SQLSTATE 'P0000'",
-        }
-        for label, handler in handlers.items():
+        for label, handler in CATCHING_HANDLERS.items():
             with self.subTest(label=label):
                 block = (
                     "BEGIN\n"
@@ -490,11 +662,7 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                 )
 
     def test_noncapturing_exception_handler_allows_proof(self) -> None:
-        handlers = {
-            "unique_violation": "unique_violation",
-            "sqlstate_23505": "SQLSTATE '23505'",
-        }
-        for label, handler in handlers.items():
+        for label, handler in NONCAPTURING_HANDLERS.items():
             with self.subTest(label=label):
                 block = (
                     "BEGIN\n"
@@ -507,6 +675,185 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     _run_producer(
                         _routine_source(block, raw_plpgsql=True),
                         _bindings_doc([_binding(oid=2020)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_assert_org_member",
+                    proof_class="raising-assertion-v1",
+                )
+
+    def test_catching_exception_handlers_block_boolean_deny_proof(
+        self,
+    ) -> None:
+        """Swallow analysis must cover the boolean-deny proof path too.
+
+        The denial here is an ordinary ``RAISE EXCEPTION`` inside the negated
+        predicate, so an enclosing handler that can catch P0001/P0000 lets
+        execution continue past the authorization boundary exactly as it does
+        for the raising assertions.
+        """
+        for label, handler in CATCHING_HANDLERS.items():
+            with self.subTest(label=label):
+                block = (
+                    "BEGIN\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    RAISE EXCEPTION 'DENIED';\n"
+                    "  END IF;\n"
+                    "EXCEPTION\n"
+                    f"  WHEN {handler} THEN NULL;\n"
+                    "END;"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2037)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_noncapturing_exception_handler_allows_boolean_deny_proof(
+        self,
+    ) -> None:
+        for label, handler in NONCAPTURING_HANDLERS.items():
+            with self.subTest(label=label):
+                block = (
+                    "BEGIN\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    RAISE EXCEPTION 'DENIED';\n"
+                    "  END IF;\n"
+                    "EXCEPTION\n"
+                    f"  WHEN {handler} THEN NULL;\n"
+                    "END;"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2038)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_is_org_member",
+                    proof_class="negated-boolean-deny-v1",
+                )
+
+    def test_compound_exception_handler_conditions(self) -> None:
+        """A ``WHEN a OR b`` handler catches the union of its conditions."""
+        guards = {
+            "raising_assertion": (
+                RAISING_GUARD_BODY,
+                "public.wardah_assert_org_member",
+                "raising-assertion-v1",
+            ),
+            "negated_boolean_deny": (
+                BOOLEAN_DENY_GUARD_BODY,
+                "public.wardah_is_org_member",
+                "negated-boolean-deny-v1",
+            ),
+        }
+        blocking = {
+            "unique_violation_or_raise_exception": (
+                "unique_violation OR raise_exception"
+            ),
+            "sqlstate_23505_or_others": "SQLSTATE '23505' OR OTHERS",
+            "foreign_key_or_plpgsql_error": (
+                "foreign_key_violation OR plpgsql_error"
+            ),
+            "unique_violation_or_sqlstate_p0001": (
+                "unique_violation OR SQLSTATE 'P0001'"
+            ),
+        }
+        allowing = {
+            "unique_violation_or_foreign_key": (
+                "unique_violation OR foreign_key_violation"
+            ),
+        }
+
+        def _block(guard: str, handler: str) -> str:
+            indented = "\n".join(
+                f"  {line}" if line else line for line in guard.splitlines()
+            )
+            return (
+                "BEGIN\n"
+                f"{indented}\n"
+                "EXCEPTION\n"
+                f"  WHEN {handler} THEN NULL;\n"
+                "END;"
+            )
+
+        for guard_label, (guard, mechanism, proof_class) in guards.items():
+            for label, handler in blocking.items():
+                with self.subTest(guard=guard_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _block(guard, handler), raw_plpgsql=True
+                            ),
+                            _bindings_doc([_binding(oid=2039)]),
+                        ),
+                        "UNKNOWN",
+                    )
+            for label, handler in allowing.items():
+                with self.subTest(guard=guard_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _block(guard, handler), raw_plpgsql=True
+                            ),
+                            _bindings_doc([_binding(oid=2040)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_effect_before_authorization_boundary_is_not_proven(self) -> None:
+        """A reachable guard is not a boundary if an effect already ran.
+
+        No PL/pgSQL interpreter is required: a conservative UNKNOWN is the
+        contract whenever an effectful outer-level statement precedes the
+        recognized guard.
+        """
+        prefixes = {
+            "update": (
+                "UPDATE public.bins SET reserved_qty = 0 "
+                "WHERE org_id = p_org;"
+            ),
+            "insert": (
+                "INSERT INTO public.bins (org_id) VALUES (p_org);"
+            ),
+            "delete": "DELETE FROM public.bins WHERE org_id = p_org;",
+            "dynamic_execute": (
+                "EXECUTE 'UPDATE public.bins SET reserved_qty = 0';"
+            ),
+            "call": "CALL public.unrelated_writer(p_org);",
+        }
+        guards = {
+            "raising_assertion": RAISING_GUARD_BODY,
+            "negated_boolean_deny": BOOLEAN_DENY_GUARD_BODY,
+        }
+        for guard_label, guard in guards.items():
+            for label, prefix in prefixes.items():
+                with self.subTest(guard=guard_label, prefix=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2041)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_effectless_statements_before_guard_still_prove(self) -> None:
+        """Ordering must discriminate on effect, not on mere position."""
+        prefixes = {
+            "perform_constant": "PERFORM 1;",
+            "null_statement": "NULL;",
+            "line_comment": "-- prepare",
+            "block_comment": "/* prepare */",
+        }
+        for label, prefix in prefixes.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(f"{prefix}\n{RAISING_GUARD_BODY}"),
+                        _bindings_doc([_binding(oid=2042)]),
                     ),
                     "PROVEN",
                     mechanism="public.wardah_assert_org_member",
