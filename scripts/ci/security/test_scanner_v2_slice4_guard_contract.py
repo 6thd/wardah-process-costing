@@ -242,6 +242,16 @@ LONG_MULTIBYTE = "\u0645" * 32
 # back under the limit. PostgreSQL does not fold it at all.
 KELVIN = "\u212a"
 
+# PostgreSQL 17 added \v to scan.l's `space` class, so a vertical tab is
+# ordinary whitespace on either side of a string continuation's newline —
+# but it is never itself a newline, so it cannot supply the one PostgreSQL
+# requires. Spelled out because a literal VT is invisible in source.
+VERTICAL_TAB = "\x0b"
+
+# A built-in with a real session-level side effect, used to show that an
+# expression is not effectless merely because it is not a DML statement.
+IMPURE_CALL = "pg_catalog.pg_try_advisory_lock(42)"
+
 # U+1D400 MATHEMATICAL BOLD CAPITAL A: 4 UTF-8 bytes, above the BMP.
 ASTRAL = "\U0001D400"
 
@@ -719,6 +729,140 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     mechanism="public.wardah_is_org_member",
                     proof_class="negated-boolean-deny-v1",
                 )
+
+    def test_vertical_tab_continuations_are_masked(self) -> None:
+        """A VT is continuation whitespace, so the literal runs on.
+
+        Carried over from the predecessor's
+        ``VERTICAL_TAB_CONTINUATION_MUST_REJECT``. A reader that treats the
+        vertical tab as a terminator ends the literal early, and the guard
+        text that really sits inside it — after an escaped quote, under the
+        chain's inherited escape mode — surfaces as executable code.
+        """
+        vt = VERTICAL_TAB
+        inline_boolean = " ".join(BOOLEAN_DENY_GUARD_BODY.split("\n"))
+        cases = {
+            "guard_hidden_after_escaped_quote_vt_then_newline": (
+                f"PERFORM E'a'{vt}\n'b\\' {RAISING_GUARD_BODY} \\'c';"
+            ),
+            "guard_hidden_after_escaped_quote_newline_then_vt": (
+                f"PERFORM E'a'\n{vt}'b\\' {RAISING_GUARD_BODY} \\'c';"
+            ),
+            "boolean_guard_hidden_in_a_vt_continued_estring": (
+                f"PERFORM E'a'{vt}\n'b\\' {inline_boolean} \\'c';"
+            ),
+            "guard_hidden_in_a_vt_run_around_the_newline": (
+                f"PERFORM E'a'{vt}{vt}\n{vt}'b\\' "
+                f"{RAISING_GUARD_BODY} \\'c';"
+            ),
+            "guard_hidden_in_a_plain_vt_continued_literal": (
+                f"PERFORM 'a'{vt}\n'b {RAISING_GUARD_BODY} c';"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2092)]),
+                    ),
+                    "ABSENT",
+                )
+
+    def test_vertical_tab_continuations_do_not_hide_real_guards(self) -> None:
+        """The over-consumption mirror for the vertical-tab boundary."""
+        vt = VERTICAL_TAB
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            cases = {
+                "after_a_vt_continued_estring": (
+                    f"PERFORM E'a'{vt}\n'b\\'c';\n{guard}"
+                ),
+                "after_a_vt_continued_plain_literal": (
+                    f"PERFORM 'a'{vt}\n'b';\n{guard}"
+                ),
+                "after_a_vt_run_around_the_newline": (
+                    f"PERFORM 'a'{vt}{vt}\n{vt}'b';\n{guard}"
+                ),
+            }
+            for label, body in cases.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(body),
+                            _bindings_doc([_binding(oid=2093)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_vertical_tab_sqlstate_continuations_are_followed(self) -> None:
+        """The same boundary inside a handler condition.
+
+        The escape-bearing chains here are already undecodable by the rule
+        frozen for round 7, but the plain VT-continued chain carries no
+        backslash: only following the continuation across the vertical tab
+        shows that it spells P0001.
+        """
+        vt = VERTICAL_TAB
+        blocking = {
+            "plain_vt_continuation_spells_p0001": (
+                f"SQLSTATE 'P00'{vt}\n    '01'"
+            ),
+            "plain_vt_continuation_spells_the_class": (
+                f"SQLSTATE 'P00'{vt}\n    '00'"
+            ),
+            "vt_after_the_newline": f"SQLSTATE 'P00'\n{vt}    '01'",
+            "vt_run_around_the_newline": (
+                f"SQLSTATE 'P0'{vt}{vt}\n{vt}    '001'"
+            ),
+            "vt_continuation_inside_an_or_list": (
+                f"unique_violation OR SQLSTATE 'P00'{vt}\n    '01'"
+            ),
+            "escape_bearing_vt_continuation": (
+                f"SQLSTATE E'P00'{vt}\n    '0\\x31'"
+            ),
+        }
+        allowing = {
+            "vt_continuation_unrelated_code": (
+                f"SQLSTATE '235'{vt}\n    '05'"
+            ),
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, handler in blocking.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2094)]),
+                        ),
+                        "UNKNOWN",
+                    )
+            for label, handler in allowing.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2095)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
 
     def test_unqualified_recognized_guard_is_ambiguous(self) -> None:
         source = _routine_source(
@@ -1543,6 +1687,118 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                         mechanism=mechanism,
                         proof_class=proof_class,
                     )
+
+    def test_conditional_early_return_before_guard_is_unknown(self) -> None:
+        """An early exit on some input path skips the guard for those inputs.
+
+        Carried over from the predecessor's
+        ``conditional_early_return_before_guard``. The contract rejects a bare
+        outer-level ``RETURN`` before the guard, but a ``RETURN`` inside a
+        conditional leaves the guard textually reachable while some callers
+        still reach the routine's end without it. Reachability is an all-path
+        question, not a first-path one.
+
+        The deliberate near-twin is
+        ``test_conditional_raise_before_guard_is_not_a_terminator``: identical
+        shape, ``RAISE`` instead of ``RETURN``, and that one must still prove.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="parameter_condition"):
+                body = (
+                    "IF p_org IS NULL THEN\n  RETURN;\nEND IF;\n"
+                    f"{guard}"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2088)]),
+                    ),
+                    "UNKNOWN",
+                )
+            with self.subTest(path=path_label, label="declared_flag"):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _declare_block(
+                                "v_skip boolean := false;",
+                                f"IF v_skip THEN\n  RETURN;\nEND IF;\n"
+                                f"{guard}",
+                            ),
+                            raw_plpgsql=True,
+                        ),
+                        _bindings_doc([_binding(oid=2089)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_guard_inside_an_exception_handler_is_unknown(self) -> None:
+        """A handler body is not the routine's outer statement level.
+
+        A guard reached only when some earlier statement raised is not an
+        unconditional authorization boundary: on the ordinary path nothing
+        authorizes anything. A producer that models nesting but forgets that
+        the region after ``EXCEPTION`` is not outer level credits it.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for handler in ("unique_violation", "OTHERS"):
+                with self.subTest(path=path_label, handler=handler):
+                    block = (
+                        "BEGIN\n"
+                        "  PERFORM 1;\n"
+                        "EXCEPTION\n"
+                        f"  WHEN {handler} THEN\n"
+                        f"{_indent(_indent(guard))}\n"
+                        "END;"
+                    )
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(block, raw_plpgsql=True),
+                            _bindings_doc([_binding(oid=2090)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_exit_between_predicate_and_denial_is_unknown(self) -> None:
+        """The denial must be reached, not merely present in the branch.
+
+        Carried over from the predecessor's ``BOOLEAN_DENY_EXIT_MUST_REJECT``.
+        The predicate is correct and the ``RAISE`` is textually inside the
+        THEN branch, but a non-member leaves the block before reaching it.
+
+        No write precedes the jump in these fixtures, so the ordering rule
+        cannot make them UNKNOWN for the wrong reason.
+        """
+        cases = {
+            "exit_between_then_and_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  EXIT auth_block;\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "conditional_exit_between_then_and_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  EXIT auth_block WHEN true;\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "quoted_exit_between_then_and_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                '  EXIT "auth_block";\n'
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _labelled_block(body), raw_plpgsql=True
+                        ),
+                        _bindings_doc([_binding(oid=2091)]),
+                    ),
+                    "UNKNOWN",
+                )
 
     def test_catching_exception_handlers_block_proof(self) -> None:
         for label, handler in CATCHING_HANDLERS.items():
@@ -2373,6 +2629,141 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                         mechanism=mechanism,
                         proof_class=proof_class,
                     )
+
+    def test_impure_expression_before_boundary_is_unknown(self) -> None:
+        """An expression is not effectless for not being a DML statement.
+
+        The ordering rule so far names statement forms — DML, CALL, a
+        function-valued PERFORM, SELECT INTO, compound bodies, DECLARE
+        initializers — so a denylist-shaped producer passes all of them and
+        still treats a call evaluated inside an assignment or a condition as
+        harmless. ``pg_try_advisory_lock`` is a built-in returning boolean
+        with a real session-level effect, so nothing here depends on an
+        invented function.
+
+        The rule needs no purity analysis: any pre-boundary expression
+        containing a call other than the recognized guard helper itself is not
+        proven effectless, and is therefore UNKNOWN.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="assignment"):
+                block = _declare_block(
+                    "v_locked boolean;",
+                    f"v_locked := {IMPURE_CALL};\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2096)]),
+                    ),
+                    "UNKNOWN",
+                )
+            prefixes = {
+                "if_condition": (
+                    f"IF {IMPURE_CALL} THEN\n  NULL;\nEND IF;"
+                ),
+                "elsif_condition": (
+                    "IF false THEN\n  NULL;\n"
+                    f"ELSIF {IMPURE_CALL} THEN\n  NULL;\nEND IF;"
+                ),
+                "case_condition": (
+                    f"CASE WHEN {IMPURE_CALL} THEN\n  NULL;\n"
+                    "ELSE NULL;\nEND CASE;"
+                ),
+                "while_condition": (
+                    f"WHILE {IMPURE_CALL} LOOP\n  EXIT;\nEND LOOP;"
+                ),
+                "exit_when_condition": (
+                    f"LOOP\n  EXIT WHEN {IMPURE_CALL};\nEND LOOP;"
+                ),
+            }
+            for label, prefix in prefixes.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2097)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_impure_term_in_the_deny_condition_is_unknown(self) -> None:
+        """A sole top-level term is not the whole condition's story.
+
+        Non-membership is still a complete top-level OR disjunct here, so the
+        round-4 term analysis is satisfied — but another term of the same
+        condition is evaluated around the membership boundary. SQL does not
+        guarantee which operand of an OR runs first, so both orderings are
+        UNKNOWN.
+        """
+        cases = {
+            "impure_term_first": (
+                f"IF {IMPURE_CALL}\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "impure_term_second": (
+                "IF NOT public.wardah_is_org_member(p_org)\n"
+                f"   OR {IMPURE_CALL}\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "impure_term_in_the_denial_branch_condition": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                f"  IF {IMPURE_CALL} THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2098)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_callless_expressions_before_guard_still_prove(self) -> None:
+        """Ordering discriminates on the call, not on the expression."""
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="assignment"):
+                block = _declare_block(
+                    "v_flag boolean;",
+                    f"v_flag := (p_org IS NOT NULL);\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2099)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+            with self.subTest(path=path_label, label="if_condition"):
+                body = (
+                    "IF p_org IS NULL THEN\n  NULL;\nEND IF;\n"
+                    f"{guard}"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2100)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
 
     def test_effectless_statements_before_guard_still_prove(self) -> None:
         """Ordering must discriminate on effect, not on mere position.
