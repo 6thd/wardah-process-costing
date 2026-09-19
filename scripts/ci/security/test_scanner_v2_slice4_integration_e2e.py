@@ -37,7 +37,7 @@ RUNTIME_SCANNER = "wardah-scanner-v2-runtime-probe"
 BINDING_SCANNER = "wardah-scanner-v2-discovery-binding"
 GUARD_SCANNER = "wardah-scanner-v2-guard-evidence-v1"
 CONTRACT_SCANNER = "wardah-scanner-v2-guard-contract-oracle-v1"
-POLICY_SCANNER = "wardah-scanner-v2-policy-engine-v1"
+POLICY_SCANNER = "wardah-scanner-v2-policy"
 
 HELPERS = (
     ("public.wardah_assert_org_member(uuid)", "RAISING_ASSERTION"),
