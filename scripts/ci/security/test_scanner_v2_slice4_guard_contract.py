@@ -741,6 +741,12 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
         """
         vt = VERTICAL_TAB
         inline_boolean = " ".join(BOOLEAN_DENY_GUARD_BODY.split("\n"))
+        # The boolean body carries its own 'DENIED' message, so embedding it
+        # in an E-string needs those apostrophes escaped for the literal to
+        # close where the fixture intends. Unescaped, the chain ends at the
+        # message's opening quote and the statement is unbalanced -- text
+        # PostgreSQL would refuse, which is not what this corpus tests.
+        escaped_boolean = inline_boolean.replace("'", "\\'")
         cases = {
             "guard_hidden_after_escaped_quote_vt_then_newline": (
                 f"PERFORM E'a'{vt}\n'b\\' {RAISING_GUARD_BODY} \\'c';"
@@ -749,7 +755,7 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                 f"PERFORM E'a'\n{vt}'b\\' {RAISING_GUARD_BODY} \\'c';"
             ),
             "boolean_guard_hidden_in_a_vt_continued_estring": (
-                f"PERFORM E'a'{vt}\n'b\\' {inline_boolean} \\'c';"
+                f"PERFORM E'a'{vt}\n'b\\' {escaped_boolean} \\'c';"
             ),
             "guard_hidden_in_a_vt_run_around_the_newline": (
                 f"PERFORM E'a'{vt}{vt}\n{vt}'b\\' "
