@@ -174,6 +174,27 @@ def _handler_block(guard: str, *handlers: str) -> str:
     )
 
 
+def _labelled_block(
+    body: str,
+    *,
+    label: str = "auth_block",
+    end_label: str | None = None,
+    declare: str = "",
+    between: str = "",
+) -> str:
+    """A routine body whose OUTER block carries a ``<<label>>``.
+
+    The block grammar is ``[<<label>>] [DECLARE ...] BEGIN ... END
+    [label];`` — the label precedes any declaration section, and PL/pgSQL
+    labels are identifiers, so they may be quoted or non-ASCII.
+    """
+    tail = label if end_label is None else end_label
+    head = f"<<{label}>>\n{between}"
+    if declare:
+        head += f"DECLARE\n{_indent(declare)}\n"
+    return f"{head}BEGIN\n{_indent(body)}\nEND {tail};"
+
+
 def _declare_block(declarations: str, body: str) -> str:
     """A routine body with its own DECLARE section."""
     return (
@@ -184,6 +205,21 @@ def _declare_block(declarations: str, body: str) -> str:
         "END;"
     )
 
+
+# PostgreSQL scan.l: dolq_start is [A-Za-z\200-\377_] and dolq_cont adds
+# [0-9], so EVERY non-ASCII byte is legal in a dollar-quote tag. A tag the
+# producer fails to recognize leaves the literal's content exposed as
+# executable text, which is how these became real false-greens.
+NON_ASCII_TAGS = {
+    "emoji": "$\U0001F600$",
+    "roman_numeral": "$\u2168$",
+    "combining_mark": "$a\u0301$",
+    "zero_width_space": "$a\u200b$",
+    "nbsp": "$\u00a0$",
+    "soft_hyphen": "$\u00ad$",
+    "bom": "$a\ufeff$",
+    "private_use": "$\ue000$",
+}
 
 GUARD_PATHS = {
     "raising_assertion": (
@@ -585,6 +621,75 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     _run_producer(
                         _routine_source(body),
                         _bindings_doc([_binding(oid=2046)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_is_org_member",
+                    proof_class="negated-boolean-deny-v1",
+                )
+
+    def test_non_ascii_dollar_tags_are_recognized(self) -> None:
+        """Tag recognition decides where executable text even begins.
+
+        Carried over from the predecessor's
+        ``test_dollar_tag_recognition_uses_postgresqls_byte_range``. A tag the
+        producer does not recognize leaves the literal's content exposed, so
+        the guard text inside it reads as code.
+        """
+        for label, tag in NON_ASCII_TAGS.items():
+            with self.subTest(reject=label):
+                body = f"PERFORM {tag} {RAISING_GUARD_BODY} {tag};"
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2071)]),
+                    ),
+                    "ABSENT",
+                )
+            with self.subTest(reject_boolean=label):
+                inline = " ".join(BOOLEAN_DENY_GUARD_BODY.split("\n"))
+                body = f"PERFORM {tag} {inline} {tag};"
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2072)]),
+                    ),
+                    "ABSENT",
+                )
+
+    def test_non_ascii_dollar_tags_do_not_hide_real_guards(self) -> None:
+        """Widen tag recognition, do not swallow real guards.
+
+        Both halves matter: the tag may delimit a literal *beside* the guard,
+        or the routine body itself — and an unrecognized body delimiter means
+        no body to analyse at all.
+        """
+        for label, tag in NON_ASCII_TAGS.items():
+            with self.subTest(beside=label):
+                body = f"PERFORM {tag}note{tag};\n{RAISING_GUARD_BODY}"
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2073)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_assert_org_member",
+                    proof_class="raising-assertion-v1",
+                )
+            with self.subTest(delimits_body=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(RAISING_GUARD_BODY, tag=tag),
+                        _bindings_doc([_binding(oid=2074)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_assert_org_member",
+                    proof_class="raising-assertion-v1",
+                )
+            with self.subTest(delimits_body_boolean=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(BOOLEAN_DENY_GUARD_BODY, tag=tag),
+                        _bindings_doc([_binding(oid=2075)]),
                     ),
                     "PROVEN",
                     mechanism="public.wardah_is_org_member",
@@ -1104,6 +1209,104 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     ),
                     "UNKNOWN",
                 )
+
+    def test_labelled_exit_reads_quoted_and_non_ascii_labels(self) -> None:
+        """A block label is an identifier, not a bare ASCII word.
+
+        Carried over from the predecessor's labelled-EXIT corpus. The jump
+        lands past the guard, so the routine returns having authorized
+        nothing; a producer that can only read ``EXIT outer`` sees no jump and
+        calls the guard reachable.
+        """
+        work = "UPDATE public.bins SET reserved_qty = 0 WHERE org_id = p_org;"
+        declare = "v_seen boolean := false;"
+        arabic = "\u062d\u0627\u0631\u0633"  # حارس
+        cases = {
+            "quoted_label": _labelled_block(
+                f'{work}\nEXIT "auth_block";\n{RAISING_GUARD_BODY}',
+                label='"auth_block"',
+                end_label='"auth_block"',
+            ),
+            "quoted_label_with_a_declare_section": _labelled_block(
+                f'{work}\nEXIT "auth_block";\n{RAISING_GUARD_BODY}',
+                label='"auth_block"',
+                end_label='"auth_block"',
+                declare=declare,
+            ),
+            "non_ascii_unquoted_label": _labelled_block(
+                f"{work}\nEXIT {arabic};\n{RAISING_GUARD_BODY}",
+                label=arabic,
+                end_label=arabic,
+            ),
+            "non_ascii_label_with_a_declare_section": _labelled_block(
+                f"{work}\nEXIT {arabic};\n{RAISING_GUARD_BODY}",
+                label=arabic,
+                end_label=arabic,
+                declare=declare,
+            ),
+            "ascii_label_with_a_declare_section": _labelled_block(
+                f"{work}\nEXIT auth_block;\n{RAISING_GUARD_BODY}",
+                declare=declare,
+            ),
+            "conditional_labelled_exit": _labelled_block(
+                f"{work}\nEXIT auth_block WHEN p_org IS NULL;\n"
+                f"{RAISING_GUARD_BODY}",
+            ),
+            "inner_block_exits_the_labelled_outer_block": _labelled_block(
+                "BEGIN\n  EXIT auth_block;\nEND;\n"
+                f"{RAISING_GUARD_BODY}\n{work}",
+            ),
+            "comment_between_label_and_begin": _labelled_block(
+                f"{work}\nEXIT auth_block;\n{RAISING_GUARD_BODY}",
+                between="/* " + ("x" * 400) + " */\n",
+            ),
+            "labelled_exit_before_boolean_guard": _labelled_block(
+                f"EXIT auth_block;\n{BOOLEAN_DENY_GUARD_BODY}\n{work}",
+            ),
+        }
+        for label, block in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2076)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_a_block_that_exits_itself_leaves_a_later_guard_intact(
+        self,
+    ) -> None:
+        """Label identity, not the mere presence of an EXIT."""
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            cases = {
+                "inner_block_exits_itself": _labelled_block(
+                    "<<inner>>\nBEGIN\n  EXIT inner;\nEND inner;\n"
+                    f"{guard}",
+                ),
+                "loop_exits_itself": _labelled_block(
+                    f"LOOP\n  EXIT;\nEND LOOP;\n{guard}",
+                ),
+                "labelled_loop_exits_itself": _labelled_block(
+                    "<<scan>>\nLOOP\n  EXIT scan;\nEND LOOP;\n"
+                    f"{guard}",
+                ),
+            }
+            for label, block in cases.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(block, raw_plpgsql=True),
+                            _bindings_doc([_binding(oid=2077)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
 
     def test_catching_exception_handlers_block_proof(self) -> None:
         for label, handler in CATCHING_HANDLERS.items():
@@ -1892,6 +2095,73 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
         )
         self.assertEqual(len(payload["guard_records"]), 1)
         self.assertEqual(payload["guard_records"][0]["catalog_oid"], 2024)
+
+    def test_a_routine_cannot_borrow_the_next_routines_body(self) -> None:
+        """No readable body of its own means no guard — never a borrowed one.
+
+        Carried over from the predecessor's
+        ``test_a_definition_cannot_borrow_the_next_functions_body``. An
+        extractor that scans forward for the first dollar-quoted body hands
+        the guarded routine's proof to the unreadable one in front of it.
+        Each case asserts both halves: the first binding must not borrow, and
+        the second must still earn its own proof.
+        """
+        guarded = _routine_source(RAISING_GUARD_BODY, name="guarded_probe")
+        unreadable = {
+            "internal_language_body": (
+                "CREATE OR REPLACE FUNCTION public.opaque_probe(p_org uuid)\n"
+                "RETURNS void\nLANGUAGE internal\nSECURITY DEFINER\n"
+                "AS 'boolin';\n"
+            ),
+            "sql_standard_atomic_body": (
+                "CREATE OR REPLACE FUNCTION public.opaque_probe(p_org uuid)\n"
+                "RETURNS void\nLANGUAGE sql\nSECURITY DEFINER\n"
+                "BEGIN ATOMIC\n"
+                "  SELECT 1;\n"
+                "END;\n"
+            ),
+            "c_language_body": (
+                "CREATE OR REPLACE FUNCTION public.opaque_probe(p_org uuid)\n"
+                "RETURNS void\nLANGUAGE c\nSECURITY DEFINER\n"
+                "AS 'MODULE_PATHNAME', 'opaque_probe';\n"
+            ),
+        }
+        for label, head in unreadable.items():
+            with self.subTest(label=label):
+                payload = self._payload(
+                    _run_producer(
+                        head + "\n" + guarded,
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=2078,
+                                    name="opaque_probe",
+                                    statement_index=1,
+                                ),
+                                _binding(
+                                    oid=2079,
+                                    name="guarded_probe",
+                                    statement_index=2,
+                                ),
+                            ]
+                        ),
+                    )
+                )
+                self.assertEqual(len(payload["guard_records"]), 2)
+                by_oid = {
+                    record["catalog_oid"]: record
+                    for record in payload["guard_records"]
+                }
+                self.assertEqual(set(by_oid), {2078, 2079})
+                self.assertEqual(by_oid[2078]["guard_status"], "UNKNOWN")
+                self.assertIsNone(by_oid[2078]["guard_mechanism"])
+                self.assertIsNone(by_oid[2078]["evidence_location"])
+                self.assertIsNone(by_oid[2078]["proof_class"])
+                self.assertEqual(by_oid[2079]["guard_status"], "PROVEN")
+                self.assertEqual(
+                    by_oid[2079]["guard_mechanism"],
+                    "public.wardah_assert_org_member",
+                )
 
     def test_statement_binding_identity_mismatch_fails_hard(self) -> None:
         source = _routine_source(
