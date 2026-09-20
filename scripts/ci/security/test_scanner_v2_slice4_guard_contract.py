@@ -374,10 +374,16 @@ SAFE_HEAD_FAMILIES = {
     "case_grammar": frozenset({"CASE"}),
     # Iterator headers. No positive support is claimed for these.
     "iterator_header": frozenset({"FOR", "FOREACH", "REVERSE"}),
-    # Delimiters and openers; they introduce sub-statements.
-    "structural": frozenset(
-        {"THEN", "ELSE", "LOOP", "BEGIN", "DECLARE", "EXCEPTION", "END"}
+    # Delimiters that introduce sub-statements. Round 3C pins that they
+    # cannot license what they open.
+    "structural_opener": frozenset(
+        {"THEN", "ELSE", "LOOP", "BEGIN", "DECLARE", "EXCEPTION"}
     ),
+    # Closers own a grammar of their own -- END IF, END CASE, END LOOP,
+    # END, END <label> -- and are split out from the openers so that
+    # classifying END can never be mistaken for testing END's grammar.
+    # Round 3D owns this family.
+    "closer": frozenset({"END"}),
     # Reachability, owned by the reachability contract, not this one.
     "terminator": frozenset({"RETURN", "RAISE"}),
 }
@@ -4938,6 +4944,103 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     identity_args="uuid,refcursor",
                     declarations="v_row record;",
                 )
+
+
+    # ==================================================================
+    # Round 3D. Round 3C bound every statement head to its grammar
+    # fragment, and a selective GREEN passed all 143 tests while the tail
+    # after a compound CLOSER stayed unchecked.
+    #
+    # Frozen base: 7f41ae3b685eb08ad3a587531e5e260f5833bf1f
+    #
+    # A compound construct is not proven because its opener and body are
+    # valid. Its closing fragment is grammar too:
+    #
+    #   END IF;  END CASE;  END LOOP;  END;  END <resolved-label>;
+    #
+    # Anything after the supported closer is unvalidated remainder and
+    # must fail closed, exactly as it must after an opener.
+    # ==================================================================
+
+    def test_compound_closers_must_match_a_supported_shape(self) -> None:
+        """A recognized END does not license what follows it.
+
+        Every fixture is a valid compound statement up to its closer and
+        malformed only in the tail under test, which is the whole point:
+        the prefix proves nothing about the close.
+        """
+        head = self._generated_unknown_head()
+        cases = {
+            "end_if_generated_tail": (
+                f"IF true THEN\n  NULL;\nEND IF {head};"
+            ),
+            "end_if_concrete_tail": "IF true THEN\n  NULL;\nEND IF extra;",
+            "end_if_cursor_tail": "IF true THEN\n  NULL;\nEND IF FETCH;",
+            "end_case_generated_tail": (
+                f"CASE\n  WHEN true THEN NULL;\nEND CASE {head};"
+            ),
+            "end_case_cursor_tail": (
+                "CASE\n  WHEN true THEN NULL;\nEND CASE FETCH;"
+            ),
+            # A plain END whose tail is an identifier nothing labels. Like
+            # EXIT's label, telling this from a real one needs the block
+            # labels, not the keyword.
+            "plain_end_generated_tail": (
+                f"BEGIN\n  NULL;\nEND {head};"
+            ),
+            # Label resolves, but the closer does not end there. Kills a
+            # fix that validates only the first token after END.
+            "labelled_end_extra_tail": (
+                f"<<blk>>\nBEGIN\n  NULL;\nEND blk {head};"
+            ),
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2370 + index)
+
+    def test_end_loop_tail_remains_closed(self) -> None:
+        """Regression pin, not a new gap.
+
+        ``END LOOP <unknown>;`` is already UNKNOWN on the frozen base --
+        LOOP is a sub-statement opener, so the walk re-enters after it and
+        the tail lands in statement position. That is incidental, so it is
+        pinned here: a closer-validating GREEN must not lose it while
+        rearranging how closers are recognized.
+        """
+        head = self._generated_unknown_head()
+        self._assert_shape_unproven(
+            f"LOOP\n  EXIT;\nEND LOOP {head};", oid=2380
+        )
+
+    def test_compound_closer_positives_are_preserved(self) -> None:
+        """Every supported closer shape, valid PostgreSQL, still proving.
+
+        The over-correction this round invites is rejecting END-based
+        compound statements wholesale. These five forbid it.
+        """
+        prefixes = {
+            "end_if": "IF true THEN\n  NULL;\nEND IF;",
+            "end_case": "CASE\n  WHEN true THEN NULL;\nEND CASE;",
+            "end_loop": "LOOP\n  EXIT;\nEND LOOP;",
+            "plain_end": "BEGIN\n  NULL;\nEND;",
+            "labelled_end": "<<blk>>\nBEGIN\n  NULL;\nEND blk;",
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, prefix in prefixes.items():
+                with self.subTest(path=path_label, prefix=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2390)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
 
 
 if __name__ == "__main__":
