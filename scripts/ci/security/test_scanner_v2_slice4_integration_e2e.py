@@ -426,5 +426,119 @@ class ScannerV2IntegrationE2ETest(unittest.TestCase):
         self.assertEqual(run.result["targets"][0]["policy_status"], "PASS_GUARDED")
 
 
+    # ------------------------------------------------------------------
+    # Round 2 amendment. The single-atomic fixture above is preserved, but
+    # independent review showed its shape cannot discriminate three wrong
+    # implementations: it has one atomic routine, one constant Slice2 ->
+    # Slice4 index drift, one binding, and the guarded routine is last. So
+    # "subtract a constant", "special-case one BEGIN ATOMIC" and "select the
+    # last routine" all pass it without establishing source identity.
+    #
+    # Topology below, verified with pglast:
+    #   1 atomic_alpha   LANGUAGE sql BEGIN ATOMIC, 2 inner statements
+    #   2 guarded_middle SECURITY DEFINER plpgsql, guarded  <- NOT last
+    #   3 atomic_omega   LANGUAGE sql BEGIN ATOMIC, 4 inner statements
+    #   4 unguarded_tail plpgsql, no guard
+    #
+    # Slice 2 indexes 4 and 10; Slice 4 statements 2 and 4. Drift is 2 for
+    # the first binding and 6 for the second, so no single subtraction maps
+    # both. Two bindings with different expected statuses mean swapping them
+    # cannot pass either.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _atomic_routine(name: str, inner: int) -> str:
+        body = "".join(f"  SELECT {i + 1};\n" for i in range(inner))
+        return (
+            f"CREATE OR REPLACE FUNCTION public.{name}(p_org uuid)\n"
+            "RETURNS void\n"
+            "LANGUAGE sql\n"
+            "BEGIN ATOMIC\n"
+            f"{body}"
+            "END;\n"
+        )
+
+    def test_multi_atomic_multi_binding_preserves_binding_parity(
+        self,
+    ) -> None:
+        """Two atomic bodies of different size, two bindings, target mid-source.
+
+        Both bindings come from the real Slice 2 CLI and are handed to
+        Slice 4 unchanged. Nothing in this test corrects, offsets or
+        reconstructs a statement_index.
+        """
+        source = (
+            self._atomic_routine("atomic_alpha", 2)
+            + "\n"
+            + _routine(
+                "guarded_middle",
+                "  PERFORM public.wardah_assert_org_member(p_org);",
+            )
+            + "\n"
+            + self._atomic_routine("atomic_omega", 4)
+            + "\n"
+            + _routine("unguarded_tail", "  PERFORM 1;")
+        )
+        run = _run_pipeline(
+            source,
+            [
+                _oracle_row(
+                    oid=6001, name="guarded_middle", client_callable=True
+                ),
+                _oracle_row(
+                    oid=6002, name="unguarded_tail", client_callable=True
+                ),
+            ],
+        )
+
+        self.assertEqual(
+            run.binding.returncode,
+            0,
+            msg=f"slice 2 failed: {run.binding.stderr}",
+        )
+        assert run.bindings is not None
+        # Two independently identified bindings, drift 2 and 6.
+        self.assertEqual(len(run.bindings["bindings"]), 2)
+
+        assert run.guard is not None
+        self.assertEqual(
+            run.guard.returncode,
+            0,
+            msg=(
+                "slice 4 rejected the bindings slice 2 produced for the "
+                f"same source bytes: {run.guard.stderr}"
+            ),
+        )
+
+        assert run.guards is not None
+        records = {r["catalog_oid"]: r for r in run.guards["guard_records"]}
+        self.assertEqual(set(records), {6001, 6002})
+
+        # Exact identities, so position-based selection cannot pass.
+        self.assertEqual(
+            records[6001]["catalog_identity"],
+            "public.guarded_middle(uuid)",
+        )
+        self.assertEqual(
+            records[6002]["catalog_identity"],
+            "public.unguarded_tail(uuid)",
+        )
+        # Different expected outcomes, so a swap cannot pass either.
+        self.assertEqual(records[6001]["guard_status"], "PROVEN")
+        self.assertEqual(
+            records[6001]["guard_mechanism"],
+            "public.wardah_assert_org_member",
+        )
+        self.assertEqual(records[6002]["guard_status"], "ABSENT")
+        self.assertIsNone(records[6002]["guard_mechanism"])
+
+        assert run.result is not None
+        targets = {t["catalog_oid"]: t for t in run.result["targets"]}
+        self.assertEqual(targets[6001]["policy_status"], "PASS_GUARDED")
+        self.assertEqual(
+            targets[6002]["policy_status"], "FAIL_OPEN_UNGUARDED"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

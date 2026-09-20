@@ -16,6 +16,7 @@ replay ACL state.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import subprocess
 import sys
@@ -274,32 +275,44 @@ ASTRAL = "\U0001D400"
 #: Valid PL/pgSQL statements, each executable, each reaching something the
 #: producer cannot see. Grouped by command family on purpose.
 UNPROVEN_STATEMENT_FAMILIES = {
+    # (statement, source_arguments, identity_arguments, declarations)
+    #
+    # Every entry is valid PostgreSQL, verified with libpg_query via pglast
+    # (parse_sql + parse_plpgsql) outside the suite. A fixture that does not
+    # parse proves nothing about a parser, so the cursor FETCH forms carry the
+    # DECLARE section PostgreSQL requires for their INTO target.
+    #
     # Cursor family: executes the caller's already-bound query.
     "cursor_fetch": (
         "FETCH p_cursor INTO v_row;",
         "p_org uuid, p_cursor refcursor",
         "uuid,refcursor",
+        "v_row record;",
     ),
     "cursor_fetch_directional": (
         "FETCH NEXT FROM p_cursor INTO v_row;",
         "p_org uuid, p_cursor refcursor",
         "uuid,refcursor",
+        "v_row record;",
     ),
     "cursor_move": (
         "MOVE FORWARD 1 FROM p_cursor;",
         "p_org uuid, p_cursor refcursor",
         "uuid,refcursor",
+        "",
     ),
     "cursor_close": (
         "CLOSE p_cursor;",
         "p_org uuid, p_cursor refcursor",
         "uuid,refcursor",
+        "",
     ),
     # Anonymous block: arbitrary PL/pgSQL inside a masked dollar quote.
     "anonymous_do_block": (
         "DO $inner$ BEGIN PERFORM public.side_effect(); END $inner$;",
         "p_org uuid",
         "uuid",
+        "",
     ),
     # Session/config family: search_path rebinding ahead of a guard is a
     # classic SECURITY DEFINER escalation primitive.
@@ -307,20 +320,38 @@ UNPROVEN_STATEMENT_FAMILIES = {
         "SET LOCAL search_path TO public;",
         "p_org uuid",
         "uuid",
+        "",
     ),
-    "reset_search_path": ("RESET search_path;", "p_org uuid", "uuid"),
+    "reset_search_path": ("RESET search_path;", "p_org uuid", "uuid", ""),
     # Async notification family.
-    "listen": ("LISTEN wardah_chan;", "p_org uuid", "uuid"),
-    "notify": ("NOTIFY wardah_chan;", "p_org uuid", "uuid"),
-    "unlisten": ("UNLISTEN wardah_chan;", "p_org uuid", "uuid"),
+    "listen": ("LISTEN wardah_chan;", "p_org uuid", "uuid", ""),
+    "notify": ("NOTIFY wardah_chan;", "p_org uuid", "uuid", ""),
+    "unlisten": ("UNLISTEN wardah_chan;", "p_org uuid", "uuid", ""),
     # Ownership family.
     "reassign_owned": (
         "REASSIGN OWNED BY postgres TO postgres;",
         "p_org uuid",
         "uuid",
+        "",
     ),
     # PL/pgSQL assertion: evaluates an arbitrary boolean expression.
-    "assert_statement": ("ASSERT v_flag;", "p_org uuid", "uuid"),
+    "assert_statement": ("ASSERT v_flag;", "p_org uuid", "uuid", ""),
+}
+
+#: Part B holdout. Valid PostgreSQL statement families whose heads appear
+#: nowhere in UNPROVEN_STATEMENT_FAMILIES, so copying every literal keyword
+#: visible in that table into EFFECT_WORDS still leaves these proving.
+#: Each executes and reaches state the producer cannot see: COMMENT and
+#: SECURITY LABEL write catalog rows, ANALYZE reads the table and updates
+#: statistics, CHECKPOINT forces a write of dirty buffers. All four are
+#: verified valid with pglast (parse_sql + parse_plpgsql).
+VALID_UNFAMILIAR_STATEMENTS = {
+    "comment_on_table": "COMMENT ON TABLE public.bins IS 'probe';",
+    "analyze_table": "ANALYZE public.bins;",
+    "checkpoint": "CHECKPOINT;",
+    "security_label": (
+        "SECURITY LABEL FOR dummy ON TABLE public.bins IS 'x';"
+    ),
 }
 
 
@@ -4040,16 +4071,33 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
     # cannot positively prove harmless must not yield PROVEN.
     # ------------------------------------------------------------------
 
+    def _unproven_source(
+        self, statement: str, args: str, declarations: str, guard: str
+    ) -> str:
+        """Build the routine, adding DECLARE only when the fixture needs it.
+
+        A cursor FETCH needs its INTO target declared or the body is not
+        valid PL/pgSQL at all: PostgreSQL rejects it with "v_row is not a
+        known variable" long before any guard analysis runs.
+        """
+        if declarations:
+            return _routine_source(
+                _declare_block(declarations, f"{statement}\n{guard}"),
+                args=args,
+                raw_plpgsql=True,
+            )
+        return _routine_source(f"{statement}\n{guard}", args=args)
+
     def _assert_prefix_unproven(self, label: str, oid: int) -> None:
-        statement, args, identity_args = UNPROVEN_STATEMENT_FAMILIES[
-            label
-        ]
+        statement, args, identity_args, declarations = (
+            UNPROVEN_STATEMENT_FAMILIES[label]
+        )
         for path_label, (guard, _, _) in GUARD_PATHS.items():
             with self.subTest(path=path_label, prefix=label):
                 self._assert_status(
                     _run_producer(
-                        _routine_source(
-                            f"{statement}\n{guard}", args=args
+                        self._unproven_source(
+                            statement, args, declarations, guard
                         ),
                         _bindings_doc(
                             [
@@ -4217,6 +4265,78 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     mechanism=mechanism,
                     proof_class=proof_class,
                 )
+
+
+    # ------------------------------------------------------------------
+    # Round 2 amendment. Independent review proved the Round 1 contract
+    # could be satisfied by a pure denylist extension containing every
+    # literal head in UNPROVEN_STATEMENT_FAMILIES -- 90 tests, OK, with the
+    # denylist architecture that caused the P1 fully intact. Six disjoint
+    # families raise the cost of enumeration; they do not change its nature.
+    #
+    # The two tests below cannot be satisfied by enumeration:
+    #   * the head of the first is derived from the producer's own bytes at
+    #     run time, so it appears nowhere in this file to be copied; and
+    #   * the second uses valid PostgreSQL families whose heads appear
+    #     nowhere in the static fixture table.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _generated_unknown_head() -> str:
+        """A statement head derived from the producer's current bytes.
+
+        Deterministic (a digest, never randomness), a legal identifier
+        spelling, and different for any implementation that changes the
+        producer -- so it can never be added to a keyword list in advance.
+        The literal value is deliberately absent from this file.
+        """
+        digest = hashlib.sha256(PRODUCER.read_bytes()).hexdigest()
+        return f"wardah_holdout_{digest[:24]}"
+
+    def test_generated_unknown_statement_head_fails_closed(self) -> None:
+        """An unrecognized outer-level statement must never prove.
+
+        This is the discriminator that makes the contract structural. The
+        producer is a static analyser, not PostgreSQL: text whose shape it
+        cannot prove harmless is exactly the case that must fail closed,
+        and a keyword denylist cannot enumerate a head it has never seen.
+        """
+        head = self._generated_unknown_head()
+        # The generated head must not be a literal in the test source, or it
+        # would be copyable into a denylist like any other fixture keyword.
+        self.assertNotIn(head, Path(__file__).read_text(encoding="utf-8"))
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(f"{head} v_probe;\n{guard}"),
+                        _bindings_doc([_binding(oid=2260)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_valid_unfamiliar_statement_families_fail_closed(self) -> None:
+        """Valid PostgreSQL the static fixture table never names.
+
+        Unknown-head fail-closed alone could be dismissed as "reject what
+        does not parse". These four parse, execute, and reach state the
+        producer cannot see, and none of their heads appears in
+        UNPROVEN_STATEMENT_FAMILIES -- so enumerating that table leaves
+        every one of them still proving.
+        """
+        table_text = repr(UNPROVEN_STATEMENT_FAMILIES)
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, statement in VALID_UNFAMILIAR_STATEMENTS.items():
+                with self.subTest(path=path_label, statement=label):
+                    head = statement.split()[0]
+                    self.assertNotIn(head, table_text)
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{statement}\n{guard}"),
+                            _bindings_doc([_binding(oid=2261)]),
+                        ),
+                        "UNKNOWN",
+                    )
 
 
 if __name__ == "__main__":
