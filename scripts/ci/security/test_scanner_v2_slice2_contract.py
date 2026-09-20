@@ -16,7 +16,7 @@ The contract is deliberately narrow:
 from __future__ import annotations
 
 import json
-import subprocess
+import subprocess  # nosec B404 - fixed repo-local test harness commands only
 import sys
 import tempfile
 import unittest
@@ -74,7 +74,11 @@ def _run_binding(source_sql: str, routines: list[dict[str, Any]]) -> subprocess.
         source_path.write_text(source_sql, encoding="utf-8")
         oracle_path.write_text(json.dumps(oracle), encoding="utf-8")
 
-        return subprocess.run(
+        # argv is built exclusively from sys.executable, a fixed repo-local
+        # script path and tempfile paths this test owns; no external input
+        # reaches it.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+        return subprocess.run(  # nosec B603 - fixed interpreter and repo-local script
             [
                 sys.executable,
                 str(BINDER),
