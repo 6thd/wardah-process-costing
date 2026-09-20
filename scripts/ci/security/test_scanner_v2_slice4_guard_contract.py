@@ -4571,5 +4571,107 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     )
 
 
+    # ------------------------------------------------------------------
+    # Round 3B. Round 3 closed NULL and PERFORM, the IF branch, and
+    # assignment adjacency -- but it closed them one head at a time. A
+    # selective GREEN can satisfy all of Round 3 and still accept any
+    # other recognized head on its first token alone.
+    #
+    # Frozen base: 6cb03ccdfae16f5a7add087c24d325f0ab0ec2f1
+    #
+    # Confirmed PROVEN there: CASE with an unvalidated header expression,
+    # and EXIT / CONTINUE carrying an unsupported tail. The invariant is
+    # general, not per-keyword: a recognized head must validate the
+    # grammar fragment belonging to that head.
+    #
+    # Design note. ``CASE <operand> WHEN ...`` and ``CASE p_org WHEN ...``
+    # are the same shape -- a bare identifier operand -- and telling them
+    # apart needs scope, not grammar. This contract therefore does not
+    # require a simple CASE operand to prove; only the searched form below
+    # is pinned as a positive. Rejecting every operand CASE is an
+    # acceptable minimal GREEN, and so is resolving the operand in scope.
+    # ------------------------------------------------------------------
+
+    def test_case_header_must_be_validated_not_merely_recognized(
+        self,
+    ) -> None:
+        """CASE is recognized; its header expression is not checked.
+
+        The first case is valid PostgreSQL -- a simple CASE whose operand
+        happens to be an identifier nothing declares -- so this is not only
+        about malformed input.
+        """
+        head = self._generated_unknown_head()
+        cases = {
+            "case_generated_unknown_head": (
+                f"CASE {head}\nWHEN true THEN\n  NULL;\nEND CASE;"
+            ),
+            "case_cursor_head": (
+                "CASE FETCH\nWHEN true THEN\n  NULL;\nEND CASE;"
+            ),
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2300 + index)
+
+    def test_exit_and_continue_cannot_license_trailing_syntax(self) -> None:
+        """A control transfer's tail is a label or WHEN, not anything.
+
+        The loop wrapper is the smallest surrounding context that makes
+        EXIT and CONTINUE meaningful, so the fixture differs from the
+        accepted form only in the tail under test. The tails themselves
+        are unsupported by construction -- that is the point: a head the
+        producer recognizes must not carry syntax it cannot prove.
+        """
+        head = self._generated_unknown_head()
+        cases = {
+            "loop_exit_generated_head": (
+                f"LOOP\n  EXIT {head};\nEND LOOP;"
+            ),
+            "loop_continue_generated_head": (
+                f"LOOP\n  CONTINUE {head};\n  EXIT;\nEND LOOP;"
+            ),
+            "loop_exit_cursor_head": "LOOP\n  EXIT FETCH;\nEND LOOP;",
+            "bare_exit_generated_head": f"EXIT {head};",
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2310 + index)
+
+    def test_case_and_loop_control_positives_are_preserved(self) -> None:
+        """The over-broad fixes this round must not invite.
+
+        Rejecting CASE outright, or EXIT and CONTINUE outright, would
+        close the two gaps above by removing accepted control flow. Each
+        form here is valid PostgreSQL, proves on the frozen base, and
+        leaves the guard reachable -- the loops exit themselves, not the
+        block the guard sits in.
+        """
+        prefixes = {
+            "searched_case": "CASE\n  WHEN true THEN NULL;\nEND CASE;",
+            "loop_exit": "LOOP\n  EXIT;\nEND LOOP;",
+            "loop_exit_when": "LOOP\n  EXIT WHEN true;\nEND LOOP;",
+            "loop_continue_when": (
+                "LOOP\n  CONTINUE WHEN false;\n  EXIT;\nEND LOOP;"
+            ),
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, prefix in prefixes.items():
+                with self.subTest(path=path_label, prefix=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2320)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()
