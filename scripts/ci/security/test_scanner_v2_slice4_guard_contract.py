@@ -4339,5 +4339,237 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                     )
 
 
+    # ------------------------------------------------------------------
+    # Round 3. Independent review of the round 2 GREEN found two ways a
+    # statement can still reach PROVEN without its shape being proven.
+    #
+    # Frozen failed-GREEN base: 0106e2bba7509d05086c0ec2a366c09402f70ac8
+    #
+    # P1-1 safe-prefix smuggling. _is_accepted_statement_shape recognizes
+    # the first head and then stops asking: "NULL <anything>;" and
+    # "PERFORM 1 <anything>;" are accepted whole, so a recognized head
+    # carries arbitrary trailing syntax past the boundary.
+    #
+    # P1-2 assignment imprecision. _opens_assignment accepts any statement
+    # in which ":=" appears later, so "FETCH integer := 1;" is treated as
+    # an assignment because of a token that is not its operator.
+    #
+    # These fixtures are deliberately malformed PL/pgSQL, and that is the
+    # point: a static analyser must fail closed on a statement whose shape
+    # it cannot prove, and it cannot prove one it cannot even parse. That
+    # is a different obligation from the round 2 valid-family holdouts,
+    # which parse and execute. Both are required.
+    # ------------------------------------------------------------------
+
+    def _assert_shape_unproven(
+        self,
+        statement: str,
+        oid: int,
+        *,
+        args: str = "p_org uuid",
+        identity_args: str = "uuid",
+        declarations: str = "",
+    ) -> None:
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label):
+                self._assert_status(
+                    _run_producer(
+                        self._unproven_source(
+                            statement, args, declarations, guard
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=oid,
+                                    source_arguments=args,
+                                    identity_arguments=identity_args,
+                                )
+                            ]
+                        ),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_safe_head_cannot_smuggle_trailing_syntax(self) -> None:
+        """Recognizing a head is not recognizing the statement.
+
+        Every case here opens with a head the contract accepts and then
+        carries something the contract does not. Proving the prefix proves
+        nothing about what follows it on the same statement.
+        """
+        head = self._generated_unknown_head()
+        cursor_args = "p_org uuid, p_cursor refcursor"
+        cases = {
+            "null_then_generated_head": (f"NULL {head};", "", ""),
+            "null_then_cursor_fetch": (
+                "NULL FETCH p_cursor INTO v_row;",
+                cursor_args,
+                "v_row record;",
+            ),
+            "perform_then_generated_head": (f"PERFORM 1 {head};", "", ""),
+            "perform_then_cursor_fetch": (
+                "PERFORM 1 FETCH p_cursor INTO v_row;",
+                cursor_args,
+                "v_row record;",
+            ),
+            "null_then_async_family": (
+                "NULL UNLISTEN wardah_chan;",
+                "",
+                "",
+            ),
+            "perform_then_valid_family": (
+                "PERFORM 1 ANALYZE public.bins;",
+                "",
+                "",
+            ),
+        }
+        for index, (label, (statement, args, decls)) in enumerate(
+            cases.items()
+        ):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(
+                    statement,
+                    oid=2270 + index,
+                    args=args or "p_org uuid",
+                    identity_args=(
+                        "uuid,refcursor" if args else "uuid"
+                    ),
+                    declarations=decls,
+                )
+
+    def test_safe_head_smuggling_inside_a_branch_is_not_proven(self) -> None:
+        """The same smuggling one level in.
+
+        A compound statement is still one statement, so a recognized head
+        inside an IF branch must not license its trailing syntax either.
+        """
+        head = self._generated_unknown_head()
+        cursor_args = "p_org uuid, p_cursor refcursor"
+        cases = {
+            "branch_null_then_generated_head": (
+                f"IF true THEN\n  NULL {head};\nEND IF;",
+                "",
+                "",
+            ),
+            "branch_null_then_valid_family": (
+                (
+                    "IF true THEN\n"
+                    "  NULL COMMENT ON TABLE public.bins IS 'x';\n"
+                    "END IF;"
+                ),
+                "",
+                "",
+            ),
+            "branch_perform_then_cursor_fetch": (
+                (
+                    "IF true THEN\n"
+                    "  PERFORM 1 FETCH p_cursor INTO v_row;\n"
+                    "END IF;"
+                ),
+                cursor_args,
+                "v_row record;",
+            ),
+        }
+        for index, (label, (statement, args, decls)) in enumerate(
+            cases.items()
+        ):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(
+                    statement,
+                    oid=2280 + index,
+                    args=args or "p_org uuid",
+                    identity_args=(
+                        "uuid,refcursor" if args else "uuid"
+                    ),
+                    declarations=decls,
+                )
+
+    def test_assignment_recognition_is_structural_not_a_token_search(
+        self,
+    ) -> None:
+        """":=" somewhere later never makes a statement an assignment.
+
+        An assignment is a supported target, the assignment operator, and
+        an expression -- in that order, as the statement's own shape. A
+        command head followed by words that happen to precede ":=" is not
+        one, and must not inherit an assignment's proof.
+        """
+        head = self._generated_unknown_head()
+        cases = {
+            "generated_head_pseudo_target": f"{head} integer := 1;",
+            "cursor_head_pseudo_target": "FETCH integer := 1;",
+            "safe_prefix_trailing_assignment": "NULL integer := 1;",
+            # Already UNKNOWN on the frozen base, for an unrelated reason
+            # (the conversion check). Pinned so a structural fix cannot
+            # regress it into an accepted assignment.
+            "multi_word_pseudo_target": f"{head} foo bar := 1;",
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2290 + index)
+
+    def test_assignment_and_trailing_token_positives_are_preserved(
+        self,
+    ) -> None:
+        """The two over-corrections this round must not invite.
+
+        Rejecting every statement containing ":=" would close P1-2 and
+        break real assignments. Rejecting every recognized head that has
+        tokens after it would close P1-1 and break PERFORM 1 and every
+        control-flow statement. Both are pinned here.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="declared_assignment"):
+                block = _declare_block(
+                    "v_flag boolean;",
+                    f"v_flag := (p_org IS NOT NULL);\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2295)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+            with self.subTest(
+                path=path_label, label="declaration_initializer"
+            ):
+                block = _declare_block(
+                    "v_flag boolean := (p_org IS NOT NULL);", guard
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2296)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+            for label, prefix in (
+                ("perform_with_operand", "PERFORM 1;"),
+                (
+                    "control_flow_with_operands",
+                    "IF p_org IS NULL THEN\n  NULL;\nEND IF;",
+                ),
+            ):
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2297)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()
