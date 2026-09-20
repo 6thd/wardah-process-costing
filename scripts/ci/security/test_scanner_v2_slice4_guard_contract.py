@@ -525,6 +525,58 @@ def _corrupt_closer(source: str, index: int, tail: str) -> str:
     )
 
 
+#: Round 3F. Two semantic dimensions that rounds 3D and 3E each covered
+#: alone but never crossed: WHICH tail a closer carries, and WHERE that
+#: closer sits. Round 3D proved tail grammar mostly on an outer closer;
+#: round 3E proved every position but always with the generated tail.
+#: An implementation can satisfy both and still accept a reserved-word
+#: tail on a nested closer.
+CLOSER_TAIL_CLASSES = {
+    # Resolved at call time from the producer's bytes; round 3E already
+    # crosses this class with every position.
+    "generated": None,
+    # An ordinary unreserved identifier that resolves to nothing.
+    "identifier": "extra",
+    # A reserved statement keyword, which a tail-class-sensitive
+    # implementation may wrongly treat as part of the closer grammar.
+    "reserved": "FETCH",
+}
+
+#: Minimal covering set, deliberately not a Cartesian product: one entry
+#: per (closer type x position role x tail class) combination that the
+#: earlier rounds leave uncrossed.
+NESTED_COMPOSITION_CASES = (
+    ("if_over_case", 0, "reserved"),
+    ("if_over_case", 0, "identifier"),
+    ("case_over_if", 0, "reserved"),
+    ("case_over_if", 0, "identifier"),
+    ("labelled_inner_block", 0, "reserved"),
+    ("sibling_compounds", 0, "reserved"),
+    ("sibling_compounds", 1, "reserved"),
+)
+
+#: Depths exercised by the parametric generator. Round 3E reached depth 3,
+#: so a fixed-depth implementation unrolled to 3 -- or to 4 -- passes it.
+#: These go past both without simply moving the boundary once.
+DEPTH_CASES = (1, 2, 3, 4, 5, 6)
+
+
+def _depth_baseline(depth: int) -> str:
+    """A valid nested compound of the requested depth.
+
+    Alternating IF and CASE inside a BEGIN block, innermost body NULL.
+    Only constructs the existing positives already support, so every
+    generated baseline must prove unmodified.
+    """
+    body = "NULL;"
+    for level in range(depth - 1, -1, -1):
+        if level % 2 == 0:
+            body = f"IF true THEN\n{body}\nEND IF;"
+        else:
+            body = f"CASE\n  WHEN true THEN\n{body}\nEND CASE;"
+    return f"BEGIN\n{body}\nEND;"
+
+
 GUARD_PATHS = {
     "raising_assertion": (
         RAISING_GUARD_BODY,
@@ -5214,6 +5266,113 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
         # just depth 2; a shrunken baseline set cannot pass quietly.
         self.assertGreaterEqual(checked, 15)
         self.assertGreaterEqual(len(NESTED_CLOSER_BASELINES), 6)
+
+
+    # ==================================================================
+    # Round 3F. Composition, and depth that is generated rather than
+    # handwritten.
+    #
+    # Frozen base: 3d7848bf0f592186d13f6722915e13cf77995603
+    #
+    # Verified on that base: implementations that apply complete closer
+    # grammar only at the outer closer, and a weaker tail-class rule when
+    # nested, pass all 148 tests. So does one that applies complete
+    # grammar only through depth 3. Both keep concrete false PROVEN.
+    #
+    # The invariant: validate_closer depends on the closer's own grammar
+    # and local context -- never on its depth, its position among
+    # siblings, or which class its tail belongs to.
+    # ==================================================================
+
+    def _tail_for(self, tail_class: str) -> str:
+        value = CLOSER_TAIL_CLASSES[tail_class]
+        return self._generated_unknown_head() if value is None else value
+
+    def test_closer_tail_classes_compose_with_position(self) -> None:
+        """Tail class crossed with nested position.
+
+        Round 3E corrupts every position with the generated tail; round 3D
+        proves the tail classes at an outer closer. Neither forces the
+        complete grammar onto a NESTED closer carrying a reserved word or
+        a plain identifier, which is what these cases do.
+        """
+        for index, (baseline, position, tail_class) in enumerate(
+            NESTED_COMPOSITION_CASES
+        ):
+            source = NESTED_CLOSER_BASELINES[baseline]
+            spans = _closer_spans(source)
+            self.assertLess(position, len(spans))
+            corrupted = _corrupt_closer(
+                source, position, self._tail_for(tail_class)
+            )
+            with self.subTest(
+                baseline=baseline, position=position, tail=tail_class
+            ):
+                self._assert_shape_unproven(corrupted, oid=2440 + index)
+
+    def test_generated_depth_baselines_are_proven(self) -> None:
+        """Every generated depth must prove unmodified.
+
+        Forbids closing the depth gap by rejecting deep nesting.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for depth in DEPTH_CASES:
+                baseline = _depth_baseline(depth)
+                with self.subTest(path=path_label, depth=depth):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{baseline}\n{guard}"),
+                            _bindings_doc([_binding(oid=2450)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_closer_grammar_applies_at_every_depth(self) -> None:
+        """Generated depth crossed with every closer position and tail.
+
+        For each depth the test enumerates every closer and corrupts one
+        at a time with the generated tail, then repeats the deepest
+        closer with a reserved-word tail so depth and tail class are
+        crossed too. A fixed-depth unrolling dies on the first depth past
+        its limit rather than at a handwritten fixture.
+        """
+        generated = self._generated_unknown_head()
+        reserved = CLOSER_TAIL_CLASSES["reserved"]
+        checked = 0
+        deepest_seen = 0
+        for depth in DEPTH_CASES:
+            baseline = _depth_baseline(depth)
+            spans = _closer_spans(baseline)
+            self.assertEqual(len(spans), depth + 1)
+            for position in range(len(spans)):
+                corrupted = _corrupt_closer(baseline, position, generated)
+                self.assertNotEqual(corrupted, baseline)
+                with self.subTest(
+                    depth=depth, position=position, tail="generated"
+                ):
+                    self._assert_shape_unproven(
+                        corrupted, oid=2460 + checked
+                    )
+                checked += 1
+            # Deepest closer is position 0: the innermost compound closes
+            # first in source order.
+            with self.subTest(depth=depth, position=0, tail="reserved"):
+                self._assert_shape_unproven(
+                    _corrupt_closer(baseline, 0, reserved),
+                    oid=2460 + checked,
+                )
+            checked += 1
+            deepest_seen = max(deepest_seen, depth)
+        # Past the depth-3 maximum the earlier rounds reached, and past 4,
+        # so a boundary moved by one does not pass.
+        self.assertGreaterEqual(deepest_seen, 6)
+        self.assertGreaterEqual(checked, 33)
 
 
 if __name__ == "__main__":
