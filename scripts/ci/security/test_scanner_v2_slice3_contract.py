@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
-import subprocess
+import subprocess  # nosec B404 - fixed repo-local test harness commands only
 import sys
 import tempfile
 import unittest
@@ -98,7 +98,11 @@ def _run_policy(bindings: dict[str, Any], guards: dict[str, Any]) -> subprocess.
         guards_path = root / "guards.json"
         bindings_path.write_text(json.dumps(bindings), encoding="utf-8")
         guards_path.write_text(json.dumps(guards), encoding="utf-8")
-        return subprocess.run(
+        # argv is built exclusively from sys.executable, a fixed repo-local
+        # script path and tempfile paths this test owns; no external input
+        # reaches it.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+        return subprocess.run(  # nosec B603 - fixed interpreter and repo-local script
             [sys.executable, str(POLICY), "--bindings", str(bindings_path),
              "--guard-evidence", str(guards_path)],
             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
