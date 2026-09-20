@@ -1470,6 +1470,103 @@ def _prove_statement(
     return None
 
 
+#: Statement heads whose shape this slice positively recognizes as carrying
+#: no effect of its own. Control-flow keywords delimit sub-statements rather
+#: than doing anything; NULL is the explicit no-op; PERFORM's effect lives
+#: entirely in its expression, which ``is_effectless`` already judges.
+#:
+#: This is an ALLOWLIST, and it is the whole point. Judging a statement by
+#: its absence from a list of dangerous keywords is what let FETCH on a
+#: caller-supplied refcursor run before the authorization boundary and still
+#: be reported PROVEN. A head this slice does not recognize is not proven
+#: harmless, whatever it is, so it fails closed.
+SAFE_STATEMENT_HEADS = frozenset(
+    {
+        "NULL",
+        "PERFORM",
+        "IF",
+        "ELSIF",
+        "ELSE",
+        "THEN",
+        "CASE",
+        "WHEN",
+        "LOOP",
+        "WHILE",
+        "FOR",
+        "FOREACH",
+        "REVERSE",
+        "BEGIN",
+        "DECLARE",
+        "EXCEPTION",
+        "END",
+        "EXIT",
+        "CONTINUE",
+        "RETURN",
+        "RAISE",
+    }
+)
+
+#: Tokens after which a new sub-statement begins. A compound statement is one
+#: token stream, so without these an unrecognized head could hide inside an
+#: IF branch or a loop body and never sit at the statement's own start.
+_SUBSTATEMENT_OPENERS = frozenset({"THEN", "ELSE", "LOOP", "BEGIN", "DECLARE"})
+
+
+def _is_accepted_statement_shape(tokens: list[Token]) -> bool:
+    """True only for statement shapes this slice positively recognizes.
+
+    Walks the statement and every sub-statement it opens. At each start the
+    leading word must be a recognized head, or the sub-statement must be an
+    assignment (``target := expression``), whose effect is its expression's
+    and is judged by ``is_effectless``.
+
+    Deliberately not a PL/pgSQL parser: it decides recognized vs not
+    recognized, and everything not recognized fails closed.
+    """
+    at_start = True
+    in_label = False
+    for index, token in enumerate(tokens):
+        if token.text == ";":
+            at_start = True
+            continue
+        if in_label:
+            # A block label is part of the statement's opening, not a
+            # statement of its own; the real head follows ">>".
+            in_label = token.text != ">>"
+            continue
+        if at_start and token.text == "<<":
+            in_label = True
+            continue
+        if at_start and token.kind in ("num", "str"):
+            # A statement cannot begin with a literal; nothing to prove.
+            return False
+        if token.kind != "word":
+            continue
+        if at_start:
+            # The one non-keyword statement shape is an assignment.
+            recognized = token.upper in SAFE_STATEMENT_HEADS or (
+                _opens_assignment(tokens, index)
+            )
+            if not recognized:
+                return False
+            at_start = False
+        if token.upper in _SUBSTATEMENT_OPENERS:
+            at_start = True
+    return True
+
+
+def _opens_assignment(tokens: list[Token], index: int) -> bool:
+    """``target := ...`` starting at ``index``, before the sub-statement ends."""
+    for token in tokens[index + 1 :]:
+        if token.text == ":=":
+            return True
+        if token.text == ";":
+            return False
+        if token.kind == "word" and token.upper in _SUBSTATEMENT_OPENERS:
+            return False
+    return False
+
+
 def _reachable(
     masked: Masked,
     block: Block,
@@ -1483,6 +1580,8 @@ def _reachable(
         if _head_word(earlier) == "RAISE":
             return False
         if _exits_label(masked, earlier, block.label):
+            return False
+        if not _is_accepted_statement_shape(earlier):
             return False
         if not is_effectless(masked, earlier, scope):
             return False
@@ -1662,6 +1761,50 @@ def validate_bindings(document: Any) -> list[dict[str, Any]]:
     return bindings
 
 
+def _identity_matches(binding: dict[str, Any], routine: Routine) -> bool:
+    """The binding's whole identity, as ``check_identity`` compares it."""
+    return (
+        _fold_identifier(routine.name)
+        == _fold_identifier(binding["source_name"])
+        and _fold_identifier(routine.schema)
+        == _fold_identifier(binding["source_schema"])
+        and _normalize_arguments(routine.arguments)
+        == _normalize_arguments(binding["source_arguments"])
+        and routine.kind == str(binding["source_kind"]).upper()
+    )
+
+
+def resolve_statement(
+    masked: Masked, statements: list[Statement], binding: dict[str, Any]
+) -> Statement:
+    """Find the one source statement this binding identifies.
+
+    The binding producer numbers every non-empty semicolon-delimited
+    fragment; this slice keeps a ``BEGIN ATOMIC ... END`` routine whole. The
+    two numberings therefore drift by however many fragments each atomic
+    body contains, the drift accumulates, and it differs for every binding
+    that follows a different number of atomic bodies. No offset reconciles
+    them, so ``statement_index`` is not a position into this slice's list
+    and is not used as one.
+
+    What both sides do agree on, for the same source bytes, is the routine's
+    whole identity -- schema, name, argument signature and kind -- which the
+    binding already carries and which Slice 2 resolved against the catalog.
+    That identity is the locator here: exactly one statement may answer to
+    it. Zero matches or more than one is ambiguous, and ambiguity fails
+    closed rather than picking the nearest routine.
+    """
+    matches = [
+        statement
+        for statement in statements
+        for routine in [parse_routine(masked, statement)]
+        if routine is not None and _identity_matches(binding, routine)
+    ]
+    if len(matches) != 1:
+        raise EvidenceError("binding names a statement the source lacks")
+    return matches[0]
+
+
 def check_identity(binding: dict[str, Any], routine: Routine) -> None:
     bound_name = _fold_identifier(binding["source_name"])
     if _fold_identifier(routine.name) != bound_name:
@@ -1697,10 +1840,8 @@ def produce(
 
     records: list[dict[str, Any]] = []
     for binding in bindings:
-        index = binding["statement_index"]
-        if not 1 <= index <= len(statements):
-            raise EvidenceError("binding names a statement the source lacks")
-        statement = statements[index - 1]
+        statement = resolve_statement(masked, statements, binding)
+        index = statement.index
         routine = parse_routine(masked, statement)
         if routine is None:
             raise EvidenceError("bound statement is not a routine")
