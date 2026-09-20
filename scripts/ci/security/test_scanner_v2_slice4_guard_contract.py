@@ -577,6 +577,78 @@ def _depth_baseline(depth: int) -> str:
     return f"BEGIN\n{body}\nEND;"
 
 
+#: Round 3G. Rounds 3D-3F modelled an invalid closer remainder by tail
+#: CLASS -- generated identifier, plain identifier, reserved word. That is
+#: still a denylist of bad categories, and an implementation can satisfy
+#: it while trusting any leftover token the statement parser happens to
+#: recognize. The rule is simpler and stronger: the closer's whole token
+#: span must be consumed by one supported production.
+#:
+#:   END IF ;      END CASE ;      END LOOP ;
+#:   END ;         END <resolved-label> ;
+#:
+#: After that, the next significant token must be the semicolon. What the
+#: leftover token means to any other rule is irrelevant.
+
+#: Representative recognized heads, used when the safe-head set cannot be
+#: discovered. These behavioural controls are authoritative on their own.
+FIXED_REMAINDER_CONTROLS = ("NULL", "PERFORM", "IF", "CASE", "LOOP")
+
+#: Closers whose grammar is complete before the label slot, so ANY further
+#: token is unconsumed remainder.
+TERMINAL_CLOSER_PREFIXES = {
+    "end_if": "IF true THEN\n  NULL;\nEND IF",
+    "end_case": "CASE\n  WHEN true THEN NULL;\nEND CASE",
+}
+
+#: Plain block END, whose only optional element is a resolved label.
+PLAIN_CLOSER_PREFIX = "BEGIN\n  NULL;\nEND"
+
+#: Remainder placed at a nested / labelled / sibling closer rather than an
+#: outer one, so complete consumption is crossed with position.
+REMAINDER_POSITION_CASES = (
+    ("if_over_case", 0, "NULL"),
+    ("if_over_case", 0, "PERFORM"),
+    ("case_over_if", 0, "PERFORM"),
+    ("labelled_inner_block", 0, "NULL"),
+    ("labelled_inner_block", 0, "PERFORM"),
+    ("sibling_compounds", 0, "NULL"),
+    ("sibling_compounds", 1, "PERFORM"),
+)
+
+#: Non-word remainders. "No additional non-trivia token" covers literals
+#: and quoted identifiers as squarely as it covers words, so a rule that
+#: only inspects word tokens leaves these open.
+#:
+#: A string-literal remainder is deliberately NOT here. The accepted
+#: lexer masks a literal to blanks INCLUDING its quotes, so
+#: ``END IF 'lit';`` tokenizes to exactly ``END IF ;`` and is
+#: indistinguishable from the valid closer at the token layer. Requiring
+#: it would force the closer recognizer to consult raw source and would
+#: reopen the reviewed masking contract for a remainder that, being
+#: masked, executes nothing. Numbers and quoted identifiers survive
+#: masking and are required below.
+NON_WORD_REMAINDERS = (
+    ("end_if", "1"),
+    ("end_case", "1"),
+    ("end_if", '"x"'),
+    # Plain END, where no closer keyword precedes the remainder. Without
+    # this an implementation can accept a wholly non-word remainder while
+    # still rejecting one that follows IF or CASE.
+    ("plain_end", "1"),
+    ("plain_end", '"x"'),
+)
+
+#: Multi-token remainders. The first token is a legal label or closer
+#: keyword, so an implementation that validates one optional token and
+#: stops accepts the rest.
+MULTI_TOKEN_REMAINDERS = (
+    ("if_over_case", 1, "NULL FETCH"),
+    ("labelled_inner_block", 0, "NULL FETCH"),
+    ("labelled_inner_block", 1, "PERFORM extra"),
+)
+
+
 GUARD_PATHS = {
     "raising_assertion": (
         RAISING_GUARD_BODY,
@@ -5373,6 +5445,143 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
         # so a boundary moved by one does not pass.
         self.assertGreaterEqual(deepest_seen, 6)
         self.assertGreaterEqual(checked, 33)
+
+
+    # ==================================================================
+    # Round 3G. Complete closer-remainder consumption.
+    #
+    # Frozen base: 14fde063e0f9e7b71aa02c6310ad378450231fe5
+    #
+    # Verified there: 17 of the 21 recognized heads pass as an END IF or
+    # END CASE remainder, and the same holds nested, after a resolved
+    # label, in either sibling, and for multi-token tails. An
+    # implementation that rejects the round 3D-3F tail classes but trusts
+    # a leftover token because the statement parser knows it passes all
+    # 151 earlier tests.
+    #
+    # The contract below is stated positively: after the supported closer
+    # production, the next significant token is the semicolon.
+    # ==================================================================
+
+    def _remainder_heads(self) -> tuple[list[str], bool]:
+        """The recognized head set, or fixed controls if undiscoverable."""
+        heads = _discover_recognized_heads()
+        if heads is None:
+            return list(FIXED_REMAINDER_CONTROLS), False
+        return sorted(heads), True
+
+    def test_closer_remainder_must_be_fully_consumed(self) -> None:
+        """No recognized head may survive as closer remainder.
+
+        Data-driven over the producer's own head set, so a head added
+        later is covered without editing this test. Runs one guard path:
+        the path dimension is crossed exhaustively by the fixed controls
+        below and by every earlier round, and running both here would
+        double a 40-token sweep for no new discrimination.
+        """
+        heads, discovered = self._remainder_heads()
+        self.assertGreaterEqual(len(heads), len(FIXED_REMAINDER_CONTROLS))
+        guard, _, _ = GUARD_PATHS["raising_assertion"]
+        checked = 0
+        for label, prefix in TERMINAL_CLOSER_PREFIXES.items():
+            for head in heads:
+                statement = f"{prefix} {head};"
+                with self.subTest(
+                    closer=label, remainder=head, discovered=discovered
+                ):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{statement}\n{guard}"),
+                            _bindings_doc([_binding(oid=2480)]),
+                        ),
+                        "UNKNOWN",
+                    )
+                checked += 1
+        self.assertGreaterEqual(checked, 2 * len(heads))
+
+    def test_fixed_recognized_head_remainders_fail_closed(self) -> None:
+        """The same rule, pinned on both guard paths and independent of
+        discovery.
+
+        If the safe-head set is ever redesigned out of reach, these stay
+        authoritative: NULL and PERFORM as an END IF or END CASE
+        remainder must fail closed whatever the scanner knows about them.
+        """
+        for index, (closer, remainder) in enumerate(
+            (
+                ("end_if", "NULL"),
+                ("end_if", "PERFORM"),
+                ("end_case", "NULL"),
+                ("end_case", "PERFORM"),
+            )
+        ):
+            statement = f"{TERMINAL_CLOSER_PREFIXES[closer]} {remainder};"
+            with self.subTest(closer=closer, remainder=remainder):
+                self._assert_shape_unproven(statement, oid=2490 + index)
+
+    def test_recognized_head_remainder_fails_at_every_position(
+        self,
+    ) -> None:
+        """Complete consumption crossed with nested, labelled and sibling
+        closers, so this is not an outer-depth-only rule."""
+        for index, (baseline, position, remainder) in enumerate(
+            REMAINDER_POSITION_CASES
+        ):
+            source = NESTED_CLOSER_BASELINES[baseline]
+            self.assertLess(position, len(_closer_spans(source)))
+            with self.subTest(
+                baseline=baseline, position=position, remainder=remainder
+            ):
+                self._assert_shape_unproven(
+                    _corrupt_closer(source, position, remainder),
+                    oid=2500 + index,
+                )
+
+    def test_non_word_closer_remainders_fail_closed(self) -> None:
+        """Literals and quoted identifiers are remainder too.
+
+        The rule is "no additional non-trivia token", not "no additional
+        word". An implementation inspecting only word tokens accepts
+        these, and a labelled closer carrying a quoted identifier is the
+        same escape one level in.
+        """
+        for index, (closer, remainder) in enumerate(NON_WORD_REMAINDERS):
+            prefix = (
+                PLAIN_CLOSER_PREFIX
+                if closer == "plain_end"
+                else TERMINAL_CLOSER_PREFIXES[closer]
+            )
+            statement = f"{prefix} {remainder};"
+            with self.subTest(closer=closer, remainder=remainder):
+                self._assert_shape_unproven(statement, oid=2520 + index)
+        nested = _corrupt_closer(
+            NESTED_CLOSER_BASELINES["labelled_inner_block"], 0, '"x"'
+        )
+        with self.subTest(case="labelled_inner_quoted_remainder"):
+            self._assert_shape_unproven(nested, oid=2529)
+
+    def test_closer_remainder_consumption_is_not_first_token_only(
+        self,
+    ) -> None:
+        """A legal first token does not license the tokens after it.
+
+        Each remainder here begins with something a closer may legally
+        carry -- a label, or a recognized word -- and then continues.
+        Validating one optional token and stopping accepts these.
+        """
+        for index, (baseline, position, remainder) in enumerate(
+            MULTI_TOKEN_REMAINDERS
+        ):
+            source = NESTED_CLOSER_BASELINES[baseline]
+            self.assertLess(position, len(_closer_spans(source)))
+            self.assertIn(" ", remainder)
+            with self.subTest(
+                baseline=baseline, position=position, remainder=remainder
+            ):
+                self._assert_shape_unproven(
+                    _corrupt_closer(source, position, remainder),
+                    oid=2510 + index,
+                )
 
 
 if __name__ == "__main__":
