@@ -1512,59 +1512,189 @@ SAFE_STATEMENT_HEADS = frozenset(
 _SUBSTATEMENT_OPENERS = frozenset({"THEN", "ELSE", "LOOP", "BEGIN", "DECLARE"})
 
 
-def _is_accepted_statement_shape(tokens: list[Token]) -> bool:
+def _split_substatements(tokens: list[Token]) -> list[list[Token]]:
+    """Every sub-statement a compound opens, in source order.
+
+    A compound statement is one token stream, so the walk must re-enter
+    after each opener as well as after each semicolon. Without that an
+    unrecognized head hides inside an IF branch or a loop body.
+    """
+    groups: list[list[Token]] = []
+    current: list[Token] = []
+    for token in tokens:
+        if token.text == ";":
+            if current:
+                groups.append(current)
+            current = []
+            continue
+        current.append(token)
+        if token.kind == "word" and token.upper in _SUBSTATEMENT_OPENERS:
+            groups.append(current)
+            current = []
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _strip_block_label(
+    masked: Masked, tokens: list[Token]
+) -> tuple[list[Token], str | None]:
+    """Consume a leading ``<<label>>`` and return the rest plus its identity."""
+    if not tokens or tokens[0].text != "<<":
+        return tokens, None
+    label: str | None = None
+    index = 1
+    while index < len(tokens) and tokens[index].text != ">>":
+        if label is None:
+            label = _read_label(masked, tokens[index])
+        index += 1
+    return tokens[index + 1 :], label
+
+
+def _condition_span(tokens: list[Token]) -> list[Token]:
+    """The condition a control head owns, up to THEN or LOOP."""
+    for index, token in enumerate(tokens):
+        if token.kind == "word" and token.upper in ("THEN", "LOOP"):
+            return tokens[:index]
+    return tokens
+
+
+def _proven_condition(
+    masked: Masked, condition: list[Token], scope: dict[str, str]
+) -> bool:
+    """One condition rule for every head that owns a condition."""
+    if not condition:
+        return False
+    return expression_type(masked, condition, scope) == "boolean"
+
+
+def _closer_is_complete(
+    masked: Masked, tail: list[Token], labels: set[str]
+) -> bool:
+    """The supported closer productions, consumed whole.
+
+    ``END ;`` ``END IF ;`` ``END CASE ;`` ``END LOOP ;`` ``END <label> ;``
+
+    After the production the next significant token must be the
+    terminator. This is a positive match, not a list of forbidden tails:
+    what a leftover token means to any other rule is irrelevant, and a
+    leftover that is a familiar statement head is remainder like any
+    other. Non-word tokens count too -- a number or a quoted identifier
+    is lexically present even though it is not a word.
+    """
+    significant = [token for token in tail if token.text != ";"]
+    if not significant:
+        return True
+    first = significant[0]
+    if first.kind not in ("word", "qident"):
+        return False
+    if first.kind == "word" and first.upper in ("IF", "CASE", "LOOP"):
+        return len(significant) == 1
+    resolved = _read_label(masked, first)
+    if resolved is None or resolved not in labels:
+        return False
+    return len(significant) == 1
+
+
+def _is_accepted_statement_shape(
+    masked: Masked, tokens: list[Token], scope: dict[str, str]
+) -> bool:
     """True only for statement shapes this slice positively recognizes.
 
-    Walks the statement and every sub-statement it opens. At each start the
-    leading word must be a recognized head, or the sub-statement must be an
-    assignment (``target := expression``), whose effect is its expression's
-    and is judged by ``is_effectless``.
+    Recognizing a head is not recognizing a statement. Each supported
+    family validates the grammar fragment it owns, every sub-statement a
+    compound opens is validated in turn, and every closer occurrence is
+    matched against the complete closer grammar regardless of its depth,
+    its position among siblings or which construct it closes.
 
-    Deliberately not a PL/pgSQL parser: it decides recognized vs not
-    recognized, and everything not recognized fails closed.
+    Deliberately not a PL/pgSQL parser: it decides recognized versus not
+    recognized over a bounded grammar subset, and everything it cannot
+    positively match fails closed.
     """
-    at_start = True
-    in_label = False
-    for index, token in enumerate(tokens):
-        if token.text == ";":
-            at_start = True
+    substatements = _split_substatements(tokens)
+    labels: set[str] = set()
+    for group in substatements:
+        _, label = _strip_block_label(masked, group)
+        if label is not None:
+            labels.add(label)
+
+    for group in substatements:
+        rest, _ = _strip_block_label(masked, group)
+        if not rest:
             continue
-        if in_label:
-            # A block label is part of the statement's opening, not a
-            # statement of its own; the real head follows ">>".
-            in_label = token.text != ">>"
-            continue
-        if at_start and token.text == "<<":
-            in_label = True
-            continue
-        if at_start and token.kind in ("num", "str"):
-            # A statement cannot begin with a literal; nothing to prove.
+        words = [token for token in rest if token.kind == "word"]
+        if not words:
+            # Punctuation only; a statement cannot begin with a literal.
+            return not any(token.kind in ("num", "str") for token in rest)
+        head = words[0]
+        if rest[0] is not head and rest[0].kind in ("num", "str"):
             return False
-        if token.kind != "word":
-            continue
-        if at_start:
-            # The one non-keyword statement shape is an assignment.
-            recognized = token.upper in SAFE_STATEMENT_HEADS or (
-                _opens_assignment(tokens, index)
-            )
-            if not recognized:
+        tail = rest[rest.index(head) + 1 :]
+        tail_words = [token for token in tail if token.kind == "word"]
+        upper = head.upper
+
+        if upper in ("NULL", "PERFORM"):
+            # NULL is the whole statement; PERFORM's effect is its
+            # expression's, which is_effectless already judges. Neither
+            # may carry a further statement.
+            if tail_words:
                 return False
-            at_start = False
-        if token.upper in _SUBSTATEMENT_OPENERS:
-            at_start = True
+        elif upper in ("IF", "ELSIF", "WHILE", "WHEN"):
+            if not _proven_condition(
+                masked, _condition_span(tail), scope
+            ):
+                return False
+        elif upper == "CASE":
+            # Only the searched form is supported; a simple CASE operand
+            # cannot be resolved here and stays unproven.
+            if tail_words:
+                if tail_words[0].upper != "WHEN":
+                    return False
+                after = tail[tail.index(tail_words[0]) + 1 :]
+                if not _proven_condition(
+                    masked, _condition_span(after), scope
+                ):
+                    return False
+        elif upper in ("EXIT", "CONTINUE"):
+            consumed = 0
+            if tail_words and tail_words[0].upper != "WHEN":
+                resolved = _read_label(masked, tail_words[0])
+                if resolved is None or resolved not in labels:
+                    return False
+                consumed = 1
+            if len(tail_words) > consumed:
+                if tail_words[consumed].upper != "WHEN":
+                    return False
+                after = tail[tail.index(tail_words[consumed]) + 1 :]
+                if not _proven_condition(masked, after, scope):
+                    return False
+        elif upper in ("FOR", "FOREACH", "REVERSE"):
+            # No iterator grammar is supported; conservative UNKNOWN.
+            return False
+        elif upper == "END":
+            if not _closer_is_complete(masked, tail, labels):
+                return False
+        elif upper in _SUBSTATEMENT_OPENERS or upper in (
+            "RETURN",
+            "RAISE",
+            "ELSE",
+        ):
+            # Openers introduce sub-statements, which this loop validates
+            # in turn. RETURN and RAISE are owned by reachability.
+            continue
+        elif not _opens_assignment(rest, rest.index(head)):
+            return False
     return True
 
 
 def _opens_assignment(tokens: list[Token], index: int) -> bool:
-    """``target := ...`` starting at ``index``, before the sub-statement ends."""
-    for token in tokens[index + 1 :]:
-        if token.text == ":=":
-            return True
-        if token.text == ";":
-            return False
-        if token.kind == "word" and token.upper in _SUBSTATEMENT_OPENERS:
-            return False
-    return False
+    """``target := ...``: the operator follows the target immediately.
+
+    The mere later presence of ``:=`` is not an assignment; a command head
+    followed by words that happen to precede it is not one either.
+    """
+    nxt = tokens[index + 1] if index + 1 < len(tokens) else None
+    return nxt is not None and nxt.text == ":="
 
 
 def _reachable(
@@ -1581,7 +1711,7 @@ def _reachable(
             return False
         if _exits_label(masked, earlier, block.label):
             return False
-        if not _is_accepted_statement_shape(earlier):
+        if not _is_accepted_statement_shape(masked, earlier, scope):
             return False
         if not is_effectless(masked, earlier, scope):
             return False
