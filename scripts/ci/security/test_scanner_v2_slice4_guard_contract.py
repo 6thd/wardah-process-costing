@@ -15,6 +15,7 @@ replay ACL state.
 
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
 import json
@@ -353,6 +354,72 @@ VALID_UNFAMILIAR_STATEMENTS = {
         "SECURITY LABEL FOR dummy ON TABLE public.bins IS 'x';"
     ),
 }
+
+
+#: Round 3C contract-side classification of every statement head the
+#: producer recognizes. Grouped by the grammar fragment each head owns,
+#: because "which remainder must be validated" is a property of the
+#: family, not of the keyword. Exactly one family per head; the
+#: exhaustiveness guard enforces both halves.
+SAFE_HEAD_FAMILIES = {
+    # An exact no-op: the statement is the word.
+    "no_op": frozenset({"NULL"}),
+    # Discards one expression; its effect is the expression's.
+    "expression_statement": frozenset({"PERFORM"}),
+    # Owns a boolean condition that must itself be proven.
+    "condition_header": frozenset({"IF", "ELSIF", "WHILE", "WHEN"}),
+    # Control transfer; optional label and optional WHEN condition.
+    "transfer": frozenset({"EXIT", "CONTINUE"}),
+    # CASE header plus its arms, each arm owning a condition.
+    "case_grammar": frozenset({"CASE"}),
+    # Iterator headers. No positive support is claimed for these.
+    "iterator_header": frozenset({"FOR", "FOREACH", "REVERSE"}),
+    # Delimiters and openers; they introduce sub-statements.
+    "structural": frozenset(
+        {"THEN", "ELSE", "LOOP", "BEGIN", "DECLARE", "EXCEPTION", "END"}
+    ),
+    # Reachability, owned by the reachability contract, not this one.
+    "terminator": frozenset({"RETURN", "RAISE"}),
+}
+
+
+def _discover_recognized_heads() -> set[str] | None:
+    """The producer's recognized head set, read from its source.
+
+    Structural discovery, not an import and not a hardcoded copy:
+    ``NAME = frozenset({...})`` of plain strings. Returns None when the
+    implementation no longer exposes that shape, which is a legitimate
+    redesign rather than a contract failure.
+    """
+    tree = ast.parse(PRODUCER.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        targets = [
+            target.id
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        ]
+        if "SAFE_STATEMENT_HEADS" not in targets:
+            continue
+        value = node.value
+        if not (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "frozenset"
+            and len(value.args) == 1
+            and isinstance(value.args[0], ast.Set)
+        ):
+            return None
+        members = set()
+        for element in value.args[0].elts:
+            if not isinstance(element, ast.Constant) or not isinstance(
+                element.value, str
+            ):
+                return None
+            members.add(element.value)
+        return members
+    return None
 
 
 GUARD_PATHS = {
@@ -4671,6 +4738,206 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                         mechanism=mechanism,
                         proof_class=proof_class,
                     )
+
+
+    # ==================================================================
+    # Round 3C. Rounds 3 and 3B closed heads one at a time, and a
+    # selective GREEN passed all 138 tests while FOR, FOREACH, REVERSE
+    # and the searched-CASE condition stayed prefix-only. Naming four
+    # more heads would only move the frontier again.
+    #
+    # Frozen base: 1d59aa02471896d7a50d228599407166daf9a198
+    #
+    # This round states the invariant once and binds it to the whole
+    # recognized head universe:
+    #
+    #   recognized head + validated grammar fragment  -> may prove
+    #   recognized head + unvalidated remainder       -> never proves
+    #
+    # Three mechanisms carry it: an exhaustiveness guard over every head
+    # the producer recognizes, a metamorphic condition check that holds
+    # one unresolved expression constant across every head that owns a
+    # condition, and structural pins for the delimiters.
+    # ==================================================================
+
+    def test_every_recognized_safe_head_has_a_contract_family(self) -> None:
+        """No head may be recognized without a classification here.
+
+        Read from the producer's source rather than imported, so this
+        cannot execute it, and discovered structurally rather than
+        assumed: if the implementation is redesigned and the set is no
+        longer discoverable this guard stands down and the behavioural
+        tests below remain authoritative. What it must never allow is a
+        head silently joining the recognized set with no contract.
+        """
+        heads = _discover_recognized_heads()
+        if heads is None:
+            # Redesigned away. Behaviour, not this constant, is the
+            # contract; the family tests below still bind every shape.
+            return
+        classified: dict[str, str] = {}
+        for family, members in SAFE_HEAD_FAMILIES.items():
+            for member in members:
+                self.assertNotIn(
+                    member,
+                    classified,
+                    msg=f"{member} classified twice",
+                )
+                classified[member] = family
+        self.assertEqual(
+            heads,
+            set(classified),
+            msg=(
+                "every recognized head needs exactly one contract family; "
+                f"unclassified={sorted(heads - set(classified))} "
+                f"stale={sorted(set(classified) - heads)}"
+            ),
+        )
+
+    def test_iterator_headers_must_validate_their_remainder(self) -> None:
+        """FOR / FOREACH / REVERSE recognized, remainder unchecked.
+
+        All four are malformed PL/pgSQL, which is the honest
+        classification and also the obligation: an iterator head must not
+        carry a statement the producer cannot prove. No positive is
+        required here -- a grammar-valid FOR header is already UNKNOWN on
+        the frozen base, so conservatively rejecting the whole family
+        remains an acceptable GREEN.
+        """
+        head = self._generated_unknown_head()
+        cursor_args = "p_org uuid, p_cursor refcursor"
+        cases = {
+            "for_cursor_fetch": (
+                "FOR FETCH p_cursor INTO v_row;",
+                cursor_args,
+                "v_row record;",
+            ),
+            "foreach_cursor_fetch": (
+                "FOREACH FETCH p_cursor INTO v_row;",
+                cursor_args,
+                "v_row record;",
+            ),
+            "reverse_cursor_fetch": (
+                "REVERSE FETCH p_cursor INTO v_row;",
+                cursor_args,
+                "v_row record;",
+            ),
+            "for_generated_head": (f"FOR {head};", "", ""),
+        }
+        for index, (label, (statement, args, decls)) in enumerate(
+            cases.items()
+        ):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(
+                    statement,
+                    oid=2330 + index,
+                    args=args or "p_org uuid",
+                    identity_args="uuid,refcursor" if args else "uuid",
+                    declarations=decls,
+                )
+
+    def test_searched_case_arms_must_prove_their_conditions(self) -> None:
+        """WHEN is recognized; the condition it owns is not checked.
+
+        The first two are valid PostgreSQL -- a searched CASE whose arm
+        tests an identifier nothing declares -- so the gap is not about
+        malformed input. The second pins a later arm specifically: proving
+        the first arm proves nothing about the rest.
+        """
+        head = self._generated_unknown_head()
+        cases = {
+            "case_when_generated_condition": (
+                f"CASE\n  WHEN {head} THEN\n    NULL;\nEND CASE;"
+            ),
+            "case_second_arm_generated_condition": (
+                "CASE\n"
+                "  WHEN true THEN NULL;\n"
+                f"  WHEN {head} THEN NULL;\n"
+                "END CASE;"
+            ),
+            "case_when_cursor_head": (
+                "CASE WHEN FETCH THEN NULL; END CASE;"
+            ),
+            "bare_when_cursor_head": "WHEN FETCH THEN NULL;",
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2340 + index)
+
+    def test_one_unproven_condition_fails_every_condition_owner(
+        self,
+    ) -> None:
+        """The metamorphic core of this round.
+
+        One unresolved expression, held constant, placed in the condition
+        slot of every head that owns one. IF and WHILE already refuse it;
+        ELSIF, searched-CASE WHEN, EXIT WHEN and CONTINUE WHEN accept it
+        on the frozen base. The principle is the same in all six, so a
+        GREEN that routes conditions through one check passes all six and
+        a GREEN that patches them one at a time cannot.
+        """
+        head = self._generated_unknown_head()
+        owners = {
+            "if": f"IF {head} THEN\n  NULL;\nEND IF;",
+            "while": f"WHILE {head} LOOP\n  EXIT;\nEND LOOP;",
+            "elsif": (
+                "IF false THEN\n"
+                "  NULL;\n"
+                f"ELSIF {head} THEN\n"
+                "  NULL;\n"
+                "END IF;"
+            ),
+            "searched_case_when": (
+                f"CASE\n  WHEN {head} THEN NULL;\nEND CASE;"
+            ),
+            "exit_when": f"LOOP\n  EXIT WHEN {head};\nEND LOOP;",
+            "continue_when": (
+                f"LOOP\n  CONTINUE WHEN {head};\n  EXIT;\nEND LOOP;"
+            ),
+        }
+        for index, (label, statement) in enumerate(owners.items()):
+            with self.subTest(owner=label):
+                self._assert_shape_unproven(statement, oid=2350 + index)
+
+    def test_structural_heads_cannot_open_an_unprovable_statement(
+        self,
+    ) -> None:
+        """Delimiters carry sub-statements, never a licence for them.
+
+        These pass on the frozen base -- the sub-statement walk already
+        re-enters at each opener -- and are pinned so a remainder-
+        validating GREEN cannot regress the property while rearranging
+        how heads are recognized. Every fixture is valid PL/pgSQL.
+        """
+        cursor_args = "p_org uuid, p_cursor refcursor"
+        fetch = "FETCH p_cursor INTO v_row;"
+        openers = {
+            "then": f"IF true THEN\n  {fetch}\nEND IF;",
+            "else": (
+                f"IF false THEN\n  NULL;\nELSE\n  {fetch}\nEND IF;"
+            ),
+            "loop": f"LOOP\n  {fetch}\n  EXIT;\nEND LOOP;",
+            "begin": f"BEGIN\n  {fetch}\nEND;",
+            "declare": (
+                f"DECLARE\n  v_x integer;\nBEGIN\n  {fetch}\nEND;"
+            ),
+            "exception": (
+                "BEGIN\n"
+                "  NULL;\n"
+                "EXCEPTION WHEN others THEN\n"
+                f"  {fetch}\n"
+                "END;"
+            ),
+        }
+        for index, (label, statement) in enumerate(openers.items()):
+            with self.subTest(opener=label):
+                self._assert_shape_unproven(
+                    statement,
+                    oid=2360 + index,
+                    args=cursor_args,
+                    identity_args="uuid,refcursor",
+                    declarations="v_row record;",
+                )
 
 
 if __name__ == "__main__":
