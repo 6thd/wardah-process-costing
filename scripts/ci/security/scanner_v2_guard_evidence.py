@@ -640,6 +640,27 @@ def _condition_of(tokens: list[Token]) -> list[Token] | None:
     return None
 
 
+def _applies_as_call(tokens: list[Token], index: int) -> bool:
+    """The one rule for "this identifier is being applied".
+
+    An identifier followed by ``(`` is a call whether it is written bare
+    or quoted -- quoting changes an identifier's spelling, never whether
+    applying it executes something.
+
+    The keyword exemptions in NON_CALL_WORDS belong to real unquoted
+    keywords. A quoted identifier never inherits them: ``"NULL"()`` names
+    a routine, it is not the no-op statement.
+    """
+    token = tokens[index]
+    if token.kind == "word":
+        if token.upper in NON_CALL_WORDS:
+            return False
+    elif token.kind != "qident":
+        return False
+    nxt = tokens[index + 1] if index + 1 < len(tokens) else None
+    return nxt is not None and nxt.text == "("
+
+
 def is_effectless(
     masked: Masked,
     tokens: list[Token],
@@ -659,17 +680,12 @@ def is_effectless(
     leaves the span unproven.
     """
     for index, token in enumerate(tokens):
+        if _applies_as_call(tokens, index):
+            return False
         if token.kind in ("num", "qident"):
             continue
         if token.kind == "word":
             if token.upper in EFFECT_WORDS:
-                return False
-            nxt = tokens[index + 1] if index + 1 < len(tokens) else None
-            if (
-                nxt is not None
-                and nxt.text == "("
-                and token.upper not in NON_CALL_WORDS
-            ):
                 return False
             continue
         if token.text in SAFE_OPERATORS:

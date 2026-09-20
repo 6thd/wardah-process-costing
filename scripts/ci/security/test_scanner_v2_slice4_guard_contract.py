@@ -5584,5 +5584,35 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                 )
 
 
+    # ------------------------------------------------------------------
+    # Quoted function application. Independent implementation review of
+    # the GREEN at d59ee4dc5b0285a55021d0507056dedab959c3c4 found that
+    # call detection only recognized an UNQUOTED identifier applied with
+    # parentheses, so a quoted callee ran before the authorization
+    # boundary and the routine was still reported PROVEN.
+    #
+    # Every case below is valid PL/pgSQL, not malformed input, and every
+    # callee is an ordinary routine rather than a reviewed guard helper.
+    # ------------------------------------------------------------------
+
+    def test_quoted_identifier_application_is_a_call(self) -> None:
+        """A quoted callee applied with parentheses is a call.
+
+        Quoting changes an identifier's spelling, never whether applying
+        it executes something. A quoted identifier must not inherit the
+        keyword exemptions either: "NULL" is a routine name, not the
+        no-op statement.
+        """
+        cases = {
+            "bare_quoted_callee": 'PERFORM "side_effect"();',
+            "qualified_quoted_callee": 'PERFORM public."side_effect"();',
+            "fully_quoted_callee": 'PERFORM "public"."side_effect"();',
+            "quoted_keyword_callee": 'PERFORM "NULL"();',
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2530 + index)
+
+
 if __name__ == "__main__":
     unittest.main()
