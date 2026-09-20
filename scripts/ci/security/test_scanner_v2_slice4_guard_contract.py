@@ -271,6 +271,59 @@ IMPURE_CALL = "pg_catalog.pg_try_advisory_lock(42)"
 # U+1D400 MATHEMATICAL BOLD CAPITAL A: 4 UTF-8 bytes, above the BMP.
 ASTRAL = "\U0001D400"
 
+#: Valid PL/pgSQL statements, each executable, each reaching something the
+#: producer cannot see. Grouped by command family on purpose.
+UNPROVEN_STATEMENT_FAMILIES = {
+    # Cursor family: executes the caller's already-bound query.
+    "cursor_fetch": (
+        "FETCH p_cursor INTO v_row;",
+        "p_org uuid, p_cursor refcursor",
+        "uuid,refcursor",
+    ),
+    "cursor_fetch_directional": (
+        "FETCH NEXT FROM p_cursor INTO v_row;",
+        "p_org uuid, p_cursor refcursor",
+        "uuid,refcursor",
+    ),
+    "cursor_move": (
+        "MOVE FORWARD 1 FROM p_cursor;",
+        "p_org uuid, p_cursor refcursor",
+        "uuid,refcursor",
+    ),
+    "cursor_close": (
+        "CLOSE p_cursor;",
+        "p_org uuid, p_cursor refcursor",
+        "uuid,refcursor",
+    ),
+    # Anonymous block: arbitrary PL/pgSQL inside a masked dollar quote.
+    "anonymous_do_block": (
+        "DO $inner$ BEGIN PERFORM public.side_effect(); END $inner$;",
+        "p_org uuid",
+        "uuid",
+    ),
+    # Session/config family: search_path rebinding ahead of a guard is a
+    # classic SECURITY DEFINER escalation primitive.
+    "set_local_search_path": (
+        "SET LOCAL search_path TO public;",
+        "p_org uuid",
+        "uuid",
+    ),
+    "reset_search_path": ("RESET search_path;", "p_org uuid", "uuid"),
+    # Async notification family.
+    "listen": ("LISTEN wardah_chan;", "p_org uuid", "uuid"),
+    "notify": ("NOTIFY wardah_chan;", "p_org uuid", "uuid"),
+    "unlisten": ("UNLISTEN wardah_chan;", "p_org uuid", "uuid"),
+    # Ownership family.
+    "reassign_owned": (
+        "REASSIGN OWNED BY postgres TO postgres;",
+        "p_org uuid",
+        "uuid",
+    ),
+    # PL/pgSQL assertion: evaluates an arbitrary boolean expression.
+    "assert_statement": ("ASSERT v_flag;", "p_org uuid", "uuid"),
+}
+
+
 GUARD_PATHS = {
     "raising_assertion": (
         RAISING_GUARD_BODY,
@@ -3965,6 +4018,205 @@ class Slice4GuardEvidenceContract(unittest.TestCase):
                 self.assertIsNone(record["guard_mechanism"])
                 self.assertIsNone(record["evidence_location"])
                 self.assertIsNone(record["proof_class"])
+
+
+    # ------------------------------------------------------------------
+    # P1 remediation contract: effectlessness must be PROVEN, not
+    # "absent from a keyword denylist".
+    #
+    # Frozen failed-acceptance baseline: 51fd7b4065b26a36fb007232c1ba16221086fc5c
+    #
+    # On that head ``is_effectless`` accepts any bare-word token stream whose
+    # head is missing from EFFECT_WORDS and which is not syntactically a
+    # ``name(...)`` call. That is a denylist wearing an allowlist's docstring,
+    # and it produced a real false PROVEN end-to-end: a client-callable,
+    # runtime-OPEN SECURITY DEFINER routine that runs FETCH on a caller
+    # supplied refcursor before its guard was reported PROVEN by this
+    # producer and PASS_GUARDED by the accepted Slice 3 policy.
+    #
+    # These fixtures deliberately span disjoint PostgreSQL command families so
+    # that no keyword-list extension can satisfy them. The guarantee under
+    # test is structural: an outer-level statement whose shape the producer
+    # cannot positively prove harmless must not yield PROVEN.
+    # ------------------------------------------------------------------
+
+    def _assert_prefix_unproven(self, label: str, oid: int) -> None:
+        statement, args, identity_args = UNPROVEN_STATEMENT_FAMILIES[
+            label
+        ]
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, prefix=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            f"{statement}\n{guard}", args=args
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=oid,
+                                    source_arguments=args,
+                                    identity_arguments=identity_args,
+                                )
+                            ]
+                        ),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_unproven_outer_level_statement_head_fails_closed(self) -> None:
+        """Every unprovable outer-level statement must block proof.
+
+        The contract is not "this keyword is dangerous"; it is "this shape is
+        proven harmless". Anything else is UNKNOWN.
+        """
+        for index, label in enumerate(UNPROVEN_STATEMENT_FAMILIES):
+            self._assert_prefix_unproven(label, oid=2200 + index)
+
+    def test_cursor_fetch_before_guard_is_not_proven(self) -> None:
+        """The confirmed false PROVEN, named and pinned on its own.
+
+        FETCH on a caller-supplied refcursor executes a query the caller
+        bound, before the authorization boundary. Reproduced end-to-end on
+        the frozen baseline through the real CLIs: guard PROVEN, policy
+        PASS_GUARDED, overall PASS, exit code 0.
+        """
+        self._assert_prefix_unproven("cursor_fetch", oid=2220)
+
+    def test_masked_anonymous_block_before_guard_is_not_proven(self) -> None:
+        """A DO block is arbitrary code the masker deliberately hides.
+
+        The dollar-quoted body is masked offset-for-offset, so the statement
+        reduces to the single word ``DO``. A denylist cannot see what it
+        executes, which is exactly why proof must be positive.
+        """
+        self._assert_prefix_unproven("anonymous_do_block", oid=2221)
+
+    def test_search_path_rebinding_before_guard_is_not_proven(self) -> None:
+        """SET search_path before a guard in a SECURITY DEFINER routine.
+
+        The guard helper is schema-qualified, but anything it reaches that is
+        not need not be. Proof must not survive a resolution change.
+        """
+        self._assert_prefix_unproven("set_local_search_path", oid=2222)
+
+    def test_denylist_extension_alone_cannot_satisfy_the_contract(
+        self,
+    ) -> None:
+        """A discriminator against the obvious wrong fix.
+
+        Adding FETCH -- or the whole cursor family, or any one enumeration of
+        today's known misses -- to EFFECT_WORDS leaves every other family
+        below still proving. Each key here is a different PostgreSQL command
+        family, so only a structural fail-closed rule passes all of them at
+        once.
+        """
+        disjoint_families = (
+            "cursor_fetch",
+            "anonymous_do_block",
+            "set_local_search_path",
+            "listen",
+            "reassign_owned",
+            "assert_statement",
+        )
+        for index, label in enumerate(disjoint_families):
+            self._assert_prefix_unproven(label, oid=2230 + index)
+
+    def test_absence_of_a_call_is_not_sufficient_for_proof(self) -> None:
+        """Kills "contains no name(...)" and "only words and numbers".
+
+        Every statement here is free of calls, free of operators beyond plain
+        punctuation, and free of anything but words and numbers -- and every
+        one of them executes. Token shape is not a proof of effectlessness.
+        """
+        for index, label in enumerate(
+            ("cursor_close", "cursor_move", "unlisten", "reset_search_path")
+        ):
+            statement = UNPROVEN_STATEMENT_FAMILIES[label][0]
+            self.assertNotIn("(", statement)
+            self._assert_prefix_unproven(label, oid=2240 + index)
+
+
+    # ------------------------------------------------------------------
+    # Positive controls. These pass on the frozen baseline and must keep
+    # passing: they are the guard against an over-broad remediation that
+    # simply declares every bare identifier effectful. ``is_effectless`` is
+    # reached from declarations and from boolean condition terms as well as
+    # from earlier outer-level statements, and only the statement context is
+    # being tightened here.
+    # ------------------------------------------------------------------
+
+    def test_effectless_statement_positive_controls_are_preserved(
+        self,
+    ) -> None:
+        """No-ops and constant expressions must still prove."""
+        prefixes = {
+            "null_statement": "NULL;",
+            "perform_constant": "PERFORM 1;",
+            "line_comment": "-- prepare",
+            "block_comment": "/* prepare */",
+            "if_condition": "IF p_org IS NULL THEN\n  NULL;\nEND IF;",
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, prefix in prefixes.items():
+                with self.subTest(path=path_label, prefix=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2250)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_declaration_and_condition_identifiers_stay_effectless(
+        self,
+    ) -> None:
+        """Context separation: tightening statements must not break these.
+
+        A bare identifier inside a DECLARE initializer or inside a boolean
+        condition is an expression term, not an outer-level statement. A
+        remediation that makes every unrecognized word effectful regardless
+        of context would fail here.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="declare_initializer"):
+                block = _declare_block(
+                    "v_flag boolean := (p_org IS NOT NULL);",
+                    guard,
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2251)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+            with self.subTest(path=path_label, label="callless_assignment"):
+                block = _declare_block(
+                    "v_flag boolean;",
+                    f"v_flag := (p_org IS NOT NULL);\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2252)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
 
 
 if __name__ == "__main__":

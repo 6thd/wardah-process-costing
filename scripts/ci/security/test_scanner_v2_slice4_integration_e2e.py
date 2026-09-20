@@ -340,5 +340,91 @@ class ScannerV2IntegrationE2ETest(unittest.TestCase):
         self.assertEqual(by_oid[5102]["policy_status"], "PASS_CLOSED")
 
 
+    # ------------------------------------------------------------------
+    # P2 remediation contract: one source-location contract across the
+    # Slice 2 -> Slice 4 boundary.
+    #
+    # Frozen failed-acceptance baseline: 51fd7b4065b26a36fb007232c1ba16221086fc5c
+    #
+    # Slice 2 ``_split_statements`` numbers every semicolon-delimited
+    # fragment. Slice 4 ``split_statements`` keeps a ``BEGIN ATOMIC ... END``
+    # routine whole. A valid LANGUAGE sql atomic routine ahead of a bound
+    # PL/pgSQL routine therefore shifts ``statement_index``: on the baseline
+    # Slice 2 emits index 5 while Slice 4 sees 2 statements and aborts with
+    # ``binding names a statement the source lacks``.
+    #
+    # The binding below is produced by the real Slice 2 CLI and handed to
+    # Slice 4 unedited. No index is corrected in this fixture -- doing so
+    # would hide the very mismatch under test.
+    # ------------------------------------------------------------------
+
+    def test_atomic_body_preserves_slice2_to_slice4_binding_parity(
+        self,
+    ) -> None:
+        """The exact binding Slice 2 emits must be consumable by Slice 4.
+
+        The atomic body carries three inner semicolons so the divergence is
+        discriminating rather than off-by-one: any splitter disagreement
+        shows up as a wrong routine or a hard failure, never as a pass.
+        """
+        atomic_routine = (
+            "CREATE OR REPLACE FUNCTION public.atomic_helper(p_org uuid)\n"
+            "RETURNS void\n"
+            "LANGUAGE sql\n"
+            "BEGIN ATOMIC\n"
+            "  SELECT 1;\n"
+            "  SELECT 2;\n"
+            "  SELECT 3;\n"
+            "END;\n"
+        )
+        source = atomic_routine + "\n" + _routine(
+            "guarded_after_atomic",
+            "  PERFORM public.wardah_assert_org_member(p_org);",
+        )
+        run = _run_pipeline(
+            source,
+            [
+                _oracle_row(
+                    oid=5201,
+                    name="guarded_after_atomic",
+                    client_callable=True,
+                )
+            ],
+        )
+
+        self.assertEqual(
+            run.binding.returncode,
+            0,
+            msg=f"slice 2 failed: {run.binding.stderr}",
+        )
+        assert run.guard is not None
+        self.assertEqual(
+            run.guard.returncode,
+            0,
+            msg=(
+                "slice 4 rejected the binding slice 2 produced for the same "
+                f"source bytes: {run.guard.stderr}"
+            ),
+        )
+
+        assert run.guards is not None
+        self.assertEqual(len(run.guards["guard_records"]), 1)
+        record = run.guards["guard_records"][0]
+        self.assertEqual(record["catalog_oid"], 5201)
+        self.assertEqual(
+            record["catalog_identity"], "public.guarded_after_atomic(uuid)"
+        )
+        # Bound to its own body, not the atomic routine's, and not to a
+        # neighbour that merely happens to carry a guard.
+        self.assertEqual(record["guard_status"], "PROVEN")
+        self.assertEqual(
+            record["guard_mechanism"], "public.wardah_assert_org_member"
+        )
+
+        assert run.result is not None
+        self.assertEqual(run.result["overall_status"], "PASS")
+        self.assertEqual(run.result["targets"][0]["policy_status"], "PASS_GUARDED")
+
+
 if __name__ == "__main__":
     unittest.main()
