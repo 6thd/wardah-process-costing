@@ -72,6 +72,22 @@ FROM PUBLIC, anon, authenticated;
 SQL
 expect_closed top_level_revoke
 
+# Exact #243 schema-wide reopening fixture. The runtime oracle must observe
+# PostgreSQL's final effective EXECUTE state rather than only exact-function
+# GRANT/REVOKE text.
+psql -v ON_ERROR_STOP=1 <<'SQL'
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated;
+SQL
+expect_open schema_wide_regrant
+
+# Re-close the same schema-wide surface and prove the target is closed again.
+psql -v ON_ERROR_STOP=1 <<'SQL'
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.review_probe()
+FROM PUBLIC, anon, authenticated;
+SQL
+expect_closed schema_wide_regrant_reclosed
+
 # I1: indirect static GRANT through top-level SELECT.
 psql -v ON_ERROR_STOP=1 <<'SQL'
 CREATE OR REPLACE FUNCTION public.reopen_probe_acl()
