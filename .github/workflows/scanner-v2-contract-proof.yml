@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'scripts/ci/security/scanner_v2_runtime_probe.py'
+      - 'scripts/ci/security/acceptance_scanner_v2_runtime_probe.sh'
+      - 'scripts/ci/security/acceptance_scanner_v2_guard_semantics.sh'
       - 'scripts/ci/security/scanner_v2_discovery_binding.py'
       - 'scripts/ci/security/scanner_v2_guard_evidence.py'
       - 'scripts/ci/security/scanner_v2_policy_engine.py'
