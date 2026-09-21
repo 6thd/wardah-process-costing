@@ -2833,14 +2833,16 @@ def _body_has_routine_privilege_text(
     return False
 
 
-def do_is_acl_uncertain(block: DoBlock, raw: str, masked: str) -> bool:
+def do_is_acl_uncertain(
+    block: DoBlock, raw: str, masked: str, strict: bool = False
+) -> bool:
     """True when this DO's effect on routine EXECUTE cannot be proven."""
     if not block.readable or block.body_span is None:
         return True
     start, end = block.body_span
     if _has_procedural_execute(masked[start:end]):
         return True
-    if _PROCEDURAL_CALL_RE.search(masked[start:end]):
+    if strict and _PROCEDURAL_CALL_RE.search(masked[start:end]):
         return True
     return _body_has_routine_privilege_text(raw, masked, start, end)
 
@@ -2883,7 +2885,7 @@ def _top_level_runtime_call_unknowns(
 
 
 def parse_procedural_acl_unknown(
-    raw: str, masked: str, definitions=None
+    raw: str, masked: str, definitions=None, strict: bool = False
 ) -> list[int]:
     """File offsets of migration-time effects Scanner v1 cannot prove."""
     if definitions is None:
@@ -2892,9 +2894,10 @@ def parse_procedural_acl_unknown(
     out = [
         block.start
         for block in blocks
-        if do_is_acl_uncertain(block, raw, masked)
+        if do_is_acl_uncertain(block, raw, masked, strict=strict)
     ]
-    out.extend(_top_level_runtime_call_unknowns(raw, masked, definitions, blocks))
+    if strict:
+        out.extend(_top_level_runtime_call_unknowns(raw, masked, definitions, blocks))
     return sorted(set(out))
 
 
@@ -3195,7 +3198,7 @@ def check_file(path: pathlib.Path) -> list[str]:
     definitions = parse_definitions(raw_sql, sql)
     privileges = parse_privilege_statements(raw_sql, sql)
     procedural_unknowns = parse_procedural_acl_unknown(
-        raw_sql, sql, definitions
+        raw_sql, sql, definitions, strict=strict
     )
     default_privilege_unknowns = parse_default_privilege_unknowns(raw_sql, sql)
     membership_unknown_roles = parse_role_membership_unknown_roles(raw_sql, sql)
