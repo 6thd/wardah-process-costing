@@ -6,6 +6,7 @@ on:
     paths:
       - 'scripts/ci/security/scanner_v2_runtime_probe.py'
       - 'scripts/ci/security/acceptance_scanner_v2_runtime_probe.sh'
+      - 'scripts/ci/security/acceptance_scanner_v2_guard_semantics.sh'
       - '.github/workflows/scanner-v2-runtime-proof.yml'
   workflow_dispatch:
 
@@ -56,6 +57,15 @@ jobs:
           grep -q 'SCANNER_V2_RUNTIME_PROBE_ACCEPTANCE_PASS' \
             /tmp/scanner-v2-runtime-proof.out
 
+      - name: Scanner v2 guard semantics acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/ci/security/acceptance_scanner_v2_guard_semantics.sh \
+            2>&1 | tee /tmp/scanner-v2-guard-semantics-proof.out
+          grep -q 'SCANNER_V2_GUARD_SEMANTICS_ACCEPTANCE_PASS' \
+            /tmp/scanner-v2-guard-semantics-proof.out
+
       - name: Upload runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -65,4 +75,7 @@ jobs:
             /tmp/scanner-v2-runtime-proof.out
             /tmp/scanner-v2-runtime/*.json
             /tmp/scanner-v2-runtime/*.err
+            /tmp/scanner-v2-guard-semantics-proof.out
+            /tmp/scanner-v2-guard-semantics/*.json
+            /tmp/scanner-v2-guard-semantics/*.sql
           retention-days: 30
