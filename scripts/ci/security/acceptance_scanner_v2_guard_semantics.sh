@@ -137,7 +137,7 @@ $$;
 SQL
 
 python3 scripts/ci/security/scanner_v2_runtime_probe.py \
-  --target 'public.custom_denial_probe(uuid)' >"$RUNTIME"
+  --target 'public.custom_denial_probe(p_org uuid)' >"$RUNTIME"
 
 python3 scripts/ci/security/scanner_v2_discovery_binding.py \
   --source "$SOURCE" \
@@ -153,7 +153,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert payload["status"] == "RESOLVED", payload
 assert payload["binding_count"] == 1, payload
 binding = payload["bindings"][0]
-assert binding["catalog_identity"] == "public.custom_denial_probe(uuid)", binding
+assert binding["catalog_identity"] == "public.custom_denial_probe(p_org uuid)", binding
 assert binding["runtime_verdict"] == "OPEN", binding
 PY
 
@@ -203,7 +203,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert payload["scanner"] == "wardah-scanner-v2-guard-evidence-v1", payload
 assert len(payload["guard_records"]) == 1, payload
 record = payload["guard_records"][0]
-assert record["catalog_identity"] == "public.custom_denial_probe(uuid)", record
+assert record["catalog_identity"] == "public.custom_denial_probe(p_org uuid)", record
 assert record["guard_status"] == "UNKNOWN", record
 assert record["guard_mechanism"] is None, record
 assert record["proof_class"] is None, record
