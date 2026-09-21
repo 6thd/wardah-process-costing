@@ -1,0 +1,44 @@
+name: Scanner v2 contract and integration proof
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/ci/security/scanner_v2_runtime_probe.py'
+      - 'scripts/ci/security/acceptance_scanner_v2_runtime_probe.sh'
+      - 'scripts/ci/security/acceptance_scanner_v2_guard_semantics.sh'
+      - 'scripts/ci/security/scanner_v2_discovery_binding.py'
+      - 'scripts/ci/security/scanner_v2_guard_evidence.py'
+      - 'scripts/ci/security/scanner_v2_policy_engine.py'
+      - 'scripts/ci/security/test_scanner_v2_slice2_contract.py'
+      - 'scripts/ci/security/test_scanner_v2_slice3_contract.py'
+      - 'scripts/ci/security/test_scanner_v2_slice4_guard_contract.py'
+      - 'scripts/ci/security/test_scanner_v2_slice4_integration_e2e.py'
+      - '.github/workflows/scanner-v2-contract-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scanner-v2-contract-proof:
+    name: Slice 2-4 contracts and E2E handoff
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Scanner v2 contract and integration suite
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest \
+            scripts.ci.security.test_scanner_v2_slice2_contract \
+            scripts.ci.security.test_scanner_v2_slice3_contract \
+            scripts.ci.security.test_scanner_v2_slice4_guard_contract \
+            scripts.ci.security.test_scanner_v2_slice4_integration_e2e
