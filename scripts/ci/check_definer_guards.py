@@ -297,21 +297,73 @@ _STATEMENT_OPENER_KEYWORDS = frozenset(
     {"then", "else", "begin", "loop", "declare"}
 )
 
+# PostgreSQL's whitespace characters as THEMSELVES, not as a regex class.
+# `_PG_WS` above is a raw string spelling the same set for use inside an `[]`
+# class, so it holds backslash-t rather than a tab and cannot be used for a
+# membership test. This is the twin that can.
+_PLPGSQL_WS = " \t\n\r\f\v"
+
+
+def _previous_word(body: str, pos: int) -> tuple[str, int]:
+    """The identifier word ending just before `pos`, folded, with its start.
+
+    Whitespace is skipped, and a COMMENT is already whitespace in the masked
+    body every caller passes - which is what makes the decision below
+    independent of spacing. Returns ("", pos) when the preceding token is not
+    an identifier word at all.
+    """
+    j = pos - 1
+    while j >= 0 and body[j] in _PLPGSQL_WS:
+        j -= 1
+    end = j + 1
+    while j >= 0 and (body[j].isalnum() or body[j] == "_"):
+        j -= 1
+    return body[j + 1:end].lower(), j + 1
+
 
 def _is_statement_start(body: str, pos: int) -> bool:
-    """True when a PL/pgSQL statement may begin at `pos`."""
+    """True when a PL/pgSQL statement may begin at `pos`.
+
+    `LOOP` has to be an opener, because `LOOP RAISE EXCEPTION ...` is the real
+    thing. But PostgreSQL also closes a labelled loop as
+    `END LOOP <label>;`, and `raise` is a perfectly ordinary label there, so
+    `LOOP` alone made the loop's END-LABEL read as the start of a RAISE
+    statement.
+
+    Round 15: the oracle confirms `<<raise>> WHILE false LOOP NULL; END LOOP
+    raise;` compiles on PostgreSQL 17.11 and raises NOTHING - as do the plain
+    LOOP, FOR and FOREACH forms - while an unguarded SECURITY DEFINER routine
+    built around it stayed `prosecdef = true`, executable by PUBLIC and
+    `authenticated`, and drove its privileged UPDATE for a non-member. The
+    same misreading hit the other caller in the opposite direction: an end
+    label named `raise` counted as an earlier outer-level abort and a real
+    `PERFORM public.wardah_assert_org_member(...)` after it was written off as
+    unreachable.
+
+    So when the previous word is `LOOP`, the word before THAT decides: `END
+    LOOP` closes a loop, and whatever follows is its label, never a statement.
+    Everything that genuinely opens a loop body - a bare `LOOP`, `<<lp>> LOOP`,
+    `WHILE x LOOP`, `FOR ... LOOP` - has something other than `END` there and
+    is unaffected, and `END LOOP; RAISE ...` still reaches the `;` test above.
+
+    A labelled BLOCK needs nothing here: it closes as `END <label>;`, and
+    `END` was never an opener. Labels are still parsed only by
+    _block_labels()/_labelled_opener(); this reads two keywords, and adds no
+    second label parser.
+    """
     j = pos - 1
-    while j >= 0 and body[j] in " \t\n\r\f\v":
+    while j >= 0 and body[j] in _PLPGSQL_WS:
         j -= 1
     if j < 0:
         return True
     if body[j] == ";":
         return True
-    end = j + 1
-    while j >= 0 and (body[j].isalnum() or body[j] == "_"):
-        j -= 1
-    word = body[j + 1:end].lower()
-    return word in _STATEMENT_OPENER_KEYWORDS
+    word, word_start = _previous_word(body, pos)
+    if word not in _STATEMENT_OPENER_KEYWORDS:
+        return False
+    if word == "loop" and _previous_word(body, word_start)[0] == "end":
+        return False
+    return True
 
 # ---------------------------------------------------------------------------
 # Which EXCEPTION handlers can actually catch an authorization failure

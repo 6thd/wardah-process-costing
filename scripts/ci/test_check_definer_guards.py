@@ -7156,5 +7156,434 @@ class Round14ShiftOperatorTests(unittest.TestCase):
             [],
         )
 
+
+# ---------------------------------------------------------------------------
+# Round 15: `END LOOP <label>` closes a loop; it does not open a RAISE
+# ---------------------------------------------------------------------------
+# Round 14 kept `LOOP` as a statement opener because `LOOP RAISE EXCEPTION ...`
+# is genuine. PostgreSQL also closes a labelled loop as `END LOOP <label>;`,
+# and `raise` is an ordinary label there, so the loop's END-LABEL read as the
+# start of a RAISE statement.
+#
+# Oracle (PostgreSQL 17.11), every form compiled and raised NOTHING:
+#   <<raise>> LOOP EXIT raise; END LOOP raise;
+#   <<raise>> WHILE false LOOP NULL; END LOOP raise;
+#   <<raise>> FOR i IN 1..0 LOOP NULL; END LOOP raise;
+#   <<raise>> FOREACH x IN ARRAY a LOOP NULL; END LOOP raise;
+# and `LOOP RAISE EXCEPTION 'denied'; END LOOP;` really raised P0001, so the
+# identifier and the statement stay distinguishable. The quoted end-labels
+# `"raise"` and `"RAISE"` are valid too; a Unicode `U&"rais\0065"` label is a
+# syntax ERROR there, so there is no such form to support.
+#
+# Both callers of the shared helper were wrong, in OPPOSITE directions:
+#   * parse_blocks() recorded the end label as the IF frame's raise_pos, so a
+#     non-raising deny branch looked like an authorization boundary. Proven
+#     unsafe: prosecdef = true, PUBLIC and authenticated both executable, and
+#     a non-member call raised nothing and drove the privileged UPDATE
+#     (bins.actual_qty 77 -> 0). check_file() returned [].
+#   * unconditional_abort_before() counted the end label as an earlier
+#     outer-level abort, so a real PERFORM guard after it was written off as
+#     unreachable - a false RED on a correctly guarded routine.
+class Round15LoopEndLabelTests(unittest.TestCase):
+    """`END LOOP raise` must not be parsed as a RAISE statement."""
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._dir.name)
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def verdict(self, name: str, sql: str) -> list[str]:
+        path = self.root / f"999_round15_{name}.sql"
+        path.write_text(sql, encoding="utf-8")
+        return guards.check_file(path)
+
+    @staticmethod
+    def boolean_probe(deny_body: str) -> str:
+        """An unguarded SECURITY DEFINER routine whose only candidate
+        authorization boundary is `deny_body`, followed by privileged work.
+
+        The DECLARE section exists so every fixture below is SQL PostgreSQL
+        actually compiles - each one was run through the 17.11 oracle. It
+        deliberately declares no variable named `raise`: that name follows the
+        DECLARE keyword, which IS a statement position, so it trips a separate
+        pre-existing conservative false RED (Round 14) and a fixture resting on
+        it would go green without testing this class at all.
+        """
+        return (
+            "CREATE FUNCTION public.probe_fn(p_org uuid)\n"
+            "RETURNS void\n"
+            "LANGUAGE plpgsql\n"
+            "SECURITY DEFINER\n"
+            "AS $$\n"
+            "DECLARE\n"
+            "  v integer;\n"
+            "  v_x integer;\n"
+            "  v_arr integer[] := '{}';\n"
+            "BEGIN\n"
+            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            f"{deny_body}"
+            "  END IF;\n"
+            "\n"
+            "  UPDATE public.bins\n"
+            "  SET actual_qty = 0\n"
+            "  WHERE org_id = p_org;\n"
+            "END;\n"
+            "$$;\n"
+        )
+
+    # -- 1. the reproducer, inside the IF branch --------------------------
+    def test_loop_end_label_in_deny_branch_is_rejected(self) -> None:
+        sql = self.boolean_probe(
+            "    <<raise>>\n"
+            "    WHILE false LOOP\n"
+            "      NULL;\n"
+            "    END LOOP raise;\n"
+        )
+        self.assertTrue(
+            self.verdict("deny_branch_end_label", sql),
+            "a loop END-LABEL named `raise` counted as a denying PL/pgSQL "
+            "RAISE statement",
+        )
+        # And the frame itself must not record it, which is the defect proper.
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        definition = guards.parse_definitions(sql, masked)[0]
+        body = masked[definition.start: definition.body_span[1]]
+        raw_body = sql[definition.start: definition.body_span[1]]
+        frames = guards.parse_blocks(body, raw_body)
+        for frame in frames:
+            if frame.kind == "IF":
+                self.assertIsNone(
+                    frame.raise_pos,
+                    "the IF frame still records the loop end-label as a raise",
+                )
+
+    # -- 2. before a real PERFORM guard (the second caller) ---------------
+    def test_loop_end_label_does_not_make_a_real_guard_unreachable(self) -> None:
+        sql = (
+            "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void\n"
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "BEGIN\n"
+            "  <<raise>>\n"
+            "  WHILE false LOOP\n"
+            "    NULL;\n"
+            "  END LOOP raise;\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+            "END;\n"
+            "$$;\n"
+        )
+        self.assertEqual(
+            self.verdict("guard_after_end_label", sql),
+            [],
+            "an end label named `raise` was treated as an earlier abort and "
+            "a real guard after it was reported unreachable",
+        )
+        masked, _ = guards.mask_sql_checked(sql)
+        definition = guards.parse_definitions(sql, masked)[0]
+        body = masked[definition.start: definition.body_span[1]]
+        raw_body = sql[definition.start: definition.body_span[1]]
+        frames = guards.parse_blocks(body, raw_body)
+        guard_at = guards.GUARD_RE.search(body).start()
+        self.assertFalse(
+            guards.unconditional_abort_before(body, frames, guard_at)
+        )
+        self.assertFalse(
+            guards.is_unreachable_at(body, frames, guard_at, raw_body)
+        )
+
+    # -- 3. combined with a nested BEGIN / EXCEPTION section --------------
+    def test_loop_end_label_with_nested_begin_and_handler(self) -> None:
+        """The end label must stay inert even where a real RAISE would be
+        swallowed, so neither rule can lean on the other."""
+        cases = {
+            # The deny branch wraps the loop in its own BEGIN ... EXCEPTION
+            # block. Nothing here denies anything.
+            "nested_begin_with_handler": self.boolean_probe(
+                "    BEGIN\n"
+                "      <<raise>>\n"
+                "      LOOP\n"
+                "        EXIT raise;\n"
+                "      END LOOP raise;\n"
+                "    EXCEPTION WHEN OTHERS THEN\n"
+                "      NULL;\n"
+                "    END;\n"
+            ),
+            # A labelled FOR loop, the other oracle-valid spelling.
+            "labelled_for_loop": self.boolean_probe(
+                "    <<raise>>\n"
+                "    FOR i IN 1..0 LOOP\n"
+                "      NULL;\n"
+                "    END LOOP raise;\n"
+            ),
+            # Keyword folding: PostgreSQL is case-insensitive here, and the
+            # label keeps its own case.
+            "mixed_case_end_loop": self.boolean_probe(
+                "    <<RaIsE>>\n"
+                "    LOOP\n"
+                "      EXIT RaIsE;\n"
+                "    end loop RaIsE;\n"
+            ),
+            # An inner labelled loop closing inside an outer one.
+            "nested_loops_inner_label": self.boolean_probe(
+                "    <<outer>>\n"
+                "    LOOP\n"
+                "      <<raise>>\n"
+                "      LOOP\n"
+                "        EXIT raise;\n"
+                "      END LOOP raise;\n"
+                "      EXIT outer;\n"
+                "    END LOOP outer;\n"
+            ),
+            # Comments on BOTH sides of the LOOP keyword.
+            "comments_around_loop_keyword": self.boolean_probe(
+                "    <<raise>>\n"
+                "    LOOP\n"
+                "      EXIT raise;\n"
+                "    END /* a */ LOOP /* b */ raise;\n"
+            ),
+            # A real shift expression inside the loop, so the Round 14 and
+            # Round 15 rules are exercised in one body.
+            "shift_inside_loop_with_end_label": self.boolean_probe(
+                "    <<raise>>\n"
+                "    LOOP\n"
+                "      v := 8 >> 1;\n"
+                "      EXIT raise;\n"
+                "    END LOOP raise;\n"
+            ),
+            # A labelled FOREACH loop.
+            "labelled_foreach_loop": self.boolean_probe(
+                "    <<raise>>\n"
+                "    FOREACH v_x IN ARRAY v_arr LOOP\n"
+                "      NULL;\n"
+                "    END LOOP raise;\n"
+            ),
+        }
+        for name, sql in cases.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a loop end-label supplied an authorization "
+                    f"boundary PostgreSQL never executes",
+                )
+
+    # -- spacing and comments must not decide -----------------------------
+    def test_end_label_recognition_is_independent_of_spacing(self) -> None:
+        """Every spelling below is oracle-valid. The masker turns a comment
+        into whitespace before the helper sees it, which is why one backward
+        word scan covers all of them."""
+        cases = {
+            "same_line": "    END LOOP raise;\n",
+            "newline_before_label": "    END LOOP\n      raise;\n",
+            "block_comment": "    END LOOP /* c */ raise;\n",
+            "line_comment": "    END LOOP -- why\n      raise;\n",
+            "newline_between_end_and_loop": "    END\n    LOOP raise;\n",
+            "tabs": "    END\tLOOP\traise;\n",
+        }
+        for name, tail in cases.items():
+            with self.subTest(case=name):
+                sql = self.boolean_probe(
+                    "    <<raise>>\n    LOOP\n      EXIT raise;\n" + tail
+                )
+                self.assertTrue(self.verdict(name, sql), name)
+
+    def test_statement_start_helper_reads_end_loop_as_a_close(self) -> None:
+        """The shared helper itself, so BOTH callers inherit one rule."""
+        for text in (
+            "  END LOOP raise;",
+            "  END LOOP\n    raise;",
+            "  END LOOP         raise;",   # masked block comment
+            "  END\n  LOOP raise;",
+            "  END\tLOOP\traise;",
+        ):
+            with self.subTest(close=text):
+                self.assertFalse(
+                    guards._is_statement_start(text, text.lower().rindex("raise"))
+                )
+        # Everything that genuinely OPENS a loop body still admits a RAISE.
+        for text in (
+            "  LOOP RAISE EXCEPTION 'x';",
+            "  <<lp>>\n  LOOP RAISE EXCEPTION 'x';",
+            "  WHILE x LOOP RAISE EXCEPTION 'x';",
+            "  FOR i IN 1..3 LOOP RAISE EXCEPTION 'x';",
+            "  FOREACH v IN ARRAY a LOOP RAISE EXCEPTION 'x';",
+            "  END LOOP; RAISE EXCEPTION 'x';",
+        ):
+            with self.subTest(open=text):
+                self.assertTrue(
+                    guards._is_statement_start(text, text.rindex("RAISE"))
+                )
+        # A labelled BLOCK closes as `END <label>;`, and `END` was never an
+        # opener - so that form needed no change and still reads as inert.
+        self.assertFalse(guards._is_statement_start("  END raise;", 6))
+
+    # -- quoted end-labels -------------------------------------------------
+    def test_quoted_loop_end_labels_are_never_a_raise(self) -> None:
+        """Oracle: `<<"raise">> ... END LOOP "raise";` and the `"RAISE"`
+        spelling are both valid. The masker blanks quoted-identifier CONTENT
+        while keeping the delimiters, so no RAISE token survives there at
+        all - this pins that, rather than assuming it."""
+        for name, label in (("lower", '"raise"'), ("upper", '"RAISE"')):
+            with self.subTest(case=name):
+                sql = self.boolean_probe(
+                    f"    <<{label}>>\n"
+                    "    LOOP\n"
+                    f"      EXIT {label};\n"
+                    f"    END LOOP {label};\n"
+                )
+                self.assertTrue(self.verdict(f"quoted_{name}", sql))
+                masked, problems = guards.mask_sql_checked(sql)
+                self.assertEqual(problems, [])
+                self.assertNotIn("raise", masked.lower()[masked.index("END LOOP"):])
+
+    # -- Round 14 must stay closed ----------------------------------------
+    def test_round14_shift_operator_stays_closed(self) -> None:
+        """`>>` must still not open a statement, through the refactored path."""
+        for text in ("8 >> raise", "8>>raise", "(8 >> raise)",
+                     "8 >>         raise", "(j->>'k')::int >> raise"):
+            with self.subTest(shift=text):
+                self.assertFalse(
+                    guards._is_statement_start(text, text.index("raise"))
+                )
+        select = "(SELECT 8 %s raise FROM public.raise_source LIMIT 1)"
+        for name, expr in {
+            "spaced": select % ">>",
+            "no_space": "(SELECT 8>>raise FROM public.raise_source LIMIT 1)",
+            "parenthesised":
+                "(SELECT (8 >> raise) FROM public.raise_source LIMIT 1)",
+            "block_comment":
+                "(SELECT 8 >> /* c */ raise "
+                "FROM public.raise_source LIMIT 1)",
+            "nested_select":
+                "(SELECT (SELECT 8 >> raise "
+                "FROM public.raise_source LIMIT 1))",
+        }.items():
+            with self.subTest(expression=name):
+                self.assertTrue(
+                    self.verdict(
+                        f"r14_{name}", self.boolean_probe(f"    v := {expr};\n")
+                    )
+                )
+        # A PARAMETER named raise, and a COLUMN named raise, both stay
+        # ordinary identifiers.
+        self.assertTrue(
+            self.verdict(
+                "r14_parameter_named_raise",
+                "CREATE FUNCTION public.probe_fn(p_org uuid, raise integer)\n"
+                "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+                "DECLARE v integer;\n"
+                "BEGIN\n"
+                "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "    v := 8 >> raise;\n"
+                "  END IF;\n"
+                "  UPDATE public.bins SET actual_qty = 0;\n"
+                "END;\n$$;\n",
+            )
+        )
+
+    # -- real RAISE controls ----------------------------------------------
+    def test_genuine_raise_boundaries_still_deny(self) -> None:
+        for name, deny in {
+            "then_raise": "    RAISE EXCEPTION 'denied';\n",
+            "semicolon_raise": "    v := 1;\n    RAISE EXCEPTION 'denied';\n",
+            "raise_using": "    RAISE EXCEPTION 'denied' USING HINT = 'no';\n",
+            "raise_sqlstate": "    RAISE EXCEPTION SQLSTATE '28000';\n",
+            # A real RAISE after a labelled loop's close still reaches the `;`.
+            "raise_after_end_loop_label":
+                "    <<lp>>\n    LOOP\n      EXIT lp;\n    END LOOP lp;\n"
+                "    RAISE EXCEPTION 'denied';\n",
+            # ... including when that label is itself named `raise`.
+            "raise_after_end_loop_named_raise":
+                "    <<raise>>\n    LOOP\n      EXIT raise;\n"
+                "    END LOOP raise;\n"
+                "    RAISE EXCEPTION 'denied';\n",
+        }.items():
+            with self.subTest(accept=name):
+                self.assertEqual(
+                    self.verdict(name, self.boolean_probe(deny)), [], name
+                )
+
+    def test_loop_wrapped_raise_stays_rejected_for_its_own_reason(self) -> None:
+        """A genuine `LOOP RAISE EXCEPTION ...` still classifies as a real
+        RAISE statement - that is proven at the helper level in
+        test_statement_start_helper_reads_end_loop_as_a_close.
+
+        End to end, a RAISE wrapped in a LOOP *inside the deny branch* is
+        still not a recognized boundary, for a SEPARATE and older reason: PR
+        #241 Finding 3/4 requires the deny branch to raise at the IF's OWN
+        nesting level, so a raise one frame deeper never set raise_pos. All
+        five loop forms below behave identically at the frozen head
+        f620f392 and here, so Round 15 neither relies on that rule nor
+        relaxes it.
+        """
+        for name, deny in {
+            "loop": "    LOOP\n      RAISE EXCEPTION 'denied';\n    END LOOP;\n",
+            "labelled_loop":
+                "    <<lp>>\n    LOOP\n      RAISE EXCEPTION 'denied';\n"
+                "    END LOOP lp;\n",
+            "while_loop":
+                "    WHILE true LOOP\n      RAISE EXCEPTION 'denied';\n"
+                "    END LOOP;\n",
+            "for_loop":
+                "    FOR i IN 1..3 LOOP\n      RAISE EXCEPTION 'denied';\n"
+                "    END LOOP;\n",
+            "foreach_loop":
+                "    FOREACH v_x IN ARRAY v_arr LOOP\n"
+                "      RAISE EXCEPTION 'denied';\n    END LOOP;\n",
+        }.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(f"loop_wrapped_{name}", self.boolean_probe(deny))
+                )
+
+    def test_non_aborting_raise_levels_remain_non_denials(self) -> None:
+        for level in ("NOTICE", "WARNING", "INFO", "LOG", "DEBUG"):
+            with self.subTest(level=level):
+                self.assertTrue(
+                    self.verdict(
+                        f"raise_{level.lower()}",
+                        self.boolean_probe(f"    RAISE {level} 'not a denial';\n"),
+                    )
+                )
+
+    # -- label machinery unchanged ----------------------------------------
+    def test_label_parsing_is_untouched(self) -> None:
+        """The end-label read is two keywords, not a label parser: label
+        identity still comes only from _block_labels()/_labelled_opener()."""
+        loop = (
+            "<<raise>>\n"
+            "WHILE false LOOP\n"
+            "  NULL;\n"
+            "END LOOP raise;\n"
+        )
+        self.assertIn("raise", guards._block_labels(loop, loop).values())
+        frames = guards.parse_blocks(loop, loop)
+        self.assertIn("raise", [f.label for f in frames if f.kind == "LOOP"])
+        block = (
+            "<<auth_block>>\n"
+            "BEGIN\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "END auth_block;\n"
+        )
+        self.assertIn("auth_block", guards._block_labels(block, block).values())
+        # The labelled-EXIT bypass still trips, including on a loop labelled
+        # `raise`.
+        self.assertTrue(
+            self.verdict(
+                "labelled_exit_still_rejected",
+                "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void\n"
+                "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+                "<<auth_block>>\n"
+                "BEGIN\n"
+                "  UPDATE public.bins SET actual_qty = 0;\n"
+                "  EXIT auth_block;\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "END auth_block;\n"
+                "$$;\n",
+            )
+        )
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
