@@ -1428,6 +1428,24 @@ def _mask_nested_dollar(sql: str, out: list[str], i: int, tag: str) -> int:
     return end + len(tag)
 
 
+def _preceded_by_keyword(text, i: int, keyword: str) -> bool:
+    """Whether the token immediately before offset i is keyword."""
+    j = i - 1
+    while j >= 0 and str(text[j]).isspace():
+        j -= 1
+    end = j + 1
+    while j >= 0 and (str(text[j]).isalnum() or text[j] == "_"):
+        j -= 1
+    return "".join(text[j + 1:end]).lower() == keyword.lower()
+
+
+def _statement_starts_with_do(text, i: int) -> bool:
+    """True when the current top-level statement prefix starts with DO."""
+    prefix = "".join(text[:i])
+    start = prefix.rfind(";") + 1
+    return re.match(r"\s*DO\b", prefix[start:], re.IGNORECASE) is not None
+
+
 def mask_sql_checked(sql: str) -> tuple[str, list[str]]:
     """Blank comments and literal CONTENT, preserving every offset.
 
@@ -1478,8 +1496,14 @@ def mask_sql_checked(sql: str) -> tuple[str, list[str]]:
                 tag = _dollar_tag_at(sql, i)
                 if tag is not None:
                     if outer_tag is None:
-                        outer_tag = tag       # enter an executable body
-                        i += len(tag)
+                        if (
+                            _preceded_by_keyword(out, i, "as")
+                            or _statement_starts_with_do(out, i)
+                        ):
+                            outer_tag = tag
+                            i += len(tag)
+                        else:
+                            i = _mask_nested_dollar(sql, out, i, tag)
                     else:
                         i = _mask_nested_dollar(sql, out, i, tag)
                     continue
@@ -2219,6 +2243,18 @@ def _parse_arg_list(inner: str, raw_inner: str | None = None):
         # non-semantic whitespace - and identifier CONTENT from raw at the same
         # offsets. Feeding raw comment bytes to the tokenizer made every
         # commented parameter unparseable.
+        mode_tokens = _tokenize_parameter(part, raw_part)
+        if mode_tokens is None:
+            return UNRESOLVED_ARGS
+        # OUT-only parameters are not part of PostgreSQL callable identity.
+        # INOUT and VARIADIC remain input identity components.
+        if (
+            mode_tokens
+            and mode_tokens[0][0] == "ident"
+            and not mode_tokens[0][2]
+            and mode_tokens[0][1] == "out"
+        ):
+            continue
         normalized = _normalize_arg_type(part, raw_part)
         if normalized is None:
             return UNRESOLVED_ARGS
@@ -2332,7 +2368,7 @@ def _scan_statement(masked: str, i: int):
                 close = masked.find(tag, j + len(tag))
                 if close == -1:
                     return n, body
-                if body is None:
+                if body is None and _preceded_by_keyword(masked, j, "as"):
                     body = (j + len(tag), close)
                 j = close + len(tag)
                 continue
@@ -2349,7 +2385,9 @@ def _scan_statement(masked: str, i: int):
 _CREATE_ROUTINE_RE = re.compile(
     r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+", re.IGNORECASE
 )
-_ALTER_ROUTINE_RE = re.compile(r"\bALTER\s+(?:FUNCTION|PROCEDURE)\s+", re.IGNORECASE)
+_ALTER_ROUTINE_RE = re.compile(
+    r"\bALTER\s+(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE
+)
 _SECURITY_DEFINER_RE = re.compile(r"\bSECURITY\s+DEFINER\b", re.IGNORECASE)
 # `REVOKE GRANT OPTION FOR EXECUTE ... FROM authenticated` withdraws only the
 # right to RE-GRANT execute. The role keeps EXECUTE itself and can still call the
@@ -2654,6 +2692,12 @@ _DO_KW_RE = re.compile(r"\bDO\b", re.IGNORECASE)
 _LANGUAGE_KW_RE = re.compile(r"LANGUAGE\b", re.IGNORECASE)
 _ON_WORD_RE = re.compile(r"\bON\b", re.IGNORECASE)
 _EXECUTE_WORD_RE = re.compile(r"\bEXECUTE\b", re.IGNORECASE)
+_PROCEDURAL_CALL_RE = re.compile(
+    r"\b(?:PERFORM|CALL)\b[^;]*\(", re.IGNORECASE | re.DOTALL
+)
+_TOP_LEVEL_RUNTIME_KW_RE = re.compile(
+    r"\b(?:CALL|SELECT|WITH)\b", re.IGNORECASE
+)
 
 ACL_OPEN = "open"
 ACL_CLOSED = "closed"
@@ -2694,13 +2738,15 @@ def _read_string_literal_at(masked: str, i: int):
     return None
 
 
-def parse_do_blocks(masked: str) -> list[DoBlock]:
+def parse_do_blocks(masked: str, raw: str | None = None) -> list[DoBlock]:
     """Top-level DO statements, owned by structural dollar/string spans.
 
     Offsets are not stripped. CREATE FUNCTION/PROCEDURE bodies are skipped so a
     routine that happens to mention `DO` or `EXECUTE` is not a migration-time
     DO. Nested matches inside an already-owned DO body are skipped the same way.
     """
+    if raw is None:
+        raw = masked
     routine = routine_body_spans(masked)
     out: list[DoBlock] = []
     n = len(masked)
@@ -2718,9 +2764,11 @@ def parse_do_blocks(masked: str) -> list[DoBlock]:
         lang = _LANGUAGE_KW_RE.match(masked, i)
         if lang:
             i = _skip_ws(masked, lang.end())
-            if i < n and masked[i] == '"':
-                close = masked.find('"', i + 1)
-                i = n if close == -1 else close + 1
+            if i < n and (
+                masked[i] == '"' or _UAMP_PREFIX_RE.match(masked, i)
+            ):
+                delimited = _read_delimited_identifier(raw, i, masked)
+                i = n if delimited is None else delimited[1]
             elif i < n and masked[i] == "'":
                 lit = _read_string_literal_at(masked, i)
                 i = n if lit is None else lit[2]
@@ -2740,10 +2788,12 @@ def parse_do_blocks(masked: str) -> list[DoBlock]:
     return out
 
 
-def do_body_spans(masked: str) -> list[tuple[int, int]]:
+def do_body_spans(
+    masked: str, raw: str | None = None
+) -> list[tuple[int, int]]:
     """Spans whose GRANT/REVOKE text must not be replayed as top-level ACL."""
     spans = []
-    for block in parse_do_blocks(masked):
+    for block in parse_do_blocks(masked, raw):
         if block.body_span is not None:
             spans.append(block.body_span)
         else:
@@ -2790,16 +2840,62 @@ def do_is_acl_uncertain(block: DoBlock, raw: str, masked: str) -> bool:
     start, end = block.body_span
     if _has_procedural_execute(masked[start:end]):
         return True
+    if _PROCEDURAL_CALL_RE.search(masked[start:end]):
+        return True
     return _body_has_routine_privilege_text(raw, masked, start, end)
 
 
-def parse_procedural_acl_unknown(raw: str, masked: str) -> list[int]:
-    """File offsets of DO statements that make ACL proof UNKNOWN."""
-    return [
+def _region_calls_defined_routine(
+    raw_region: str, masked_region: str, definitions
+) -> bool:
+    """Conservative same-file call detector for top-level SELECT/WITH."""
+    for definition in definitions:
+        name = definition.identity.name
+        if re.search(
+            r"(?<![\w$])" + re.escape(name) + r"\s*\(",
+            masked_region,
+            re.IGNORECASE,
+        ):
+            return True
+        quoted = '"' + name.replace('"', '""') + '"'
+        if re.search(re.escape(quoted) + r"\s*\(", raw_region):
+            return True
+    return False
+
+
+def _top_level_runtime_call_unknowns(
+    raw: str, masked: str, definitions, do_blocks
+) -> list[int]:
+    """Migration-time CALLs and same-file SELECT/WITH calls are ACL UNKNOWN."""
+    excluded = [(d.start, d.end) for d in definitions]
+    excluded.extend((b.start, b.end) for b in do_blocks)
+    out = []
+    for match in _TOP_LEVEL_RUNTIME_KW_RE.finditer(masked):
+        if any(start <= match.start() < stop for start, stop in excluded):
+            continue
+        end, _ = _scan_statement(masked, match.end())
+        keyword = match.group(0).lower()
+        if keyword == "call" or _region_calls_defined_routine(
+            raw[match.start():end], masked[match.start():end], definitions
+        ):
+            out.append(match.start())
+    return out
+
+
+def parse_procedural_acl_unknown(
+    raw: str, masked: str, definitions=None
+) -> list[int]:
+    """File offsets of migration-time effects Scanner v1 cannot prove."""
+    if definitions is None:
+        definitions = parse_definitions(raw, masked)
+    blocks = parse_do_blocks(masked, raw)
+    out = [
         block.start
-        for block in parse_do_blocks(masked)
+        for block in blocks
         if do_is_acl_uncertain(block, raw, masked)
     ]
+    out.extend(_top_level_runtime_call_unknowns(raw, masked, definitions, blocks))
+    return sorted(set(out))
 
 
 def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement]:
@@ -2810,7 +2906,7 @@ def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement
     # state, in either direction: it neither credits a closure nor reopens one.
     # Text inside a DO body is also not replayed: Round 11 treats that DO as
     # PROCEDURAL_ACL_UNKNOWN instead of pretending each lexical GRANT/REVOKE ran.
-    bodies = routine_body_spans(masked) + do_body_spans(masked)
+    bodies = routine_body_spans(masked) + do_body_spans(masked, raw)
     for head_re, is_revoke in ((_REVOKE_HEAD_RE, True), (_GRANT_HEAD_RE, False)):
         for m in head_re.finditer(masked):
             if not _EXECUTE_PRIV_RE.search(m.group("privs") or ""):
@@ -2852,12 +2948,67 @@ def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement
     return out
 
 
+_DEFAULT_PRIVILEGES_RE = re.compile(
+    r"\bALTER\s+DEFAULT\s+PRIVILEGES\b", re.IGNORECASE
+)
+_ON_DEFAULT_ROUTINES_RE = re.compile(
+    r"\A(?:FUNCTIONS|ROUTINES)\b", re.IGNORECASE
+)
+_GRANT_WORD_RE = re.compile(r"\bGRANT\b", re.IGNORECASE)
+_TO_WORD_RE = re.compile(r"\bTO\b", re.IGNORECASE)
+_ON_ANY_WORD_RE = re.compile(r"\bON\b", re.IGNORECASE)
+
+
+def parse_default_privilege_unknowns(raw: str, masked: str):
+    """Default EXECUTE grants that may affect routines created later."""
+    bodies = routine_body_spans(masked) + do_body_spans(masked, raw)
+    out = []
+    for match in _DEFAULT_PRIVILEGES_RE.finditer(masked):
+        if any(start <= match.start() < stop for start, stop in bodies):
+            continue
+        end, _ = _scan_statement(masked, match.end())
+        region = masked[match.start():end]
+        grant = _GRANT_HEAD_RE.search(region)
+        if grant is None or not _EXECUTE_PRIV_RE.search(grant.group("privs") or ""):
+            continue
+        rest = region[grant.end():]
+        if _ON_DEFAULT_ROUTINES_RE.match(rest) is None:
+            continue
+        to_match = _TO_WORD_RE.search(region, grant.end())
+        if to_match is None:
+            continue
+        roles = _grantee_names(raw[match.start() + to_match.end():end])
+        out.append((match.start(), roles))
+    return out
+
+
+def parse_role_membership_unknown_roles(raw: str, masked: str) -> set[str]:
+    """Client roles whose inherited privileges changed in this migration."""
+    bodies = routine_body_spans(masked) + do_body_spans(masked, raw)
+    unknown: set[str] = set()
+    for match in _GRANT_WORD_RE.finditer(masked):
+        if any(start <= match.start() < stop for start, stop in bodies):
+            continue
+        end, _ = _scan_statement(masked, match.end())
+        region = masked[match.start():end]
+        to_match = _TO_WORD_RE.search(region)
+        if to_match is None:
+            continue
+        if _ON_ANY_WORD_RE.search(region, 0, to_match.start()) is not None:
+            continue
+        roles = _grantee_names(raw[match.start() + to_match.end():end])
+        unknown.update(role for role in CLIENT_ROLES if role in roles)
+    return unknown
+
+
 def revoke_closes_client_surface(
     identity: Identity,
     after: int,
     privileges: list[PrivilegeStatement],
     strict: bool = False,
     procedural_unknowns: list[int] | None = None,
+    default_privilege_unknowns=None,
+    membership_unknown_roles: set[str] | None = None,
 ) -> bool:
     """True when the migration leaves THIS function unreachable by every client.
 
@@ -2889,6 +3040,19 @@ def revoke_closes_client_surface(
     """
     public_state = ACL_OPEN
     explicit = {role: ACL_CLOSED for role in CLIENT_ROLES if role != "public"}
+
+    for pos, roles in default_privilege_unknowns or ():
+        if pos >= after:
+            continue
+        opens_everything = UNRESOLVED_GRANTEE in roles
+        for role in CLIENT_ROLES:
+            if role not in roles and not opens_everything:
+                continue
+            if role == "public":
+                public_state = ACL_UNKNOWN
+            else:
+                explicit[role] = ACL_UNKNOWN
+
     events: list[tuple[int, int, object]] = []
     for stmt in privileges:
         events.append((stmt.start, 0, stmt))
@@ -2904,6 +3068,16 @@ def revoke_closes_client_surface(
             explicit = {role: ACL_UNKNOWN for role in explicit}
             continue
         if stmt.all_in_schema:
+            if stmt.is_revoke:
+                continue
+            opens_everything = UNRESOLVED_GRANTEE in stmt.grantees
+            for role in CLIENT_ROLES:
+                if role not in stmt.grantees and not opens_everything:
+                    continue
+                if role == "public":
+                    public_state = ACL_OPEN
+                else:
+                    explicit[role] = ACL_OPEN
             continue
         # `REVOKE GRANT OPTION FOR EXECUTE` takes away the right to pass EXECUTE
         # on. The grantee's own EXECUTE is untouched, so this statement moves no
@@ -2936,6 +3110,10 @@ def revoke_closes_client_surface(
     if public_state != ACL_CLOSED:
         return False
     if any(state == ACL_UNKNOWN for state in explicit.values()):
+        return False
+    if membership_unknown_roles and any(
+        role in membership_unknown_roles for role in CLIENT_ROLES
+    ):
         return False
     return not strict or all(state == ACL_CLOSED for state in explicit.values())
 
@@ -3016,7 +3194,11 @@ def check_file(path: pathlib.Path) -> list[str]:
 
     definitions = parse_definitions(raw_sql, sql)
     privileges = parse_privilege_statements(raw_sql, sql)
-    procedural_unknowns = parse_procedural_acl_unknown(raw_sql, sql)
+    procedural_unknowns = parse_procedural_acl_unknown(
+        raw_sql, sql, definitions
+    )
+    default_privilege_unknowns = parse_default_privilege_unknowns(raw_sql, sql)
+    membership_unknown_roles = parse_role_membership_unknown_roles(raw_sql, sql)
     # Security mode is a STATE. Resolve every CREATE against the ALTERs that
     # follow it before judging anything, so a promotion cannot slip between the
     # two statements and a demotion cannot be reported.
@@ -3052,6 +3234,8 @@ def check_file(path: pathlib.Path) -> list[str]:
         if revoke_closes_client_surface(
             identity, definition.end, privileges, strict=strict,
             procedural_unknowns=procedural_unknowns,
+            default_privilege_unknowns=default_privilege_unknowns,
+            membership_unknown_roles=membership_unknown_roles,
         ):
             continue
 
@@ -3090,10 +3274,12 @@ def check_file(path: pathlib.Path) -> list[str]:
         if revoke_closes_client_surface(
             alter.identity, alter.end, privileges, strict=strict,
             procedural_unknowns=procedural_unknowns,
+            default_privilege_unknowns=default_privilege_unknowns,
+            membership_unknown_roles=membership_unknown_roles,
         ):
             continue
         errors.append(
-            f"  ❌ {path.name}: 'ALTER FUNCTION {alter.identity.qualified} "
+            f"  ❌ {path.name}: 'ALTER ROUTINE {alter.identity.qualified} "
             f"SECURITY DEFINER' makes an existing function run as its owner "
             f"without restating a guard; define it with its assertion in this "
             f"migration or revoke EXECUTE from PUBLIC"

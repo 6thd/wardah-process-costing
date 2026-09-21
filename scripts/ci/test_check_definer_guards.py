@@ -5789,5 +5789,162 @@ MUST_REJECT.update(ROUND11_CONSERVATIVE_FALSE_RED)
 MUST_REJECT.update(ROUND11_ORDERING_MUST_REJECT)
 MUST_ACCEPT.update(ROUND11_ORDERING_MUST_ACCEPT)
 
+
+
+class Round12ClosureTests(unittest.TestCase):
+    """Exact regressions from the synchronized #246 independent reviews."""
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._dir.name)
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def verdict(self, name: str, sql: str) -> list[str]:
+        path = self.root / f"999_round12_{name}.sql"
+        path.write_text(sql, encoding="utf-8")
+        return guards.check_file(path)
+
+    @staticmethod
+    def unguarded(name: str = "probe_fn", args: str = "p_org uuid") -> str:
+        return (
+            f"CREATE FUNCTION public.{name}({args}) RETURNS void\n"
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "BEGIN\n"
+            "  UPDATE public.bins SET actual_qty = actual_qty - 1;\n"
+            "END;\n"
+            "$$;\n"
+        )
+
+    @staticmethod
+    def close(name: str = "probe_fn", args: str = "uuid") -> str:
+        return (
+            f"REVOKE EXECUTE ON FUNCTION public.{name}({args}) "
+            "FROM PUBLIC, anon, authenticated;\n"
+        )
+
+    def test_header_dollar_literal_cannot_impersonate_body_guard(self) -> None:
+        sql = (
+            "CREATE FUNCTION public.probe_fn("
+            "p_org uuid, p_note text DEFAULT "
+            "$d$PERFORM public.wardah_assert_org_member(p_org);$d$)\n"
+            "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "BEGIN UPDATE public.bins SET actual_qty = 0; END;\n"
+            "$$;\n"
+        )
+        self.assertTrue(self.verdict("header_dollar_default", sql))
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        definitions = guards.parse_definitions(sql, masked)
+        self.assertEqual(len(definitions), 1)
+        body = masked[definitions[0].body_span[0]:definitions[0].body_span[1]]
+        self.assertNotIn("wardah_assert_org_member", body)
+
+    def test_alter_routine_security_definer_is_detected(self) -> None:
+        sql = (
+            "CREATE FUNCTION public.promoted() RETURNS void "
+            "LANGUAGE plpgsql SECURITY INVOKER AS $$ BEGIN NULL; END; $$;\n"
+            "ALTER ROUTINE public.promoted() SECURITY DEFINER;\n"
+        )
+        self.assertTrue(self.verdict("alter_routine", sql))
+        self.assertTrue(
+            self.verdict(
+                "external_alter_routine",
+                "ALTER ROUTINE public.external_routine() SECURITY DEFINER;\n",
+            )
+        )
+
+    def test_out_only_parameters_do_not_enter_callable_identity(self) -> None:
+        sql = (
+            "CREATE FUNCTION public.out_probe(OUT x integer) "
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN x := 1; END; $$;\n"
+            "CREATE FUNCTION public.out_probe(integer) RETURNS integer "
+            "LANGUAGE sql AS $$ SELECT $1 $$;\n"
+            "REVOKE EXECUTE ON FUNCTION public.out_probe(integer) "
+            "FROM PUBLIC, anon, authenticated;\n"
+        )
+        self.assertTrue(self.verdict("out_identity", sql))
+        self.assertEqual(
+            guards._parse_arg_list(
+                "OUT x integer, INOUT y text, VARIADIC z integer[]"
+            ),
+            ("text", "integer[]"),
+        )
+
+    def test_unicode_delimited_do_language_is_owned_and_unknown(self) -> None:
+        sql = (
+            self.unguarded() + self.close()
+            + 'DO LANGUAGE U&"plpgsql" $$\n'
+            + "BEGIN\n"
+            + "  EXECUTE 'GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+              "TO authenticated';\n"
+            + "END;\n"
+            + "$$;\n"
+        )
+        self.assertTrue(self.verdict("unicode_do_language", sql))
+
+    def test_migration_time_helper_calls_fail_closed(self) -> None:
+        helper = (
+            "CREATE FUNCTION public.reopen_probe() RETURNS void "
+            "LANGUAGE plpgsql AS $$\n"
+            "BEGIN GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+            "TO authenticated; END; $$;\n"
+        )
+        cases = {
+            "select_helper": helper + "SELECT public.reopen_probe();\n",
+            "do_perform_helper": helper
+                + "DO $$ BEGIN PERFORM public.reopen_probe(); END; $$;\n",
+            "call_procedure": (
+                "CREATE PROCEDURE public.reopen_proc() LANGUAGE plpgsql AS $$\n"
+                "BEGIN GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                "TO authenticated; END; $$;\n"
+                "CALL public.reopen_proc();\n"
+            ),
+        }
+        for name, tail in cases.items():
+            with self.subTest(case=name):
+                sql = self.unguarded() + self.close() + tail
+                self.assertTrue(self.verdict(name, sql))
+
+    def test_schema_wide_grant_reopens_client_surface(self) -> None:
+        sql = (
+            self.unguarded() + self.close()
+            + "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public "
+              "TO authenticated;\n"
+        )
+        self.assertTrue(self.verdict("schema_grant", sql))
+
+    def test_default_privilege_grant_before_create_is_unknown(self) -> None:
+        sql = (
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+            "GRANT EXECUTE ON FUNCTIONS TO authenticated;\n"
+            + self.unguarded()
+            + "REVOKE EXECUTE ON FUNCTION public.probe_fn(uuid) FROM PUBLIC;\n"
+        )
+        self.assertTrue(self.verdict("default_privileges", sql))
+        safe = self.unguarded() + self.close() + (
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+            "GRANT EXECUTE ON FUNCTIONS TO authenticated;\n"
+        )
+        self.assertEqual(self.verdict("default_after_create", safe), [])
+
+    def test_role_membership_inheritance_blocks_closure_proof(self) -> None:
+        sql = (
+            self.unguarded() + self.close()
+            + "CREATE ROLE stock_ops;\n"
+            + "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) TO stock_ops;\n"
+            + "GRANT stock_ops TO authenticated;\n"
+        )
+        self.assertTrue(self.verdict("role_membership", sql))
+
+    def test_schema_wide_revoke_is_not_credited_as_exact_closure(self) -> None:
+        sql = (
+            self.unguarded()
+            + "REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public "
+              "FROM PUBLIC, anon, authenticated;\n"
+        )
+        self.assertTrue(self.verdict("schema_revoke_conservative", sql))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
