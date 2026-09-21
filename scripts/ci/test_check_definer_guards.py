@@ -8413,5 +8413,905 @@ class Round17DeclarationRegionTests(unittest.TestCase):
             )
 
 
+class _Round18Base(unittest.TestCase):
+    """Shared fixtures for Round 18.
+
+    Every SQL string asserted on below was compiled on PostgreSQL 17.11 as a
+    `SECURITY DEFINER` routine and then EXECUTED by a non-member role, against a
+    `public.bins` row seeded at 55, with `public.wardah_is_org_member()` and
+    `public.wardah_assert_org_member()` behaving exactly as this repository's
+    helpers do. Every routine came back `prosecdef = true` and executable by the
+    client role, so the verdicts asserted here are verdicts about live
+    authorization behavior, not about text.
+    """
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._dir.name)
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def verdict(self, name: str, sql: str) -> list[str]:
+        path = self.root / f"999_round18_{name}.sql"
+        path.write_text(sql, encoding="utf-8")
+        return guards.check_file(path)
+
+    @staticmethod
+    def routine(body: str) -> str:
+        """A SECURITY DEFINER routine whose body is exactly `body`."""
+        return (
+            "CREATE FUNCTION public.probe_fn(p_org uuid)\n"
+            "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $body$\n"
+            f"{body}"
+            "END;\n"
+            "$body$;\n"
+        )
+
+    def body_of(self, sql: str):
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        definition = guards.parse_definitions(sql, masked)[0]
+        return (
+            masked[definition.start: definition.body_span[1]],
+            sql[definition.start: definition.body_span[1]],
+        )
+
+    PRIVILEGED_WRITE = (
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+    )
+
+
+class Round18DeclareEvidenceTests(_Round18Base):
+    """A raw `>>` or a raw `$` must not manufacture a DECLARE section.
+
+    Round 17 checked the POSITION of a DECLARE token but accepted two single
+    characters as structural proof, and PostgreSQL 17.11 accepts both of them in
+    ordinary executable text:
+
+      * `>>` is the integer right-shift operator, so `SELECT 8 >> declare INTO v
+        FROM t` - with `declare` an ordinary column - opened a section, as did
+        `8>>declare`, `8 >> /* c */ declare` and `SELECT a << b >> declare`;
+      * `$` continues an unquoted identifier (scan.l ident_cont), so
+        `col$declare` - one identifier - opened one too.
+
+    The manufactured span runs to the next BEGIN, or to the end of the body when
+    there is none, and every RAISE inside it stops counting.
+    """
+
+    # -- RED case A: a real outer abort hidden, a DEAD guard credited --------
+    def test_right_shift_declare_does_not_hide_an_outer_abort(self) -> None:
+        """Oracle: `SELECT 8 >> declare INTO v FROM public.t_decl` then
+        `RAISE EXCEPTION 'NOT_IMPLEMENTED'` aborts for member and non-member
+        alike (bins stayed 55), so the PERFORM after it is dead code that can
+        never authorize anything. The scanner used to return []."""
+        sql = self.routine(
+            "DECLARE\n"
+            "  v integer;\n"
+            "BEGIN\n"
+            "  SELECT 8 >> declare INTO v FROM public.t_decl LIMIT 1;\n"
+            "  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            + self.PRIVILEGED_WRITE
+        )
+        self.assertTrue(
+            self.verdict("shift_hides_outer_abort", sql),
+            "a right-shift operand named `declare` opened a declaration span "
+            "that hid a real outer-level abort, and the dead guard after it "
+            "was credited as an authorization boundary",
+        )
+        body, _ = self.body_of(sql)
+        self.assertEqual(
+            len(guards._declaration_spans(body)),
+            1,
+            "the shift operand was counted as a second declaration section",
+        )
+
+    # -- RED case B: a real deny hidden inside its own branch ---------------
+    def test_right_shift_declare_does_not_hide_a_real_deny(self) -> None:
+        """Oracle: this routine denies a non-member with
+        TENANT_MEMBERSHIP_REQUIRED and leaves bins at 55, and a member reaches
+        the write. It must be accepted; the manufactured span rejected it."""
+        self.assertEqual(
+            self.verdict(
+                "shift_hides_real_deny",
+                self.routine(
+                    "DECLARE\n"
+                    "  v integer;\n"
+                    "BEGIN\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    SELECT 8 >> declare INTO v FROM public.t_decl LIMIT 1;\n"
+                    "    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';\n"
+                    "  END IF;\n"
+                    + self.PRIVILEGED_WRITE
+                ),
+            ),
+            [],
+            "a shift operand named `declare` swallowed the RAISE of the deny "
+            "branch it sits in, so a real guard read as no boundary at all",
+        )
+
+    # -- RED case C: `col$declare` ------------------------------------------
+    def test_identifier_containing_a_dollar_opens_no_section(self) -> None:
+        """Oracle: `col$declare` is ONE identifier - `v := col$declare` runs on
+        17.11 - and the routine aborts at NOT_IMPLEMENTED, so the PERFORM is
+        dead. `_dollar_tag_at()` refuses the `$` because no tag closes."""
+        sql = self.routine(
+            "DECLARE\n"
+            "  col$declare integer := 1;\n"
+            "  v integer;\n"
+            "BEGIN\n"
+            "  v := col$declare;\n"
+            "  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            + self.PRIVILEGED_WRITE
+        )
+        self.assertTrue(
+            self.verdict("col_dollar_declare", sql),
+            "`col$declare` opened a declaration span from a bare `$`",
+        )
+        body, _ = self.body_of(sql)
+        self.assertEqual(
+            len(guards._declaration_spans(body)),
+            1,
+            "the identifier's `$` was read as a body-opening dollar quote",
+        )
+
+    # -- RED case D: `a << b >> declare` ------------------------------------
+    def test_composed_shift_declare_opens_no_section(self) -> None:
+        """Oracle: `SELECT a << b >> declare INTO v FROM t` runs on 17.11. The
+        `<<` here follows an OPERAND, which is what separates it from a label."""
+        sql = self.routine(
+            "DECLARE\n"
+            "  v integer;\n"
+            "  a integer := 64;\n"
+            "  b integer := 1;\n"
+            "BEGIN\n"
+            "  SELECT a << b >> declare INTO v FROM public.t_decl LIMIT 1;\n"
+            "  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            + self.PRIVILEGED_WRITE
+        )
+        self.assertTrue(
+            self.verdict("composed_shift_declare", sql),
+            "`a << b >> declare` was read as `<<b>> DECLARE`",
+        )
+        body, _ = self.body_of(sql)
+        self.assertEqual(
+            len(guards._declaration_spans(body)),
+            1,
+            "the composed shift expression manufactured a section",
+        )
+
+    # -- the spellings 17.11 accepts around the operator -------------------
+    def test_every_accepted_shift_spelling_opens_no_section(self) -> None:
+        """`8 >> declare`, `8>>declare`, a comment between, and a newline plus
+        tab between all run on 17.11 and none is a declaration section."""
+        for name, operand in (
+            ("spaced", "8 >> declare"),
+            ("tight", "8>>declare"),
+            ("commented", "8 >> /* c */ declare"),
+            ("newline_tab", "8 >>\n\tdeclare"),
+            ("composed", "a << b >> declare"),
+        ):
+            with self.subTest(name):
+                sql = self.routine(
+                    "DECLARE\n"
+                    "  v integer;\n"
+                    "  a integer := 64;\n"
+                    "  b integer := 1;\n"
+                    "BEGIN\n"
+                    f"  SELECT {operand} INTO v FROM public.t_decl LIMIT 1;\n"
+                    "  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n"
+                    "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                    + self.PRIVILEGED_WRITE
+                )
+                self.assertTrue(
+                    self.verdict(f"shift_{name}", sql),
+                    f"`{operand}` manufactured a declaration section",
+                )
+
+    # -- the structural cases that MUST keep their section -----------------
+    def test_real_declaration_sections_are_still_modelled(self) -> None:
+        """Every opener verified on 17.11: body start (`$$` and `$tag$`, with
+        and without whitespace), `;`, BEGIN, THEN, ELSE, LOOP, and a complete
+        `<<label>>`."""
+        for name, prefix in (
+            ("plain_body", "DECLARE\n  raise integer := 1;\nBEGIN\n"),
+            ("label", "<<blk>>\nDECLARE\n  raise integer := 1;\nBEGIN\n"),
+            ("label_tight", "<<blk>>DECLARE\n  raise integer := 1;\nBEGIN\n"),
+            (
+                "quoted_label",
+                '<<"Blk">>\nDECLARE\n  raise integer := 1;\nBEGIN\n',
+            ),
+        ):
+            with self.subTest(name):
+                # The declaration is the only candidate RAISE; if its section
+                # were lost the identifier would count as a denying statement
+                # and this unguarded routine would be accepted.
+                sql = self.routine(
+                    f"{prefix}"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    raise := 2;\n"
+                    "  END IF;\n"
+                    + self.PRIVILEGED_WRITE
+                )
+                self.assertTrue(
+                    self.verdict(f"section_{name}", sql),
+                    f"the `{name}` declaration section stopped being modelled",
+                )
+
+    def test_tagged_and_untagged_body_openers_prove_a_section(self) -> None:
+        """A body-opening DECLARE is preceded by the dollar quote that opens the
+        body. `$$`, `$tag$`, and either with no whitespace before DECLARE, all
+        run on 17.11 and all must keep their section."""
+        for name, tag, gap in (
+            ("dollar_dollar", "$$", "\n"),
+            ("dollar_dollar_tight", "$$", ""),
+            ("tagged", "$body$", "\n"),
+            ("tagged_tight", "$body$", ""),
+        ):
+            with self.subTest(name):
+                sql = (
+                    "CREATE FUNCTION public.probe_fn(p_org uuid)\n"
+                    f"RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS {tag}"
+                    f"{gap}DECLARE\n"
+                    "  raise integer := 1;\n"
+                    "BEGIN\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    raise := 2;\n"
+                    "  END IF;\n"
+                    + self.PRIVILEGED_WRITE
+                    + f"END;\n{tag};\n"
+                )
+                self.assertTrue(
+                    self.verdict(f"opener_{name}", sql),
+                    f"the `{tag}` body opener stopped proving a section",
+                )
+
+    # -- the helpers, so BOTH consumers inherit one answer -----------------
+    def test_declare_evidence_helpers_are_structural(self) -> None:
+        opener = "$body$\nDECLARE x integer;\nBEGIN NULL; END\n"
+        self.assertTrue(
+            guards._opens_declaration_section(opener, opener.index("DECLARE")),
+            "a `$body$` body opener no longer proves a section",
+        )
+        for text in (
+            "$body$\nv := 8 >> declare;\n",
+            "$body$\nv := col$declare;\n",
+            "$body$\nv := a << b >> declare;\n",
+            "$body$\nv := col$$declare;\n",
+            "$body$\nv := x$abc$declare;\n",
+        ):
+            with self.subTest(text.strip()):
+                self.assertFalse(
+                    guards._opens_declaration_section(
+                        text, text.index("declare")
+                    ),
+                    f"{text.strip()!r} manufactured a declaration section",
+                )
+        labelled = "$body$\n<<blk>> DECLARE raise integer := 1; BEGIN NULL; END blk;"
+        self.assertTrue(
+            guards._opens_declaration_section(
+                labelled, labelled.index("DECLARE")
+            ),
+            "`<<label>> DECLARE` lost its section",
+        )
+        self.assertEqual(
+            guards._labelled_declare_offsets(labelled),
+            frozenset({labelled.index("DECLARE")}),
+            "the labelled DECLARE was not recognized forward from its `<<`",
+        )
+        shift = "$body$\nv := a << b >> declare;\n"
+        self.assertEqual(
+            guards._labelled_declare_offsets(shift),
+            frozenset(),
+            "a right-shift expression was recorded as a labelled DECLARE",
+        )
+        # The dollar-tag boundary is `_dollar_tag_at()`'s, not a second rule.
+        tagged = "$body$\nDECLARE x integer;\n"
+        self.assertTrue(
+            guards._ends_dollar_body_opener(tagged, tagged.index("$\n"))
+        )
+        ident = "v := col$declare;"
+        self.assertFalse(
+            guards._ends_dollar_body_opener(ident, ident.index("$"))
+        )
+
+
+class Round18AssignmentTargetTests(_Round18Base):
+    """A qualified or subscripted target beginning with `raise` is not a RAISE.
+
+    Round 17 stopped after the first identifier word, so `raise.actual_qty := 2`
+    and `raise[1] := 2` were counted as aborting RAISE statements. Both forms
+    were compiled and run on 17.11: each assigns, each reads its value back, and
+    NEITHER aborts - so a deny branch holding only one of them denies nothing,
+    and the oracle shows a non-member driving the privileged UPDATE
+    (bins.actual_qty 55 -> 0) while check_file() returned [].
+    """
+
+    # -- RED case E: `raise.actual_qty := 2` -------------------------------
+    def test_qualified_target_is_not_raise_evidence(self) -> None:
+        sql = self.routine(
+            "DECLARE\n"
+            "  raise public.bins;\n"
+            "BEGIN\n"
+            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            "    raise.actual_qty := 2;\n"
+            "  END IF;\n"
+            + self.PRIVILEGED_WRITE
+        )
+        self.assertTrue(
+            self.verdict("qualified_target", sql),
+            "`raise.actual_qty := 2` counted as a denying RAISE; the oracle "
+            "shows a non-member reached the privileged UPDATE (55 -> 0)",
+        )
+        body, raw_body = self.body_of(sql)
+        for frame in guards.parse_blocks(body, raw_body):
+            if frame.kind == "IF":
+                self.assertIsNone(
+                    frame.raise_pos,
+                    "the IF frame still records an assignment target as its "
+                    "raise_pos",
+                )
+
+    # -- RED case F: `raise[1] := 2` ---------------------------------------
+    def test_subscript_target_is_not_raise_evidence(self) -> None:
+        sql = self.routine(
+            "DECLARE\n"
+            "  raise integer[];\n"
+            "BEGIN\n"
+            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            "    raise[1] := 2;\n"
+            "  END IF;\n"
+            + self.PRIVILEGED_WRITE
+        )
+        self.assertTrue(
+            self.verdict("subscript_target", sql),
+            "`raise[1] := 2` counted as a denying RAISE; the oracle shows a "
+            "non-member reached the privileged UPDATE (55 -> 0)",
+        )
+        body, raw_body = self.body_of(sql)
+        for frame in guards.parse_blocks(body, raw_body):
+            if frame.kind == "IF":
+                self.assertIsNone(frame.raise_pos)
+
+    # -- every target form the oracle accepted -----------------------------
+    def test_every_accepted_target_form_is_an_assignment(self) -> None:
+        """Each of these was compiled, executed and read back on 17.11 with
+        `raise` as the variable name, and none of them aborts."""
+        for target in (
+            "raise := 2",
+            "raise = 2",
+            "raise.actual_qty := 2",
+            "raise.actual_qty = 2",
+            "raise /* c */ . /* c */ actual_qty := 2",
+            'raise."Odd Field" := 2',
+            "raise[1] := 2",
+            "raise[1] = 2",
+            "raise [1] := 2",
+            "raise[1][2] := 2",
+            "raise[1:2] := ARRAY[7,7]",
+            "raise[idx[1]] := 2",
+            "raise[1].actual_qty := 2",
+            "raise.arr[1] := 2",
+            "raise.a.b.c := 2",
+            "raise[1].a[1].subfield := 2",
+            'raise[1]."Odd Field" := 2',
+        ):
+            with self.subTest(target):
+                masked, problems = guards.mask_sql_checked(f"{target};\n")
+                self.assertEqual(problems, [])
+                self.assertTrue(
+                    guards._is_assignment_target(masked, 0),
+                    f"`{target}` was not recognized as an assignment target",
+                )
+                # Through the shared classifier, on MASKED text - which is what
+                # both consumers pass, and what turns a comment into whitespace.
+                masked, problems = guards.mask_sql_checked(
+                    f"BEGIN\n{target};\n"
+                )
+                self.assertEqual(problems, [])
+                self.assertFalse(
+                    guards._is_statement_start(masked, 6),
+                    f"`{target}` still opens a statement after BEGIN",
+                )
+
+    # -- and no real RAISE may be swallowed by the selector consumer -------
+    def test_no_real_raise_reads_as_an_assignment_target(self) -> None:
+        """A RAISE statement continues with a level, a format literal, a
+        condition name, SQLSTATE, USING, or the `;` of a bare re-raise. None of
+        those begins with `.` or `[`, and none is an assignment operator."""
+        for statement in (
+            "RAISE EXCEPTION 'x'",
+            "RAISE EXCEPTION 'a = b'",
+            "RAISE EXCEPTION 'x' USING ERRCODE = 'P0001'",
+            "RAISE WARNING 'x'",
+            "RAISE SQLSTATE 'P0001'",
+            "RAISE unique_violation",
+            "RAISE NOTICE '%', arr[1]",
+            "RAISE",
+        ):
+            with self.subTest(statement):
+                masked, problems = guards.mask_sql_checked(f"{statement};\n")
+                self.assertEqual(problems, [])
+                self.assertFalse(
+                    guards._is_assignment_target(masked, 0),
+                    f"`{statement}` read as an assignment target",
+                )
+                fragment = f"BEGIN\n{statement};\n"
+                masked, problems = guards.mask_sql_checked(fragment)
+                self.assertEqual(problems, [])
+                self.assertTrue(
+                    guards._is_statement_start(masked, 6),
+                    f"`{statement}` stopped opening a statement",
+                )
+
+    # -- the selector consumer refuses to run away -------------------------
+    def test_selector_consumer_is_bounded(self) -> None:
+        """An incomplete selector consumes nothing: a `[` with no `]`, a `[`
+        that reaches the statement's `;` first, and a `.` with no identifier
+        after it all leave the position where it was."""
+        for text in ("raise[1 := 2", "raise[1; x := 2", "raise. := 2"):
+            with self.subTest(text):
+                self.assertFalse(
+                    guards._is_assignment_target(text, 0),
+                    f"`{text}` was consumed as a complete target",
+                )
+        self.assertEqual(
+            guards._skip_subscript("raise[idx[1]] := 2", 5),
+            13,
+            "nested subscript brackets are not balanced",
+        )
+        self.assertIsNone(
+            guards._skip_subscript("raise[1; x := 2", 5),
+            "a subscript scan crossed the statement terminator",
+        )
+
+
+class Round18ComposedMutantTests(_Round18Base):
+    """Fresh composed mutants crossing both Round-17 P2 families.
+
+    Each was compiled on PostgreSQL 17.11 as a `SECURITY DEFINER` routine
+    (`prosecdef = true`, executable by the client role) and then run by a
+    non-member AND by a member against a `public.bins` row seeded at 55. The
+    expected verdict below is the one that matches the observed live behavior.
+    """
+
+    def test_dollar_identifier_with_a_trailing_nested_block(self) -> None:
+        """M1. Oracle: denies a non-member (bins stayed 55). The trailing
+        `BEGIN` used to terminate the span `col$declare` manufactured, so the
+        real deny fell inside it and the guard vanished."""
+        self.assertEqual(
+            self.verdict(
+                "m1_dollar_ident_nested_block",
+                self.routine(
+                    "DECLARE\n"
+                    "  col$declare integer := 1;\n"
+                    "  v integer;\n"
+                    "BEGIN\n"
+                    "  v := col$declare;\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';\n"
+                    "  END IF;\n"
+                    + self.PRIVILEGED_WRITE
+                    + "  BEGIN\n    NULL;\n  END;\n"
+                ),
+            ),
+            [],
+            "`col$declare` plus a trailing nested BEGIN hid a real deny",
+        )
+
+    def test_labelled_declare_holding_a_qualified_target(self) -> None:
+        """M2. Oracle: denies a non-member at the outer PERFORM (bins stayed
+        55); a member reaches the write. The labelled DECLARE must keep its
+        section AND the qualified target inside it must not abort."""
+        self.assertEqual(
+            self.verdict(
+                "m2_labelled_declare_qualified_target",
+                self.routine(
+                    "DECLARE\n"
+                    "  v integer;\n"
+                    "BEGIN\n"
+                    "  <<blk>>\n"
+                    "  DECLARE\n"
+                    "    raise public.bins;\n"
+                    "  BEGIN\n"
+                    "    raise.actual_qty := 2;\n"
+                    "    v := 1;\n"
+                    "  END blk;\n"
+                    "\n"
+                    "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                    + self.PRIVILEGED_WRITE
+                ),
+            ),
+            [],
+            "a labelled DECLARE section plus a qualified assignment target "
+            "rejected a guard the oracle proves denies a non-member",
+        )
+
+    def test_subscript_target_then_a_real_assertion(self) -> None:
+        """M3. Oracle: `raise[1] := 2` aborts nothing, then the assertion denies
+        a non-member (bins stayed 55) and a member reaches the write."""
+        self.assertEqual(
+            self.verdict(
+                "m3_subscript_then_assertion",
+                self.routine(
+                    "DECLARE\n"
+                    "  raise integer[];\n"
+                    "BEGIN\n"
+                    "  raise[1] := 2;\n"
+                    "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                    + self.PRIVILEGED_WRITE
+                ),
+            ),
+            [],
+            "a subscripted assignment target counted as an earlier abort and "
+            "made a real assertion look unreachable",
+        )
+
+    def test_end_loop_label_with_a_qualified_target(self) -> None:
+        """M4. Round 15's end label and Round 18's qualified target together.
+        Oracle: the assertion denies a non-member (bins stayed 55)."""
+        self.assertEqual(
+            self.verdict(
+                "m4_end_loop_label_qualified_target",
+                self.routine(
+                    "DECLARE\n"
+                    "  raise public.bins;\n"
+                    "BEGIN\n"
+                    "  <<raise>>\n"
+                    "  WHILE false LOOP\n"
+                    "    raise.actual_qty := 2;\n"
+                    "  END LOOP raise;\n"
+                    "\n"
+                    "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                    + self.PRIVILEGED_WRITE
+                ),
+            ),
+            [],
+            "an end label named raise plus a qualified target rejected a real "
+            "assertion",
+        )
+
+    def test_non_catching_handler_with_a_qualified_target(self) -> None:
+        """M5. Oracle: `WHEN unique_violation` does not catch the assertion's
+        P0001, so a non-member is denied (bins stayed 55) and a member writes."""
+        self.assertEqual(
+            self.verdict(
+                "m5_noncatching_handler_qualified_target",
+                self.routine(
+                    "DECLARE\n"
+                    "  raise public.bins;\n"
+                    "BEGIN\n"
+                    "  raise.actual_qty := 2;\n"
+                    "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                    + self.PRIVILEGED_WRITE
+                    + "EXCEPTION WHEN unique_violation THEN\n  RAISE;\n"
+                ),
+            ),
+            [],
+            "a qualified assignment target under a non-catching handler "
+            "rejected a real assertion",
+        )
+
+    def test_declaration_region_with_a_right_shift_raise(self) -> None:
+        """M6. Round 14's `8 >> raise` inside a routine that also has a real
+        declaration region. Oracle: denies a non-member (bins stayed 55)."""
+        self.assertEqual(
+            self.verdict(
+                "m6_declare_region_shift_raise",
+                self.routine(
+                    "DECLARE\n"
+                    "  declare_ok integer := 1;\n"
+                    "  v integer;\n"
+                    "BEGIN\n"
+                    "  SELECT 8 >> raise INTO v FROM public.raise_source "
+                    "LIMIT 1;\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';\n"
+                    "  END IF;\n"
+                    "  UPDATE public.bins SET actual_qty = declare_ok - 1 "
+                    "WHERE org_id = p_org;\n"
+                ),
+            ),
+            [],
+            "Round 14's shift operand reopened inside a declaration region",
+        )
+
+    def test_composed_shift_in_a_deny_branch_with_a_later_target(self) -> None:
+        """M7. Oracle: denies a non-member (bins stayed 55); a member writes."""
+        self.assertEqual(
+            self.verdict(
+                "m7_composed_shift_deny_later_target",
+                self.routine(
+                    "DECLARE\n"
+                    "  raise public.bins;\n"
+                    "  v integer;\n"
+                    "  a integer := 64;\n"
+                    "  b integer := 1;\n"
+                    "BEGIN\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    SELECT a << b >> declare INTO v FROM public.t_decl "
+                    "LIMIT 1;\n"
+                    "    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';\n"
+                    "  END IF;\n"
+                    "  raise.actual_qty := 2;\n"
+                    + self.PRIVILEGED_WRITE
+                ),
+            ),
+            [],
+            "`a << b >> declare` in a deny branch hid the branch's own RAISE",
+        )
+
+    def test_others_handler_with_an_assign_only_deny_branch(self) -> None:
+        """M8. Oracle: NOTHING aborts - a non-member drove bins 55 -> 0 - so
+        this routine must be reported however the handler is written."""
+        self.assertTrue(
+            self.verdict(
+                "m8_others_handler_assign_only_deny",
+                self.routine(
+                    "DECLARE\n"
+                    "  raise public.bins;\n"
+                    "BEGIN\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    raise.actual_qty := 2;\n"
+                    "  END IF;\n"
+                    + self.PRIVILEGED_WRITE
+                    + "EXCEPTION WHEN OTHERS THEN\n  RAISE;\n"
+                ),
+            ),
+            "a deny branch that only assigns to a qualified target was "
+            "accepted as an authorization boundary",
+        )
+
+    def test_both_families_in_one_routine(self) -> None:
+        """M9. Both defects bite at once: the qualified target used to be an
+        outer abort AND the composed shift used to hide the real deny. Oracle:
+        denies a non-member (bins stayed 55); a member writes."""
+        self.assertEqual(
+            self.verdict(
+                "m9_both_families",
+                self.routine(
+                    "DECLARE\n"
+                    "  raise public.bins;\n"
+                    "  v integer;\n"
+                    "  a integer := 64;\n"
+                    "  b integer := 1;\n"
+                    "BEGIN\n"
+                    "  raise.actual_qty := 2;\n"
+                    "  SELECT a << b >> declare INTO v FROM public.t_decl "
+                    "LIMIT 1;\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';\n"
+                    "  END IF;\n"
+                    + self.PRIVILEGED_WRITE
+                ),
+            ),
+            [],
+            "a qualified target and a composed shift together rejected a "
+            "guard the oracle proves denies a non-member",
+        )
+
+
+class Round18RegressionBatteryTests(_Round18Base):
+    """Rounds 13-17, re-proven through the corrected classifiers."""
+
+    def test_every_real_raise_opener_still_opens_a_statement(self) -> None:
+        for opener in ("THEN", "ELSE", "BEGIN", "LOOP", "NULL;"):
+            for raise_form in (
+                "RAISE EXCEPTION 'x'",
+                "RAISE SQLSTATE 'P0001'",
+                "RAISE EXCEPTION 'x' USING ERRCODE = 'P0001'",
+            ):
+                with self.subTest(opener=opener, raise_form=raise_form):
+                    fragment = f"{opener}\n  {raise_form};\n"
+                    masked, problems = guards.mask_sql_checked(fragment)
+                    self.assertEqual(problems, [])
+                    self.assertTrue(
+                        guards._is_statement_start(
+                            masked, masked.index("RAISE")
+                        ),
+                        f"a real `{raise_form}` after `{opener}` stopped "
+                        f"opening a statement",
+                    )
+
+    def test_declare_then_begin_raise_still_denies(self) -> None:
+        self.assertEqual(
+            self.verdict(
+                "declare_then_begin_raise",
+                self.routine(
+                    "DECLARE\n"
+                    "  raise integer := 1;\n"
+                    "BEGIN\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';\n"
+                    "  END IF;\n"
+                    + self.PRIVILEGED_WRITE
+                ),
+            ),
+            [],
+            "a genuine RAISE after a declaration section's BEGIN was lost",
+        )
+
+    def test_bare_re_raise_in_a_handler_is_still_a_statement(self) -> None:
+        fragment = "EXCEPTION WHEN OTHERS THEN\n  RAISE;\n"
+        masked, problems = guards.mask_sql_checked(fragment)
+        self.assertEqual(problems, [])
+        self.assertTrue(
+            guards._is_statement_start(masked, masked.index("RAISE;")),
+            "a bare re-RAISE in a handler stopped opening a statement",
+        )
+
+    def test_round_17_declaration_spellings_stay_inert(self) -> None:
+        """Every declaration spelling of a variable named `raise` that 17.11
+        accepts. None of them denies anything, so each unguarded routine must
+        still be reported."""
+        for name, declarations in (
+            ("first", "  raise integer := 1;\n"),
+            ("second", "  x integer := 1;\n  raise integer := 2;\n"),
+            (
+                "third",
+                "  x integer := 1;\n  y integer := 2;\n"
+                "  raise integer := 3;\n",
+            ),
+            ("uninitialized", "  raise integer;\n"),
+            ("constant", "  raise CONSTANT integer := 1;\n"),
+            ("custom_type", "  raise public.bins;\n"),
+            ("alias_for", "  raise ALIAS FOR p_org;\n"),
+            ("pct_type", "  raise public.bins.actual_qty%TYPE;\n"),
+            ("pct_rowtype", "  raise public.bins%ROWTYPE;\n"),
+        ):
+            with self.subTest(name):
+                self.assertTrue(
+                    self.verdict(
+                        f"r17_declaration_{name}",
+                        self.routine(
+                            "DECLARE\n"
+                            f"{declarations}"
+                            "BEGIN\n"
+                            "  IF NOT public.wardah_is_org_member(p_org) "
+                            "THEN\n"
+                            "    NULL;\n"
+                            "  END IF;\n"
+                            + self.PRIVILEGED_WRITE
+                        ),
+                    ),
+                    f"the `{name}` declaration of `raise` was treated as a "
+                    f"denying statement",
+                )
+
+    def test_round_13_to_15_identifier_forms_stay_inert(self) -> None:
+        for name, deny_body in (
+            ("r15_end_loop_label",
+             "    <<raise>>\n    WHILE false LOOP\n      NULL;\n"
+             "    END LOOP raise;\n"),
+            ("r14_shift_spaced",
+             "    PERFORM (SELECT 8 >> raise FROM public.raise_source "
+             "LIMIT 1);\n"),
+            ("r14_shift_tight",
+             "    PERFORM (SELECT 8>>raise FROM public.raise_source "
+             "LIMIT 1);\n"),
+            ("r14_shift_commented",
+             "    PERFORM (SELECT 8 >> /* c */ raise FROM "
+             "public.raise_source LIMIT 1);\n"),
+            ("r14_column_named_raise",
+             "    PERFORM (SELECT raise FROM public.raise_source LIMIT 1);\n"),
+            ("r13_as_raise", "    PERFORM (SELECT 1 AS raise);\n"),
+            ("r17_assign_colon_equals",
+             "    raise := 2;\n"),
+            ("r17_assign_bare_equals",
+             "    raise = 2;\n"),
+        ):
+            with self.subTest(name):
+                self.assertTrue(
+                    self.verdict(
+                        name,
+                        self.routine(
+                            "DECLARE\n"
+                            "  raise integer := 1;\n"
+                            "BEGIN\n"
+                            "  IF NOT public.wardah_is_org_member(p_org) "
+                            "THEN\n"
+                            f"{deny_body}"
+                            "  END IF;\n"
+                            + self.PRIVILEGED_WRITE
+                        ),
+                    ),
+                    f"`{name}` reopened as a denying RAISE",
+                )
+
+    def test_return_and_labelled_exit_reachability_still_hold(self) -> None:
+        self.assertTrue(
+            self.verdict(
+                "return_before_guard",
+                self.routine(
+                    "DECLARE\n"
+                    "  raise public.bins;\n"
+                    "BEGIN\n"
+                    "  raise.actual_qty := 2;\n"
+                    "  RETURN;\n"
+                    "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                    + self.PRIVILEGED_WRITE
+                ),
+            ),
+            "a guard after an unconditional RETURN was treated as reachable",
+        )
+        self.assertTrue(
+            self.verdict(
+                "labelled_exit_past_guard",
+                self.routine(
+                    "DECLARE\n"
+                    "  raise integer[];\n"
+                    "BEGIN\n"
+                    "  <<outer>>\n"
+                    "  BEGIN\n"
+                    "    IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "      raise[1] := 2;\n"
+                    "      EXIT outer;\n"
+                    "    END IF;\n"
+                    "  END outer;\n"
+                    + self.PRIVILEGED_WRITE
+                ),
+            ),
+            "a labelled EXIT past a deny branch was accepted",
+        )
+
+    def test_p0001_swallowing_still_rejects_a_guard(self) -> None:
+        for handler in (
+            "WHEN OTHERS",
+            "WHEN raise_exception",
+            "WHEN plpgsql_error",
+            "WHEN SQLSTATE 'P0001'",
+            "WHEN SQLSTATE 'P0000'",
+        ):
+            with self.subTest(handler):
+                self.assertTrue(
+                    self.verdict(
+                        f"swallow_{abs(hash(handler))}",
+                        self.routine(
+                            "DECLARE\n"
+                            "  raise public.bins;\n"
+                            "BEGIN\n"
+                            "  raise.actual_qty := 2;\n"
+                            "  PERFORM public.wardah_assert_org_member("
+                            "p_org);\n"
+                            + self.PRIVILEGED_WRITE
+                            + f"EXCEPTION {handler} THEN\n  NULL;\n"
+                        ),
+                    ),
+                    f"`{handler}` stopped swallowing the assertion's P0001",
+                )
+
+    def test_standalone_perform_assertion_is_still_accepted(self) -> None:
+        self.assertEqual(
+            self.verdict(
+                "standalone_perform",
+                self.routine(
+                    "BEGIN\n"
+                    "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                    + self.PRIVILEGED_WRITE
+                ),
+            ),
+            [],
+            "the plain standalone PERFORM assertion stopped being accepted",
+        )
+
+    def test_numbered_migrations_122_to_191_stay_clean(self) -> None:
+        """The whole reviewed corpus, through the corrected classifiers."""
+        root = pathlib.Path(__file__).resolve().parents[2] / "sql" / "migrations"
+        files = sorted(
+            p for p in root.glob("*.sql")
+            if p.name[:3].isdigit() and 122 <= int(p.name[:3]) <= 191
+        )
+        self.assertEqual(len(files), 61, "the reviewed sweep changed size")
+        findings = {p.name: guards.check_file(p) for p in files}
+        self.assertEqual(
+            {name: out for name, out in findings.items() if out},
+            {},
+            "the 122-191 sweep stopped being clean",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

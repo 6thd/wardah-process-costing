@@ -408,6 +408,134 @@ _SECTION_BEGIN_RE = re.compile(r"\bBEGIN\b", re.IGNORECASE)
 # notation lands here too and is equally not a RAISE statement.
 _ASSIGNMENT_OPERATOR_RE = re.compile(r"[ \t\n\r\f\v]*(?::=|=)")
 
+# ---------------------------------------------------------------------------
+# Round 18: the two pieces of evidence the DECLARE region accepted on faith
+# ---------------------------------------------------------------------------
+# Round 17 proved the POSITION of a DECLARE token, not just the word, and got
+# the statement-position half right. The other two branches asked only what the
+# single character before the word was, and both characters occur in ordinary
+# executable text that PostgreSQL 17.11 accepts:
+#
+#   * a raw `>>` was taken as a labelled block opener. `>>` is also the integer
+#     right-shift operator, so `SELECT 8 >> declare INTO v FROM t` - `declare`
+#     as an ordinary column - manufactured a section. So did `8>>declare`,
+#     `8 >> /* c */ declare`, a newline or tab in between, and the composed
+#     `SELECT a << b >> declare INTO v FROM t`, all of which run on 17.11.
+#   * a raw `$` was taken as the dollar-quote that opens the routine body. `$`
+#     also CONTINUES an unquoted identifier (scan.l ident_cont), so
+#     `col$declare` - one identifier, `v := col$declare` runs on 17.11 - opened
+#     a section too.
+#
+# A manufactured span runs from the fake DECLARE to the next BEGIN, or to the
+# end of the body when there is none, and _is_statement_start() suppresses every
+# RAISE inside it. Both shared consumers were hit, in opposite directions, and
+# both were proven on 17.11 against `prosecdef = true`, client-executable
+# routines:
+#
+#   FALSE GREEN - `SELECT 8 >> declare INTO v FROM t; RAISE EXCEPTION
+#     'NOT_IMPLEMENTED'; PERFORM public.wardah_assert_org_member(p_org);` aborts
+#     at NOT_IMPLEMENTED for member and non-member alike, so the PERFORM is dead
+#     code that can never authorize anything. With the real abort hidden,
+#     unconditional_abort_before() found no earlier abort and the dead guard was
+#     credited; check_file() returned []. `col$declare` and `a << b >> declare`
+#     do the same.
+#
+#   FALSE RED - the same shift inside a real deny branch
+#     (`IF NOT public.wardah_is_org_member(p_org) THEN SELECT 8 >> declare ...;
+#     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED'; END IF;`) denies a
+#     non-member live, yet the swallowed RAISE left the IF frame with no
+#     raise_pos and parse_blocks() saw no boundary at all.
+#
+# The correction proves the STRUCTURE both branches were standing in for, and
+# takes both proofs from machinery that already exists rather than adding a
+# second reader:
+#
+#   * a labelled DECLARE is recognized FORWARD, `<<` first, through the same
+#     `_LABEL_OPEN_RE` + `_parse_identity()` + `>>` sequence _block_labels()
+#     uses. A complete label is required, and the `<<` must itself sit where a
+#     block may begin - which is what separates `<<blk>> DECLARE` from
+#     `a << b >> declare`, where the `<<` follows an operand. No generic `>>`
+#     boundary rule comes back, and this adds no third label parser.
+#   * a body-opening dollar quote is proved by `_dollar_tag_at()`, the one
+#     shared reader that already refuses a tag beginning inside an identifier.
+#     `col$declare` has no closing `$` and matches no tag at all; `col$$declare`
+#     and `x$abc$declare` are refused on exactly the identifier boundary that
+#     closed Round 13's masker bypass, so the two cannot disagree about where a
+#     body starts.
+#
+# A `$` that ends a valid tag somewhere OTHER than the body opener - the closing
+# delimiter of a nested literal, immediately followed by DECLARE - would still
+# be accepted. That text does not compile on 17.11 (an expression cannot be
+# followed by a bare DECLARE), so it can only appear in SQL PostgreSQL rejects,
+# and it is a bounded residue of a branch that previously accepted every `$` in
+# the body.
+
+
+def _prev_nonspace(body: str, pos: int) -> int:
+    """Index of the last non-whitespace character before `pos`, or -1.
+
+    PostgreSQL's whitespace set, not Python's: `_skip_ws()` uses str.isspace(),
+    which also matches code points PostgreSQL's scanner rejects.
+    """
+    j = pos - 1
+    while j >= 0 and body[j] in _PLPGSQL_WS:
+        j -= 1
+    return j
+
+
+def _ends_dollar_body_opener(body: str, j: int) -> bool:
+    """True when the `$` at `j` is the closing character of a dollar-quote tag.
+
+    The tag's own name is spelled from dolq_cont, which excludes `$`, so the
+    nearest preceding `$` is the only candidate for the tag's opening character:
+    if a valid tag ends at `j`, that `$` begins it. `_dollar_tag_at()` then
+    decides, and it is the same reader the masker uses - including its refusal
+    of a tag that would begin inside an identifier, which is what makes
+    `col$declare`, `col$$declare` and `x$abc$declare` prove nothing.
+    """
+    k = body.rfind("$", 0, j)
+    return k >= 0 and _dollar_tag_at(body, k) == body[k:j + 1]
+
+
+def _opens_block_position(body: str, pos: int) -> bool:
+    """True when a PL/pgSQL BLOCK may begin at `pos`.
+
+    A block is a statement, so every statement position qualifies; the routine's
+    own outermost block is the one that does not, because callers slice the body
+    from the CREATE statement and it opens directly after the dollar-quote that
+    opens the body.
+    """
+    j = _prev_nonspace(body, pos)
+    if j >= 0 and body[j] == "$" and _ends_dollar_body_opener(body, j):
+        return True
+    return _opens_statement_position(body, pos)
+
+
+@functools.lru_cache(maxsize=256)
+def _labelled_declare_offsets(body: str) -> frozenset[int]:
+    """Offsets of every DECLARE that a complete `<<label>>` introduces.
+
+    Read forward from the `<<`, exactly as _block_labels() reads a label, so
+    `<<blk>> DECLARE x integer; BEGIN ... END blk;` - valid on 17.11, with or
+    without whitespace after the `>>` - keeps its section, while a `>>` that is
+    only the right-shift operator introduces nothing. The label's TEXT is not
+    needed here, so the masked body serves as its own raw text: a quoted label's
+    content is blanked, which still parses as one identifier part.
+    """
+    offsets = set()
+    for m in _LABEL_OPEN_RE.finditer(body):
+        if not _opens_block_position(body, m.start()):
+            continue
+        parsed, after = _parse_identity(body, body, m.end())
+        if parsed is None or len(parsed[0]) != 1:
+            continue
+        if not body.startswith(">>", after):
+            continue
+        target = _skip_ws(body, after + 2)
+        if _DECLARE_TOKEN_RE.match(body, target):
+            offsets.add(target)
+    return frozenset(offsets)
+
 
 def _opens_declaration_section(body: str, pos: int) -> bool:
     """True when a DECLARE at `pos` can actually open a declaration section.
@@ -419,24 +547,17 @@ def _opens_declaration_section(body: str, pos: int) -> bool:
     and a routine whose guard genuinely cannot run would be accepted. So the
     position is checked, not just the word.
 
-    A declaration section belongs to a BLOCK, and a block is a statement, so
-    DECLARE opens one exactly where a statement may begin - verified on 17.11
-    at body start and after `;`, BEGIN, THEN, ELSE and LOOP - plus directly
-    after a `<<label>>`, which owns the block (`<<blk>> DECLARE ... BEGIN ...
-    END blk;`). After anything else, as in `SELECT declare ...`, the word is an
-    ordinary identifier.
+    A declaration section belongs to a BLOCK, so DECLARE opens one exactly where
+    a block may begin - verified on 17.11 at body start and after `;`, BEGIN,
+    THEN, ELSE and LOOP - plus directly after a `<<label>>`, which owns the
+    block (`<<blk>> DECLARE ... BEGIN ... END blk;`). After anything else, as in
+    `SELECT declare ...`, `8 >> declare` or `col$declare`, the word is part of an
+    ordinary expression or identifier.
     """
-    j = pos - 1
-    while j >= 0 and body[j] in _PLPGSQL_WS:
-        j -= 1
-    if j >= 1 and body[j] == ">" and body[j - 1] == ">":
-        return True
-    if j >= 0 and body[j] == "$":
-        # The routine's own outermost section. Callers slice the body from the
-        # CREATE statement, so a body-opening DECLARE is preceded by the
-        # dollar-quote that opens the body (`$$` or `$tag$`), not by nothing.
-        return True
-    return _opens_statement_position(body, pos)
+    return (
+        pos in _labelled_declare_offsets(body)
+        or _opens_block_position(body, pos)
+    )
 
 
 @functools.lru_cache(maxsize=256)
@@ -464,11 +585,108 @@ def _in_declaration_section(body: str, pos: int) -> bool:
     return any(start <= pos < end for start, end in _declaration_spans(body))
 
 
+# Round 18: an assignment TARGET is not always a bare word. PL/pgSQL accepts a
+# selector chain after the variable, and every form below was compiled AND run on
+# PostgreSQL 17.11 with `raise` as the variable's name - each one assigns, reads
+# the value back, and aborts nothing:
+#
+#     raise.actual_qty := 2;      raise.actual_qty = 3;
+#     raise /* c */ . /* c */ actual_qty := 4;      raise."Odd Field" := 5;
+#     raise[1] := 2;   raise[1] = 3;   raise [1] := 4;   raise[1][2] := 5;
+#     raise[1:2] := ARRAY[7,7];    raise[idx[1]] := 8;
+#     raise[1].actual_qty := 6;    raise.arr[1] := 6;    raise.a.b.c := 13;
+#     raise[1].a[1].subfield := 2;   raise[1]."Odd Field" := 14;
+#
+# so the chain is `.field` and `[subscript]` in any order and to any depth, and
+# the dotted depth is NOT capped at a two-part name: `raise.a.b.c := 13` assigns
+# and execution continues past it. Stopping at the first word made
+# `raise.actual_qty := 2` and `raise[1] := 2` read as RAISE statements, and the
+# oracle shows the cost concretely: an unguarded SECURITY DEFINER routine whose
+# deny branch holds only `raise.actual_qty := 2` stays `prosecdef = true` and
+# client-executable, denies a non-member nothing, and drove its privileged UPDATE
+# for one - bins.actual_qty 55 -> 0 - while parse_blocks() recorded the target as
+# the IF frame's raise_pos and check_file() returned []. The subscript form does
+# the same.
+#
+# Only these two selectors are consumed, and only as selectors: no expression
+# grammar, no arithmetic, nothing that lets arbitrary text between the word and
+# an operator pass for a target. A real RAISE cannot be mistaken for one either -
+# its grammar continues with a level, a format literal, a condition name,
+# SQLSTATE, USING or `;`, and none of those begins with `.` or `[`.
+#
+# A quoted field name reads as `"` + blanks + `"` in the masked body every caller
+# passes: _mask_quoted_identifier() blanks the content INCLUDING a doubled `""`,
+# so no interior quote survives and the delimiters alone bound the name. A BARE
+# field name is read by `_UNQUOTED_IDENT_RE`, the file's one unquoted-identifier
+# definition, rather than a second spelling of PostgreSQL's identifier alphabet.
+_TARGET_QUOTED_FIELD_RE = re.compile(r'"[^"]*"')
+
+
+def _skip_plpgsql_ws(body: str, i: int) -> int:
+    """Forward twin of _prev_nonspace(): PostgreSQL's whitespace set, not
+    Python's. Comments are already whitespace in the masked body."""
+    while i < len(body) and body[i] in _PLPGSQL_WS:
+        i += 1
+    return i
+
+
+def _skip_target_selectors(body: str, i: int) -> int:
+    """Consume the `.field` / `[subscript]` chain of an assignment target.
+
+    Returns `i` unchanged the moment anything else appears, and refuses to
+    consume a selector that is not complete - an unclosed `[` or a `.` with no
+    identifier after it leaves the position where it was rather than running to
+    the end of the body.
+    """
+    n = len(body)
+    while True:
+        j = _skip_plpgsql_ws(body, i)
+        if j >= n:
+            return i
+        if body[j] == ".":
+            name = _skip_plpgsql_ws(body, j + 1)
+            field = (
+                _TARGET_QUOTED_FIELD_RE.match(body, name)
+                or _UNQUOTED_IDENT_RE.match(body, name)
+            )
+            if field is None:
+                return i
+            i = field.end()
+        elif body[j] == "[":
+            end = _skip_subscript(body, j)
+            if end is None:
+                return i
+            i = end
+        else:
+            return i
+
+
+def _skip_subscript(body: str, i: int) -> int | None:
+    """Index just past the `[...]` opening at `i`, or None when it is not closed.
+
+    Nested brackets are balanced, because `raise[idx[1]] := 8` is a real target
+    on 17.11. A `;` ends the statement, so a bracket that reaches one was never a
+    subscript and nothing is consumed.
+    """
+    depth = 0
+    for j in range(i, len(body)):
+        if body[j] == "[":
+            depth += 1
+        elif body[j] == "]":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        elif body[j] == ";":
+            return None
+    return None
+
+
 def _is_assignment_target(body: str, pos: int) -> bool:
     """True when the word at `pos` is the left side of a PL/pgSQL assignment."""
     end = pos
     while end < len(body) and (body[end].isalnum() or body[end] == "_"):
         end += 1
+    end = _skip_target_selectors(body, end)
     return _ASSIGNMENT_OPERATOR_RE.match(body, end) is not None
 
 
