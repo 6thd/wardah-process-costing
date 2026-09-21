@@ -61,6 +61,7 @@ Division of labour with the acceptance database:
   own selftest drives four deliberately broken catalogs through it.
 """
 
+import functools
 import pathlib
 import re
 import sys
@@ -330,6 +331,146 @@ _STATEMENT_OPENER_KEYWORDS = frozenset(
 # membership test. This is the twin that can.
 _PLPGSQL_WS = " \t\n\r\f\v"
 
+# ---------------------------------------------------------------------------
+# Round 17: the DECLARE region, and assignment targets
+# ---------------------------------------------------------------------------
+# Round 16 removed `declare` from the opener set above, which made the FIRST
+# declaration of a variable named `raise` inert. Two sibling spellings of the
+# same family survived it, because neither is reached through the DECLARE
+# keyword, and they fail in OPPOSITE directions:
+#
+#   A. A second (or third) declaration is reached through the `;` that
+#      terminates the previous one, and `;` is a universal opener above:
+#
+#        DECLARE
+#          x integer := 1;
+#          raise integer := 2;     <- `;` before it, so it read as a statement
+#        BEGIN ...
+#
+#      Proven on PostgreSQL 17.11: the routine compiles, `raise` is an ordinary
+#      declaration identifier, nothing is raised, and an unguarded SECURITY
+#      DEFINER routine built around it (prosecdef = true) drove its privileged
+#      UPDATE for a NON-member - bins.actual_qty 55 -> 0 - while the scanner
+#      recorded the declared identifier as the IF frame's raise_pos and
+#      check_file() returned []. A false GREEN.
+#
+#   B. An assignment to such a variable sits directly after the BEGIN that ends
+#      the declaration section, and `begin` is an opener - correctly, since
+#      `BEGIN RAISE EXCEPTION ...` is the real thing:
+#
+#        DECLARE
+#          raise integer := 1;
+#        BEGIN
+#          raise := 2;             <- `BEGIN` before it, so it read as a RAISE
+#          PERFORM public.wardah_assert_org_member(p_org);
+#
+#      The oracle shows `raise := 2` is an ordinary assignment that executes and
+#      aborts nothing (the authorized path writes the assigned value 2), and the
+#      real guard genuinely denies a non-member with TENANT_MEMBERSHIP_REQUIRED
+#      while the UPDATE does not run. The scanner counted the assignment as an
+#      earlier outer-level abort, called the real guard unreachable, and
+#      REJECTED a correctly guarded routine. A false RED.
+#
+# The distinction PostgreSQL draws is structural, and these two helpers are the
+# smallest model of it that answers the only question this parser asks - "can a
+# RAISE statement begin at this offset?". They add no expression, declaration
+# or assignment grammar, and nothing else in the file changes, so parse_blocks()
+# and unconditional_abort_before() keep sharing one classification and cannot
+# drift apart.
+#
+# The region model rests on PL/pgSQL's block shape, confirmed on 17.11:
+#
+#     [ <<label>> ] [ DECLARE declarations ] BEGIN statements END
+#
+# A declaration is `name [CONSTANT] type [:= expr];` and cannot contain a nested
+# block, so the FIRST `BEGIN` after a `DECLARE` is always the one that ends that
+# declaration section - including for a DECLARE nested inside an enclosing block
+# or an IF branch, where the enclosing BEGIN lies BEFORE the DECLARE and is
+# never a candidate. Comments and string literals are already whitespace in the
+# masked body every caller passes, so no masked `BEGIN` text can be mistaken for
+# the keyword, and a quoted `"raise"` never reaches here at all.
+#
+# Suppression therefore ends at exactly the right BEGIN, and the control that
+# matters most stays recognized: in
+#
+#     DECLARE x integer; BEGIN RAISE EXCEPTION 'x'; END
+#
+# the RAISE lies after the BEGIN, outside the span, and still counts.
+_DECLARE_TOKEN_RE = re.compile(r"\bDECLARE\b", re.IGNORECASE)
+_SECTION_BEGIN_RE = re.compile(r"\bBEGIN\b", re.IGNORECASE)
+
+# `:=` is PL/pgSQL's assignment operator and 17.11 accepts a bare `=` for it too
+# (`DO $$ DECLARE raise integer := 1; BEGIN raise = 2; END $$` runs and leaves
+# raise = 2). No spelling of a RAISE statement can be followed by either: the
+# grammar continues with a level, a format literal, a condition name, SQLSTATE,
+# USING, or the `;` of a bare re-raise. So a word that an assignment operator
+# follows is an assignment TARGET, never the RAISE keyword. `=>` named-argument
+# notation lands here too and is equally not a RAISE statement.
+_ASSIGNMENT_OPERATOR_RE = re.compile(r"[ \t\n\r\f\v]*(?::=|=)")
+
+
+def _opens_declaration_section(body: str, pos: int) -> bool:
+    """True when a DECLARE at `pos` can actually open a declaration section.
+
+    `declare` is UNRESERVED in PostgreSQL, so it is also a legal bare column or
+    variable name: `SELECT declare INTO v FROM t` runs on 17.11. Treating every
+    occurrence of the word as a section opener would let such an identifier
+    start a span that swallows a real outer-level `RAISE EXCEPTION` after it,
+    and a routine whose guard genuinely cannot run would be accepted. So the
+    position is checked, not just the word.
+
+    A declaration section belongs to a BLOCK, and a block is a statement, so
+    DECLARE opens one exactly where a statement may begin - verified on 17.11
+    at body start and after `;`, BEGIN, THEN, ELSE and LOOP - plus directly
+    after a `<<label>>`, which owns the block (`<<blk>> DECLARE ... BEGIN ...
+    END blk;`). After anything else, as in `SELECT declare ...`, the word is an
+    ordinary identifier.
+    """
+    j = pos - 1
+    while j >= 0 and body[j] in _PLPGSQL_WS:
+        j -= 1
+    if j >= 1 and body[j] == ">" and body[j - 1] == ">":
+        return True
+    if j >= 0 and body[j] == "$":
+        # The routine's own outermost section. Callers slice the body from the
+        # CREATE statement, so a body-opening DECLARE is preceded by the
+        # dollar-quote that opens the body (`$$` or `$tag$`), not by nothing.
+        return True
+    return _opens_statement_position(body, pos)
+
+
+@functools.lru_cache(maxsize=256)
+def _declaration_spans(body: str) -> tuple[tuple[int, int], ...]:
+    """`(start, end)` for every DECLARE section in the body, end-exclusive.
+
+    A DECLARE that never reaches a BEGIN cannot compile; the span simply runs to
+    the end of the body rather than guessing at a boundary that is not there.
+    """
+    spans = []
+    for m in _DECLARE_TOKEN_RE.finditer(body):
+        if not _opens_declaration_section(body, m.start()):
+            continue
+        opener = _SECTION_BEGIN_RE.search(body, m.end())
+        spans.append((m.end(), opener.start() if opener else len(body)))
+    return tuple(spans)
+
+
+def _in_declaration_section(body: str, pos: int) -> bool:
+    """True when `pos` lies between a DECLARE and the BEGIN that ends it.
+
+    Everything in that span is a declaration, and every `;` in it terminates a
+    declaration rather than an executable statement.
+    """
+    return any(start <= pos < end for start, end in _declaration_spans(body))
+
+
+def _is_assignment_target(body: str, pos: int) -> bool:
+    """True when the word at `pos` is the left side of a PL/pgSQL assignment."""
+    end = pos
+    while end < len(body) and (body[end].isalnum() or body[end] == "_"):
+        end += 1
+    return _ASSIGNMENT_OPERATOR_RE.match(body, end) is not None
+
 
 def _previous_word(body: str, pos: int) -> tuple[str, int]:
     """The identifier word ending just before `pos`, folded, with its start.
@@ -346,6 +487,28 @@ def _previous_word(body: str, pos: int) -> tuple[str, int]:
     while j >= 0 and (body[j].isalnum() or body[j] == "_"):
         j -= 1
     return body[j + 1:end].lower(), j + 1
+
+
+def _opens_statement_position(body: str, pos: int) -> bool:
+    """The PREVIOUS-TOKEN half of the statement-start test.
+
+    Split out of _is_statement_start() so that the DECLARE-section model can
+    reuse the very same positional rule without calling back into the structural
+    tests that themselves depend on it. Rounds 13-16 live here unchanged.
+    """
+    j = pos - 1
+    while j >= 0 and body[j] in _PLPGSQL_WS:
+        j -= 1
+    if j < 0:
+        return True
+    if body[j] == ";":
+        return True
+    word, word_start = _previous_word(body, pos)
+    if word not in _STATEMENT_OPENER_KEYWORDS:
+        return False
+    if word == "loop" and _previous_word(body, word_start)[0] == "end":
+        return False
+    return True
 
 
 def _is_statement_start(body: str, pos: int) -> bool:
@@ -381,20 +544,19 @@ def _is_statement_start(body: str, pos: int) -> bool:
     DECLARE is deliberately absent from the opener set - see the note there.
     It begins a DECLARATION section, not a statement, so the identifier after
     it is a variable name.
+
+    Round 17: the previous token alone cannot settle two cases, so two
+    structural tests run first. Inside a DECLARE section every `;` terminates a
+    DECLARATION, so a second or third variable named `raise` is not a statement
+    however it is reached; and a word an assignment operator follows is the
+    TARGET of that assignment, which no RAISE statement can be. Both tests live
+    here, in the one classifier both callers share, so neither caller can drift.
     """
-    j = pos - 1
-    while j >= 0 and body[j] in _PLPGSQL_WS:
-        j -= 1
-    if j < 0:
-        return True
-    if body[j] == ";":
-        return True
-    word, word_start = _previous_word(body, pos)
-    if word not in _STATEMENT_OPENER_KEYWORDS:
+    if _in_declaration_section(body, pos):
         return False
-    if word == "loop" and _previous_word(body, word_start)[0] == "end":
+    if _is_assignment_target(body, pos):
         return False
-    return True
+    return _opens_statement_position(body, pos)
 
 # ---------------------------------------------------------------------------
 # Which EXCEPTION handlers can actually catch an authorization failure
