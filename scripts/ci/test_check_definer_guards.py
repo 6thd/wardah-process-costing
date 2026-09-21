@@ -5946,5 +5946,932 @@ class Round12ClosureTests(unittest.TestCase):
         )
         self.assertTrue(self.verdict("schema_revoke_conservative", sql))
 
+
+# ---------------------------------------------------------------------------
+# Round 13: post-independent-review closure for PR #246
+# ---------------------------------------------------------------------------
+# Three independent reviews ran against the frozen head
+# de35df2107820c05300992b486207e4f01c699f6. Gemini passed on its corpus; Codex
+# and Claude/Fable each produced concrete false-greens outside it. Every
+# fixture below was executed on a disposable PostgreSQL 17.11 before being
+# written down: the SQL parses, and the unsafe runtime/catalog state it claims
+# was read back from `pg_proc.prosecdef` and `has_function_privilege()`. A
+# mutant PostgreSQL rejects is not evidence and none is used here.
+class Round13ClosureTests(unittest.TestCase):
+    """Exact regressions from the post-remediation #246 independent reviews."""
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._dir.name)
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def verdict(self, name: str, sql: str) -> list[str]:
+        path = self.root / f"999_round13_{name}.sql"
+        path.write_text(sql, encoding="utf-8")
+        return guards.check_file(path)
+
+    # -- shared fixtures ---------------------------------------------------
+    @staticmethod
+    def unguarded(name: str = "probe_fn", args: str = "p_org uuid",
+                  or_replace: bool = False) -> str:
+        head = "CREATE OR REPLACE FUNCTION" if or_replace else "CREATE FUNCTION"
+        return (
+            f"{head} public.{name}({args}) RETURNS void\n"
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "BEGIN\n"
+            "  UPDATE public.bins SET actual_qty = actual_qty - 1;\n"
+            "END;\n"
+            "$$;\n"
+        )
+
+    @staticmethod
+    def close(name: str = "probe_fn", args: str = "uuid") -> str:
+        return (
+            f"REVOKE EXECUTE ON FUNCTION public.{name}({args}) "
+            "FROM PUBLIC, anon, authenticated;\n"
+        )
+
+    @staticmethod
+    def guarded(name: str = "probe_fn", args: str = "p_org uuid") -> str:
+        return (
+            f"CREATE FUNCTION public.{name}({args}) RETURNS void\n"
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "BEGIN\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "  UPDATE public.bins SET actual_qty = actual_qty - 1;\n"
+            "END;\n"
+            "$$;\n"
+        )
+
+    @staticmethod
+    def reopen_helper(name: str = "reopen_probe") -> str:
+        return (
+            f"CREATE FUNCTION public.{name}() RETURNS boolean\n"
+            "LANGUAGE plpgsql AS $h$\n"
+            "BEGIN\n"
+            "  EXECUTE 'GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+            "TO authenticated';\n"
+            "  RETURN true;\n"
+            "END;\n"
+            "$h$;\n"
+        )
+
+    # -- F1: dollar-tag boundary ------------------------------------------
+    # PostgreSQL's unquoted identifiers admit `$` (scan.l ident_cont), so
+    # `col$a$` is ONE identifier and opens no literal. The frozen reader
+    # matched `$a$` there as a dollar tag and blanked everything up to the next
+    # `$a$`, which on PostgreSQL 17.11 is executable SQL.
+    def test_f1_identifier_adjacent_dollar_tag_cannot_open_a_literal(self) -> None:
+        cases = {
+            # The masked span swallows the whole unguarded definer definition.
+            "hides_definer": (
+                "CREATE TABLE public.marker_a (col$a$ integer);\n"
+                + self.unguarded()
+                + "CREATE TABLE public.marker_b (col$a$ integer);\n"
+            ),
+            # The definer is visible and closed, but the reopening GRANT that
+            # PostgreSQL really executes is hidden inside the bogus span.
+            "hides_grant": (
+                self.unguarded() + self.close()
+                + "CREATE TABLE public.marker_a (col$q$ integer);\n"
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "TO authenticated;\n"
+                + "CREATE TABLE public.marker_b (col$q$ integer);\n"
+            ),
+        }
+        for name, sql in cases.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: an identifier-adjacent `$` opened a dollar quote",
+                )
+
+    def test_f1_real_dollar_quoting_still_works(self) -> None:
+        """The boundary must not cost any genuine dollar-quote spelling."""
+        accepted = {
+            "tagged_body": (
+                "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void\n"
+                "LANGUAGE plpgsql SECURITY DEFINER AS $body$\n"
+                "BEGIN\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "END;\n"
+                "$body$;\n"
+            ),
+            "bare_body": self.guarded(),
+            # `$1` is a positional parameter, never a tag.
+            "positional_parameter": (
+                "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void\n"
+                "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+                "BEGIN\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "  EXECUTE 'SELECT $1' USING p_org;\n"
+                "END;\n"
+                "$$;\n"
+            ),
+            # The mirrored half of the same bug: the bogus span used to hide a
+            # REAL revoke too, so a genuinely closed function read as open.
+            # PostgreSQL executes this REVOKE (oracle: PUBLIC and
+            # authenticated both lose EXECUTE), so accepting it is correct.
+            "identifier_adjacent_tag_does_not_hide_a_revoke": (
+                self.unguarded()
+                + "CREATE TABLE public.marker_a (col$r$ integer);\n"
+                + "REVOKE EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "FROM PUBLIC, anon, authenticated;\n"
+                + "CREATE TABLE public.marker_b (col$r$ integer);\n"
+            ),
+            # A tag after whitespace, a comma or an operator is still a tag,
+            # because none of those is an identifier character.
+            "tag_after_separator": (
+                self.unguarded() + self.close()
+                + "INSERT INTO public.notes (body) VALUES ($n$plain$n$);\n"
+            ),
+        }
+        for name, sql in accepted.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+        # The nested-literal guard still holds: a guard named inside a real
+        # nested dollar literal is not an executable call.
+        self.assertTrue(
+            self.verdict(
+                "nested_literal_guard_mention",
+                "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void\n"
+                "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+                "BEGIN\n"
+                "  RAISE NOTICE '%', "
+                "$t$public.wardah_assert_org_member(p_org)$t$;\n"
+                "  UPDATE public.bins SET actual_qty = 0;\n"
+                "END;\n"
+                "$$;\n",
+            )
+        )
+
+    def test_f1_close_tag_is_not_subject_to_the_boundary(self) -> None:
+        """The boundary belongs to OPENING a literal, never to closing one.
+
+        Inside a dollar-quoted string PostgreSQL's lexer looks for the exact
+        delimiter and does not apply identifier rules, so an
+        identifier-adjacent close tag DOES close it - oracle:
+        `SELECT length($$ab col$$)` is 6, i.e. the `$$` after `col` ended the
+        literal. Applying the open-side boundary here would have desynchronized
+        the masker from PostgreSQL in the opposite direction, leaving the rest
+        of the file masked as literal content.
+        """
+        sql = (
+            "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void\n"
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "BEGIN\n"
+            "  UPDATE public.bins SET col$$ = 0;\n"
+            "END;\n"
+            "$$;\n"
+        )
+        masked, problems = guards.mask_sql_checked(sql)
+        # The body ended at `col$$`, so what follows is ordinary SQL text and
+        # the trailing `$$;` opens an UNTERMINATED body - reported, not
+        # silently treated as safe.
+        self.assertTrue(problems)
+        self.assertTrue(self.verdict("close_tag_adjacent", sql))
+
+    def test_f1_dollar_tag_reader_enforces_the_boundary(self) -> None:
+        """The shared reader itself, so every consumer inherits one rule."""
+        self.assertIsNone(guards._dollar_tag_at("col$a$", 3))
+        self.assertIsNone(guards._dollar_tag_at("a1$t$", 2))
+        self.assertIsNone(guards._dollar_tag_at("_x$t$", 2))
+        # A `$` is itself an identifier CONTINUATION character, so a tag may
+        # not begin immediately after one either.
+        self.assertIsNone(guards._dollar_tag_at("a$$$", 2))
+        self.assertEqual(guards._dollar_tag_at(" $a$", 1), "$a$")
+        self.assertEqual(guards._dollar_tag_at("($$", 1), "$$")
+        self.assertEqual(guards._dollar_tag_at("$$", 0), "$$")
+        self.assertIsNone(guards._dollar_tag_at("$1", 0))
+
+    # -- F2: ALTER SECURITY body ownership --------------------------------
+    # Creating a routine does not run its body, and Scanner v1 does not
+    # evaluate DO branch reachability. Neither text may demote a function.
+    # Oracle: victim keeps prosecdef = true after both.
+    def test_f2_alter_security_text_in_a_body_is_not_a_demotion(self) -> None:
+        cases = {
+            "routine_body": (
+                self.unguarded()
+                + "CREATE FUNCTION public.maintenance_later() RETURNS void\n"
+                  "LANGUAGE plpgsql AS $m$\n"
+                  "BEGIN\n"
+                  "  ALTER FUNCTION public.probe_fn(uuid) SECURITY INVOKER;\n"
+                  "END;\n"
+                  "$m$;\n"
+            ),
+            "unreachable_do_branch": (
+                self.unguarded()
+                + "DO $do$\n"
+                  "BEGIN\n"
+                  "  IF false THEN\n"
+                  "    ALTER FUNCTION public.probe_fn(uuid) SECURITY INVOKER;\n"
+                  "  END IF;\n"
+                  "END;\n"
+                  "$do$;\n"
+            ),
+            # A DO that MAY demote earns no proven demotion either: the
+            # function must still be judged as SECURITY DEFINER.
+            "reachable_do_branch": (
+                self.unguarded()
+                + "DO $do$\n"
+                  "BEGIN\n"
+                  "  ALTER FUNCTION public.probe_fn(uuid) SECURITY INVOKER;\n"
+                  "END;\n"
+                  "$do$;\n"
+            ),
+        }
+        for name, sql in cases.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: inert ALTER SECURITY text demoted a live "
+                    f"SECURITY DEFINER function",
+                )
+
+    def test_f2_top_level_alter_security_is_still_modelled(self) -> None:
+        """Body ownership must not cost the real top-level statement."""
+        # A genuine top-level demotion still silences the finding.
+        self.assertEqual(
+            self.verdict(
+                "top_level_invoker",
+                self.unguarded()
+                + "ALTER FUNCTION public.probe_fn(uuid) SECURITY INVOKER;\n",
+            ),
+            [],
+        )
+        # A genuine top-level promotion is still found, for all three spellings.
+        for keyword in ("FUNCTION", "PROCEDURE", "ROUTINE"):
+            with self.subTest(promote=keyword):
+                self.assertTrue(
+                    self.verdict(
+                        f"top_level_definer_{keyword.lower()}",
+                        "CREATE FUNCTION public.probe_fn(p_org uuid) "
+                        "RETURNS void LANGUAGE plpgsql SECURITY INVOKER AS $$\n"
+                        "BEGIN UPDATE public.bins SET actual_qty = 0; END;\n"
+                        "$$;\n"
+                        f"ALTER {keyword} public.probe_fn(uuid) "
+                        "SECURITY DEFINER;\n",
+                    )
+                )
+        # Ordering both ways.
+        self.assertEqual(
+            self.verdict(
+                "promote_then_demote",
+                "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void "
+                "LANGUAGE plpgsql SECURITY INVOKER AS $$\n"
+                "BEGIN UPDATE public.bins SET actual_qty = 0; END;\n$$;\n"
+                "ALTER FUNCTION public.probe_fn(uuid) SECURITY DEFINER;\n"
+                "ALTER FUNCTION public.probe_fn(uuid) SECURITY INVOKER;\n",
+            ),
+            [],
+        )
+        self.assertTrue(
+            self.verdict(
+                "demote_then_promote",
+                self.unguarded()
+                + "ALTER FUNCTION public.probe_fn(uuid) SECURITY INVOKER;\n"
+                + "ALTER FUNCTION public.probe_fn(uuid) SECURITY DEFINER;\n",
+            )
+        )
+
+    # -- F3: DO with an E'' / U&'' string body ----------------------------
+    # PostgreSQL accepts any string constant as a DO code body. Oracle: each
+    # form below moved `authenticated` from false to true on the victim.
+    def test_f3_string_bodied_do_blocks_stay_procedurally_unknown(self) -> None:
+        inner = (
+            "BEGIN EXECUTE \\'GRANT EXECUTE ON FUNCTION "
+            "public.probe_fn(uuid) TO authenticated\\'; END"
+        )
+        uinner = (
+            "BEGIN EXECUTE \\0027GRANT EXECUTE ON FUNCTION "
+            "public.probe_fn(uuid) TO authenticated\\0027; END"
+        )
+        cases = {
+            "do_e_string": f"DO E'{inner}';\n",
+            "do_lower_e_string": f"DO e'{inner}';\n",
+            "do_uamp_string": f"DO U&'{uinner}';\n",
+            "do_lower_uamp_string": f"DO u&'{uinner}';\n",
+            "do_language_then_e_string": f"DO LANGUAGE plpgsql E'{inner}';\n",
+        }
+        for name, tail in cases.items():
+            with self.subTest(case=name):
+                sql = self.unguarded() + self.close() + tail
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a string-bodied DO vanished from procedural "
+                    f"analysis after a full revoke",
+                )
+
+    def test_f3_plain_string_do_is_still_unknown_and_dollar_do_unchanged(self) -> None:
+        # The already-covered plain `'...'` body keeps failing closed.
+        self.assertTrue(
+            self.verdict(
+                "do_plain_string",
+                self.unguarded() + self.close()
+                + "DO 'BEGIN PERFORM 1; END';\n",
+            )
+        )
+        # `ON CONFLICT ... DO NOTHING` is still not a DO statement.
+        self.assertEqual(
+            self.verdict(
+                "on_conflict_do_update",
+                self.unguarded() + self.close()
+                + "INSERT INTO public.permissions (permission_key) "
+                  "VALUES ('x')\n"
+                  "ON CONFLICT (permission_key) DO UPDATE "
+                  "SET permission_key = 'x';\n",
+            ),
+            [],
+        )
+
+    # -- F4 + Codex P2: migration-time same-file helper invocation --------
+    # Oracle: every statement below executed `public.reopen_probe()` and
+    # reopened `authenticated` EXECUTE on the victim.
+    def test_f4_same_file_helper_invocation_is_acl_unknown(self) -> None:
+        helper = self.reopen_helper()
+        cases = {
+            # Codex: PostgreSQL resolves the Unicode-delimited identifier to
+            # the same-file helper; the frozen raw fallback looked only for the
+            # rendered `"reopen_probe"` spelling.
+            "codex_unicode_identifier_call":
+                'SELECT public.U&"reopen_prob\\0065"();\n',
+            "codex_uescape_variant":
+                'SELECT public.U&"reopen_prob!0065" UESCAPE \'!\' ();\n',
+            # The 6-digit `\+XXXXXX` escape is a separate decode branch, and
+            # PostgreSQL 17.11 resolves it to the same helper.
+            "codex_six_digit_escape":
+                'SELECT public.U&"reopen_prob\\+000065"();\n',
+            "do_assignment":
+                "DO $do$\nDECLARE ok boolean;\nBEGIN\n"
+                "  ok := public.reopen_probe();\nEND;\n$do$;\n",
+            "do_if_expression":
+                "DO $do$\nBEGIN\n"
+                "  IF public.reopen_probe() THEN NULL; END IF;\nEND;\n$do$;\n",
+            "insert_values":
+                "INSERT INTO public.migration_log (ok) "
+                "VALUES (public.reopen_probe());\n",
+            "update_expression":
+                "UPDATE public.migration_log SET ok = public.reopen_probe();\n",
+            "delete_predicate":
+                "DELETE FROM public.migration_log "
+                "WHERE public.reopen_probe();\n",
+            "top_level_values":
+                "VALUES (public.reopen_probe());\n",
+            "merge_statement":
+                "MERGE INTO public.migration_log t\n"
+                "USING (SELECT true AS s) s ON t.ok = s.s\n"
+                "WHEN NOT MATCHED THEN INSERT (ok) "
+                "VALUES (public.reopen_probe());\n",
+            "quoted_identifier_call":
+                'SELECT public."reopen_probe"();\n',
+        }
+        for name, tail in cases.items():
+            with self.subTest(case=name):
+                sql = self.unguarded() + self.close() + helper + tail
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a migration-time same-file helper call left the "
+                    f"surface provably closed",
+                )
+
+    def test_f4_mere_mention_of_a_helper_name_does_not_fail_closed(self) -> None:
+        """Conservative must not mean indiscriminate."""
+        helper = self.reopen_helper()
+        accepted = {
+            "name_in_a_literal": helper
+                + "INSERT INTO public.notes (body) "
+                  "VALUES ('reopen_probe() is documented here');\n",
+            "name_in_a_comment": helper
+                + "-- reopen_probe() must be run by hand\n"
+                  "SELECT 1;\n",
+            "name_in_a_block_comment": helper
+                + "/* call reopen_probe() later */\nSELECT 1;\n",
+            "different_routine_call": helper
+                + "SELECT public.some_other_routine();\n",
+            "quoted_non_call_reference": helper
+                + 'SELECT 1 AS "reopen_probe";\n',
+            "no_helper_statements": "SELECT 1;\n"
+                "INSERT INTO public.migration_log (ok) VALUES (true);\n"
+                "UPDATE public.migration_log SET ok = false;\n"
+                "DELETE FROM public.migration_log WHERE ok IS NULL;\n",
+        }
+        for name, tail in accepted.items():
+            with self.subTest(accept=name):
+                sql = self.guarded() + tail
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    # -- F5: GRANT before CREATE OR REPLACE -------------------------------
+    # `CREATE OR REPLACE FUNCTION` preserves the existing function's owner and
+    # permissions. Oracle: `authenticated` EXECUTE granted before the replace
+    # was still true afterwards, with PUBLIC revoked.
+    def test_f5_grant_before_or_replace_survives(self) -> None:
+        sql = (
+            "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) TO authenticated;\n"
+            + self.unguarded(or_replace=True)
+            + "REVOKE EXECUTE ON FUNCTION public.probe_fn(uuid) FROM PUBLIC;\n"
+        )
+        self.assertTrue(
+            self.verdict("grant_before_or_replace", sql),
+            "a pre-replace GRANT that PostgreSQL preserves was dropped from "
+            "the ACL model",
+        )
+
+    def test_f5_pre_replace_model_stays_conservative(self) -> None:
+        # The same GRANT after the CREATE is still detected (unchanged).
+        self.assertTrue(
+            self.verdict(
+                "grant_after_create",
+                self.unguarded() + self.close()
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "TO authenticated;\n",
+            )
+        )
+        # A genuinely fully closed OR REPLACE still passes.
+        self.assertEqual(
+            self.verdict(
+                "or_replace_fully_closed",
+                self.unguarded(or_replace=True) + self.close(),
+            ),
+            [],
+        )
+        # A pre-replace GRANT is not cancelled by a PUBLIC-only revoke, but IS
+        # cancelled by a revoke that names the role.
+        self.assertEqual(
+            self.verdict(
+                "pre_grant_then_full_revoke",
+                "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                "TO authenticated;\n"
+                + self.unguarded(or_replace=True) + self.close(),
+            ),
+            [],
+        )
+        # An ordinary new CREATE introduces no pre-existing-ACL assumption.
+        self.assertEqual(
+            self.verdict("plain_create_closed", self.unguarded() + self.close()),
+            [],
+        )
+        # An earlier REVOKE earns no closure credit for the replaced identity:
+        # closure must be proven after the definition.
+        self.assertTrue(
+            self.verdict(
+                "revoke_before_or_replace_is_not_closure",
+                self.close() + self.unguarded(or_replace=True),
+            )
+        )
+
+    # -- F6: ALTER RENAME / SET SCHEMA identity mutation ------------------
+    # Oracle: after RENAME and after SET SCHEMA the routine is the SAME
+    # SECURITY DEFINER function, and a GRANT on the new identity reaches it.
+    def test_f6_routine_identity_mutation_fails_closed(self) -> None:
+        cases = {
+            "rename_then_grant_new_identity": (
+                self.unguarded() + self.close()
+                + "ALTER FUNCTION public.probe_fn(uuid) RENAME TO probe_fn_v2;\n"
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn_v2(uuid) "
+                  "TO authenticated;\n"
+            ),
+            "set_schema_then_grant": (
+                self.unguarded() + self.close()
+                + "ALTER FUNCTION public.probe_fn(uuid) SET SCHEMA archive;\n"
+                + "GRANT EXECUTE ON FUNCTION archive.probe_fn(uuid) "
+                  "TO authenticated;\n"
+            ),
+            # The mutation alone is enough: Scanner v1 does not model the new
+            # identity, so it cannot claim the closure still holds.
+            "rename_alone": (
+                self.unguarded() + self.close()
+                + "ALTER FUNCTION public.probe_fn(uuid) RENAME TO probe_fn_v2;\n"
+            ),
+            "alter_routine_rename_spelling": (
+                self.unguarded() + self.close()
+                + "ALTER ROUTINE public.probe_fn(uuid) RENAME TO probe_v2;\n"
+            ),
+            "rename_a_routine_used_in_acl_proof": (
+                self.guarded()
+                + "CREATE FUNCTION public.other_fn(p_org uuid) RETURNS void\n"
+                  "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+                  "BEGIN UPDATE public.bins SET actual_qty = 0; END;\n$$;\n"
+                + self.close("other_fn")
+                + "ALTER FUNCTION public.other_fn(uuid) RENAME TO other_fn_v2;\n"
+            ),
+            # Renaming any routine INTO a recognized helper name means the
+            # guard the scanner read is not the guard the database will run.
+            "rename_into_recognized_guard_name": (
+                self.guarded()
+                + "CREATE FUNCTION public.noop_helper(uuid) RETURNS void\n"
+                  "LANGUAGE plpgsql AS $n$ BEGIN NULL; END; $n$;\n"
+                + "ALTER FUNCTION public.noop_helper(uuid) "
+                  "RENAME TO wardah_assert_org_member;\n"
+            ),
+            "set_schema_into_recognized_guard_path": (
+                self.guarded()
+                + "CREATE FUNCTION archive.wardah_assert_org_member(uuid) "
+                  "RETURNS void LANGUAGE plpgsql AS $n$ BEGIN NULL; END; $n$;\n"
+                + "ALTER FUNCTION archive.wardah_assert_org_member(uuid) "
+                  "SET SCHEMA public;\n"
+            ),
+        }
+        for name, sql in cases.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: routine identity mutation was not modelled and "
+                    f"did not fail closed",
+                )
+
+    def test_f6_identity_mutation_of_unrelated_routines_is_not_a_finding(self) -> None:
+        accepted = {
+            # A rename of a routine this file neither defines as a definer nor
+            # uses in an ACL proof, and whose new name is not a guard.
+            "unrelated_rename": self.guarded()
+                + "ALTER FUNCTION public.legacy_report(uuid) "
+                  "RENAME TO legacy_report_v2;\n",
+            # Inert RENAME text inside a routine body is not a top-level
+            # statement, exactly as ALTER SECURITY text is not (F2).
+            "rename_text_in_routine_body": self.unguarded() + self.close()
+                + "CREATE FUNCTION public.later_rename() RETURNS void\n"
+                  "LANGUAGE plpgsql AS $m$\n"
+                  "BEGIN\n"
+                  "  ALTER FUNCTION public.probe_fn(uuid) "
+                  "RENAME TO probe_fn_v2;\n"
+                  "END;\n$m$;\n",
+            # An ALTER that changes something else entirely is untouched.
+            "alter_set_search_path": self.unguarded() + self.close()
+                + "ALTER FUNCTION public.probe_fn(uuid) "
+                  "SET search_path = public;\n",
+        }
+        for name, sql in accepted.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    # -- F7: type qualification may-be equivalence ------------------------
+    # Oracle: `GRANT ... public.v7(mood)` reaches `public.v7(public.mood)`, and
+    # `GRANT ... public.v7b(pg_catalog.regclass)` reaches `public.v7b(regclass)`.
+    def test_f7_may_be_equivalent_type_spellings_keep_a_grant_alive(self) -> None:
+        cases = {
+            "custom_type_unqualified_grant": (
+                self.unguarded(args="p_mood public.mood")
+                + self.close(args="public.mood")
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(mood) "
+                  "TO authenticated;\n"
+            ),
+            "custom_type_qualified_grant": (
+                self.unguarded(args="p_mood mood")
+                + self.close(args="mood")
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(public.mood) "
+                  "TO authenticated;\n"
+            ),
+            "builtin_catalog_qualified_grant": (
+                self.unguarded(args="p_rel regclass")
+                + self.close(args="regclass")
+                + "GRANT EXECUTE ON FUNCTION "
+                  "public.probe_fn(pg_catalog.regclass) TO authenticated;\n"
+            ),
+            "builtin_unqualified_grant": (
+                self.unguarded(args="p_rel pg_catalog.regclass")
+                + self.close(args="pg_catalog.regclass")
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(regclass) "
+                  "TO authenticated;\n"
+            ),
+        }
+        for name, sql in cases.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: an applicable GRANT was dropped because two "
+                    f"spellings of one type looked unrelated",
+                )
+
+    def test_f7_exact_type_identity_is_not_collapsed(self) -> None:
+        """Only the may-match direction widens; exact identity stays strict."""
+        # Distinct custom types in distinct schemas are still distinct.
+        self.assertFalse(
+            guards._may_be_same_type(
+                guards._normalize_arg_type("archive.mood"),
+                guards._normalize_arg_type("public.mood"),
+            )
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type("archive.mood"),
+            guards._normalize_arg_type("public.mood"),
+        )
+        # Different names never collapse, qualified or not.
+        self.assertFalse(
+            guards._may_be_same_type(
+                guards._normalize_arg_type("public.mood"),
+                guards._normalize_arg_type("temper"),
+            )
+        )
+        # A REVOKE still earns closure only for the spelling it provably names.
+        self.assertTrue(
+            self.verdict(
+                "revoke_on_other_schema_type_is_not_closure",
+                self.unguarded(args="p_mood public.mood")
+                + "REVOKE EXECUTE ON FUNCTION public.probe_fn(archive.mood) "
+                  "FROM PUBLIC, anon, authenticated;\n",
+            )
+        )
+        # And the exact relation still keeps qualified/unqualified apart.
+        qualified = guards.Identity(
+            "public", "probe_fn", False,
+            (guards._normalize_arg_type("public.mood"),),
+        )
+        bare = guards.Identity(
+            "public", "probe_fn", False, (guards._normalize_arg_type("mood"),)
+        )
+        self.assertFalse(qualified.same_function(bare))
+        self.assertTrue(qualified.may_be_same_function(bare))
+
+    # -- F8: bare `raise` borrowed as a PL/pgSQL RAISE --------------------
+    # Oracle: the function below is SECURITY DEFINER and a non-member call
+    # reached the UPDATE without any exception being raised.
+    def test_f8_a_bare_raise_identifier_is_not_a_denial(self) -> None:
+        cases = {
+            "select_alias": "    v_flag := (SELECT 1 AS raise);\n",
+            "column_reference": "    v_flag := raise;\n",
+            "alias_in_from": "    v_flag := (SELECT r.x FROM public.t AS raise(x));\n",
+            "cte_name":
+                "    v_flag := (WITH raise AS (SELECT 1 x) "
+                "SELECT x FROM raise);\n",
+            "quoted_identifier": '    v_flag := (SELECT 1 AS "RAISE");\n',
+        }
+        for name, deny in cases.items():
+            with self.subTest(case=name):
+                sql = (
+                    "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void\n"
+                    "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+                    "DECLARE v_flag integer;\n"
+                    "BEGIN\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    f"{deny}"
+                    "  END IF;\n"
+                    "  UPDATE public.bins SET actual_qty = 0;\n"
+                    "END;\n"
+                    "$$;\n"
+                )
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a bare `raise` identifier counted as a denying "
+                    f"PL/pgSQL RAISE statement",
+                )
+
+    def test_f8_real_raise_statements_still_deny(self) -> None:
+        def probe(deny: str) -> str:
+            return (
+                "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void\n"
+                "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+                "BEGIN\n"
+                "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                f"{deny}"
+                "  END IF;\n"
+                "  UPDATE public.bins SET actual_qty = 0;\n"
+                "END;\n"
+                "$$;\n"
+            )
+
+        for name, deny in {
+            "raise_exception": "    RAISE EXCEPTION 'TENANT_DENIED';\n",
+            "raise_exception_using":
+                "    RAISE EXCEPTION 'TENANT_DENIED' USING HINT = 'no';\n",
+            "raise_sqlstate":
+                "    RAISE EXCEPTION SQLSTATE '28000';\n",
+            "bare_reraise": "    RAISE;\n",
+        }.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, probe(deny)), [], name)
+
+        # Non-aborting RAISE is still not a denial.
+        for name, deny in {
+            "notice": "    RAISE NOTICE 'not a denial';\n",
+            "warning": "    RAISE WARNING 'not a denial';\n",
+        }.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, probe(deny)), name)
+
+    # -- F9: UESCAPE with an escape-string operand ------------------------
+    # Oracle: `UESCAPE E'!'` is accepted by PostgreSQL 17.11 and the GRANT
+    # below resolved to the role `authenticated`. Decoding the identifier
+    # against the DEFAULT backslash instead produces a plausible but WRONG
+    # role name, which never trips the unresolved-grantee fail-closed path.
+    def test_f9_uescape_escape_string_operand_is_resolved_or_fails_closed(self) -> None:
+        cases = {
+            "uescape_e_string":
+                'GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) '
+                'TO U&"authenticate!0064" UESCAPE E\'!\';\n',
+            "uescape_lower_e_string":
+                'GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) '
+                'TO U&"authenticate!0064" UESCAPE e\'!\';\n',
+            # An operand this reader cannot pin down must never be decoded
+            # against a guessed escape character.
+            "uescape_e_string_backslash":
+                'GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) '
+                'TO U&"authenticate\\0064" UESCAPE E\'\\\\\';\n',
+        }
+        for name, tail in cases.items():
+            with self.subTest(case=name):
+                sql = self.unguarded() + self.close() + tail
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a UESCAPE operand was decoded against the wrong "
+                    f"escape character and the GRANT disappeared",
+                )
+
+    def test_f9_uescape_reader_resolves_or_refuses_each_operand_form(self) -> None:
+        """PostgreSQL 17.11 accepts exactly `'c'` and `E'c'` here - a simple
+        string literal - and rejects `N'c'`, `U&'c'` and a two-character
+        operand. The reader must agree on both sides of that line, because a
+        WRONG identity is worse than an unresolved one: it never trips the
+        unresolved-grantee fail-closed path."""
+        for text in (
+            'U&"authenticate!0064" UESCAPE \'!\'',
+            'U&"authenticate!0064" UESCAPE E\'!\'',
+            'U&"authenticate!0064" UESCAPE e\'!\'',
+        ):
+            with self.subTest(spelling=text):
+                masked, problems = guards.mask_sql_checked(text)
+                self.assertEqual(problems, [])
+                read = guards._read_delimited_identifier(text, 0, masked)
+                self.assertIsNotNone(read)
+                self.assertEqual(read[0], "authenticated")
+        for text in (
+            'U&"authenticate!0064" UESCAPE N\'!\'',
+            'U&"authenticate!0064" UESCAPE \'!!\'',
+            'U&"authenticate!0064" UESCAPE U&\'!\'',
+        ):
+            with self.subTest(unresolved=text):
+                masked, _ = guards.mask_sql_checked(text)
+                self.assertIsNone(
+                    guards._read_delimited_identifier(text, 0, masked)
+                )
+
+    def test_f9_plain_uescape_and_default_escape_still_resolve(self) -> None:
+        """The plain operand and the default backslash keep working."""
+        for name, tail in {
+            "plain_uescape":
+                'GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) '
+                'TO U&"authenticate!0064" UESCAPE \'!\';\n',
+            "default_backslash":
+                'GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) '
+                'TO U&"authenticate\\0064";\n',
+            "comment_between_identifier_and_uescape":
+                'GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) '
+                'TO U&"authenticate!0064" /* c */ UESCAPE \'!\';\n',
+        }.items():
+            with self.subTest(case=name):
+                sql = self.unguarded() + self.close() + tail
+                self.assertTrue(self.verdict(name, sql), name)
+
+    # -- F10: ACL/membership/default-privilege effects inside DO ----------
+    # Oracle: each DO below moved `authenticated` from false to true on the
+    # victim, through role membership and through default privileges.
+    def test_f10_acl_affecting_statements_inside_do_are_unknown(self) -> None:
+        cases = {
+            "do_role_membership_grant": (
+                self.unguarded() + self.close()
+                + "CREATE ROLE stock_ops;\n"
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "TO stock_ops;\n"
+                + "DO $do$\nBEGIN\n"
+                  "  GRANT stock_ops TO authenticated WITH INHERIT TRUE;\n"
+                  "END;\n$do$;\n"
+            ),
+            "do_default_privileges": (
+                "DO $do$\nBEGIN\n"
+                "  ALTER DEFAULT PRIVILEGES IN SCHEMA public\n"
+                "  GRANT EXECUTE ON FUNCTIONS TO authenticated;\n"
+                "END;\n$do$;\n"
+                + self.unguarded()
+                + "REVOKE EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "FROM PUBLIC;\n"
+            ),
+            "do_static_routine_grant": (
+                self.unguarded() + self.close()
+                + "DO $do$\nBEGIN\n"
+                  "  GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "TO authenticated;\n"
+                  "END;\n$do$;\n"
+            ),
+            "do_alter_group_add_user": (
+                self.unguarded() + self.close()
+                + "CREATE ROLE stock_ops;\n"
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "TO stock_ops;\n"
+                + "DO $do$\nBEGIN\n"
+                  "  ALTER GROUP stock_ops ADD USER authenticated;\n"
+                  "END;\n$do$;\n"
+            ),
+            "do_alter_role_inherit": (
+                self.unguarded() + self.close()
+                + "CREATE ROLE stock_ops;\n"
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "TO stock_ops;\n"
+                + "DO $do$\nBEGIN\n"
+                  "  ALTER ROLE authenticated INHERIT;\n"
+                  "END;\n$do$;\n"
+            ),
+            "do_revoke_text": (
+                self.unguarded() + self.close()
+                + "DO $do$\nBEGIN\n"
+                  "  REVOKE stock_ops FROM authenticated;\n"
+                  "END;\n$do$;\n"
+            ),
+        }
+        for name, sql in cases.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a DO body that may change effective routine "
+                    f"execution rights did not become ACL-unknown",
+                )
+
+    def test_f10_harmless_do_bodies_are_still_provable(self) -> None:
+        accepted = {
+            "do_no_acl_text": self.unguarded() + self.close()
+                + "DO $do$\nBEGIN\n  PERFORM 1;\nEND;\n$do$;\n",
+            "do_plain_dml": self.unguarded() + self.close()
+                + "DO $do$\nBEGIN\n"
+                  "  UPDATE public.migration_log SET ok = true;\n"
+                  "END;\n$do$;\n",
+            "acl_word_only_in_a_do_literal": self.unguarded() + self.close()
+                + "DO $do$\nBEGIN\n"
+                  "  INSERT INTO public.notes (body) "
+                  "VALUES ('GRANT EXECUTE was reviewed');\n"
+                  "END;\n$do$;\n",
+            "acl_word_only_in_a_do_comment": self.unguarded() + self.close()
+                + "DO $do$\nBEGIN\n"
+                  "  -- GRANT EXECUTE is intentionally NOT done here\n"
+                  "  PERFORM 1;\nEND;\n$do$;\n",
+        }
+        for name, sql in accepted.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    # -- F12: legacy role-membership syntax at top level -------------------
+    # Oracle: `ALTER GROUP stock_ops ADD USER authenticated` is the documented
+    # legacy alias for GRANT and moved `authenticated` to true. `ALTER ROLE
+    # ... ADD USER` and `ALTER GROUP ... ADD ROLE` are both syntax errors
+    # there, so only the confirmed spelling is recognized.
+    def test_f12_legacy_group_membership_blocks_closure_proof(self) -> None:
+        cases = {
+            "alter_group_add_user": (
+                self.unguarded() + self.close()
+                + "CREATE ROLE stock_ops;\n"
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "TO stock_ops;\n"
+                + "ALTER GROUP stock_ops ADD USER authenticated;\n"
+            ),
+            "alter_group_add_user_quoted": (
+                self.unguarded() + self.close()
+                + "CREATE ROLE stock_ops;\n"
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "TO stock_ops;\n"
+                + 'ALTER GROUP stock_ops ADD USER "authenticated";\n'
+            ),
+            "alter_role_inherit": (
+                self.unguarded() + self.close()
+                + "CREATE ROLE stock_ops;\n"
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "TO stock_ops;\n"
+                + "ALTER ROLE authenticated INHERIT;\n"
+            ),
+        }
+        for name, sql in cases.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a legacy role-membership change to a client role "
+                    f"left the surface provably closed",
+                )
+
+    def test_f12_unrelated_role_ddl_is_not_a_membership_change(self) -> None:
+        accepted = {
+            "alter_group_other_member": self.unguarded() + self.close()
+                + "CREATE ROLE stock_ops;\nCREATE ROLE stock_lead;\n"
+                + "ALTER GROUP stock_ops ADD USER stock_lead;\n",
+            "alter_role_password_free_option": self.unguarded() + self.close()
+                + "ALTER ROLE stock_ops NOLOGIN;\n",
+            "create_role_only": self.unguarded() + self.close()
+                + "CREATE ROLE stock_ops;\n",
+        }
+        for name, sql in accepted.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    # -- existing role-membership checks are not weakened ------------------
+    def test_round12_role_membership_check_is_unchanged(self) -> None:
+        self.assertTrue(
+            self.verdict(
+                "grant_role_to_authenticated",
+                self.unguarded() + self.close()
+                + "CREATE ROLE stock_ops;\n"
+                + "GRANT EXECUTE ON FUNCTION public.probe_fn(uuid) "
+                  "TO stock_ops;\n"
+                + "GRANT stock_ops TO authenticated;\n",
+            )
+        )
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

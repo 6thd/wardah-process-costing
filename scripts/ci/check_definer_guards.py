@@ -253,6 +253,47 @@ _NON_ABORTING_RAISE_RE = re.compile(
 )
 _RAISE_BEFORE_RE = re.compile(r"\bRAISE\s*$", re.IGNORECASE)
 
+# Round 13 (Fable, F8): the block parser treated the TOKEN `RAISE` anywhere in
+# an IF's deny branch as a denying statement. `raise` is not reserved in
+# PostgreSQL, so it is a perfectly ordinary identifier, and
+#
+#   IF NOT public.wardah_is_org_member(p_org) THEN
+#     v_flag := (SELECT 1 AS raise);
+#   END IF;
+#   UPDATE ...;
+#
+# compiles, denies nothing, and on PostgreSQL 17.11 let a non-member reach the
+# privileged UPDATE with no exception raised - while the scanner read the
+# branch as a real authorization boundary.
+#
+# A RAISE counts only where a PL/pgSQL statement can BEGIN. The test is the
+# smallest one that is robust: the previous token must open a statement -
+# nothing at all, a `;`, one of the keywords that introduces a statement list,
+# or the `>>` closing a block label. `AS raise`, `SELECT raise` and
+# `v := raise` all fail it, and every real spelling (`THEN RAISE`,
+# `; RAISE`, `BEGIN RAISE`, `LOOP RAISE`) passes.
+_STATEMENT_OPENER_KEYWORDS = frozenset(
+    {"then", "else", "begin", "loop", "declare"}
+)
+
+
+def _is_statement_start(body: str, pos: int) -> bool:
+    """True when a PL/pgSQL statement may begin at `pos`."""
+    j = pos - 1
+    while j >= 0 and body[j] in " \t\n\r\f\v":
+        j -= 1
+    if j < 0:
+        return True
+    if body[j] == ";":
+        return True
+    if body[j] == ">" and j >= 1 and body[j - 1] == ">":
+        return True
+    end = j + 1
+    while j >= 0 and (body[j].isalnum() or body[j] == "_"):
+        j -= 1
+    word = body[j + 1:end].lower()
+    return word in _STATEMENT_OPENER_KEYWORDS
+
 # ---------------------------------------------------------------------------
 # Which EXCEPTION handlers can actually catch an authorization failure
 # ---------------------------------------------------------------------------
@@ -294,8 +335,12 @@ _CONDITION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # authorization failure while the scanner reported the function as guarded.
 # The name is therefore recovered from the unmasked source at the same offsets,
 # exactly as the SQLSTATE value below is.
+# The same UESCAPE grammar as _UESCAPE_CLAUSE_RE, including its E-string
+# operand: the two must agree about what a delimited identifier looks like, or
+# a handler written `WHEN U&"other!0073" UESCAPE E'!' THEN` fails this shape
+# test, never reaches the shared reader, and silently counts as non-catching.
 _QUOTED_CONDITION_RE = re.compile(
-    r"""\A(?:U&)?"[^"]*"(?:\s*UESCAPE\s*'[^']*')?\Z""", re.IGNORECASE
+    r"""\A(?:U&)?"[^"]*"(?:\s*UESCAPE\s*[Ee]?'[^']*')?\Z""", re.IGNORECASE
 )
 # The masker blanks literal CONTENT, so `WHEN SQLSTATE 'P0001'` reads as
 # `WHEN SQLSTATE '     '` in the masked body. Rather than unmasking literals
@@ -337,6 +382,12 @@ _PG_WS = r" \t\n\r\f\v"
 _DOLQ_START = "A-Za-z_\x80-\U0010FFFF"
 _DOLQ_CONT = "A-Za-z0-9_\x80-\U0010FFFF"
 _DOLLAR_TAG_RE = re.compile(f"\\$(?:[{_DOLQ_START}][{_DOLQ_CONT}]*)?\\$")
+# One character of PostgreSQL's unquoted-identifier continuation class
+# (scan.l ident_cont), used by _dollar_tag_at() to refuse a tag that would
+# start inside an identifier. `$` is deliberately included: it continues an
+# identifier there, and `_IDENT_CONT` further down spells the same class for
+# the statement model.
+_IDENT_CONT_RE = re.compile("[A-Za-z0-9_$\x80-\U0010FFFF]")
 _SIMPLE_ESCAPES = {
     "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t",
     "\\": "\\", "'": "'", '"': '"',
@@ -448,9 +499,24 @@ def _read_sqlstate_literal(
 # resolve returns None and every caller FAILS CLOSED on that - an identity that
 # cannot be proven must never be compared as if it were known.
 _UAMP_PREFIX_RE = re.compile(r'U&(?=")', re.IGNORECASE)
+# PostgreSQL 17.11 requires "a simple string literal" after UESCAPE, and that
+# admits the E-prefixed escape-string form: `UESCAPE E'!'` is accepted, and
+# `UESCAPE E'\\'` selects the backslash. `N'!'`, `U&'!'` and a two-character
+# operand are all rejected there - all three verified on the oracle.
+#
+# Round 13 (Fable, F9): only the plain `'c'` form was matched, so
+# `U&"authenticate!0064" UESCAPE E'!'` showed NO clause at all, the content
+# was decoded against the default backslash, and the reader returned a
+# plausible but WRONG identity (`authenticate!0064`). A wrong identity is
+# worse than an unresolved one: it looks like an ordinary non-client role, so
+# it never trips the UNRESOLVED_GRANTEE fail-closed path and a GRANT spelled
+# that way reopened a closed function invisibly. The content is read with the
+# SAME escape-string decoder the SQLSTATE path uses, and a keyword-without-a-
+# recognized-clause fails closed rather than falling back to a guess.
 _UESCAPE_CLAUSE_RE = re.compile(
-    f"[{_PG_WS}]*UESCAPE[{_PG_WS}]*'(.)'", re.IGNORECASE
+    f"[{_PG_WS}]*UESCAPE[{_PG_WS}]*(?P<e>[Ee])?'(?P<val>[^']*)'", re.IGNORECASE
 )
+_UESCAPE_KEYWORD_RE = re.compile(f"[{_PG_WS}]*UESCAPE\\b", re.IGNORECASE)
 _UHEX4_RE = re.compile(r"[0-9A-Fa-f]{4}")
 _UHEX6_RE = re.compile(r"\+([0-9A-Fa-f]{6})")
 _BAD_UESCAPE_CHARS = frozenset('+\'"0123456789abcdefABCDEF')
@@ -554,10 +620,22 @@ def _read_delimited_identifier(raw: str, pos: int, masked: str | None = None):
     # so the escape character itself only exists in the raw source).
     clause = _UESCAPE_CLAUSE_RE.match(masked, j)
     if clause:
-        escape = raw[clause.start(1):clause.end(1)]
+        value = raw[clause.start("val"):clause.end("val")]
+        if clause.group("e"):
+            escape = _decode_pg_escape_string(value)
+        else:
+            escape = value
+        # PostgreSQL wants exactly one character, and rejects a hex digit,
+        # `+`, `'`, `"` and whitespace as that character.
+        if escape is None or len(escape) != 1:
+            return None
         if escape in _BAD_UESCAPE_CHARS or escape.isspace():
             return None
         j = clause.end()
+    elif _UESCAPE_KEYWORD_RE.match(masked, j):
+        # A UESCAPE clause in a shape this reader does not model. Decoding the
+        # content against the default backslash would invent an identity.
+        return None
     decoded = _decode_unicode_identifier(content, escape)
     if decoded is None:
         return None
@@ -906,6 +984,7 @@ def parse_blocks(body: str, raw_body: str | None = None):
                 and not fr.closed
                 and fr.raise_pos is None
                 and not _NON_ABORTING_RAISE_RE.match(body, m.start())
+                and _is_statement_start(body, m.start())
             ):
                 fr.raise_pos = m.start()
 
@@ -1017,6 +1096,9 @@ _ABORTING_RAISE_RE = re.compile(
 def unconditional_abort_before(body: str, frames, pos: int) -> bool:
     """True when an outer-level aborting RAISE precedes `pos`."""
     for m in _ABORTING_RAISE_RE.finditer(body, 0, pos):
+        if not _is_statement_start(body, m.start()):
+            # A bare `raise` identifier ends no invocation (Round 13, F8).
+            continue
         if is_outer_statement_level(frames, m.start()):
             return True
     return False
@@ -1240,12 +1322,35 @@ def _dollar_tag_at(sql: str, i: int) -> str | None:
     dolq_start/dolq_cont (see `_DOLLAR_TAG_RE`), so `$1` - a positional
     parameter - is not a tag.
 
+    A tag also cannot BEGIN inside an identifier. PostgreSQL's unquoted
+    identifiers admit `$` as a continuation character (scan.l ident_cont), and
+    its lexer takes the longest identifier first, so in
+
+        CREATE TABLE public.marker_a (col$a$ integer);
+
+    `col$a$` is ONE column name and no literal is opened at all. Round 13
+    (Fable): without this boundary the masker matched `$a$` there and blanked
+    everything up to the NEXT `$a$` in the file - which on PostgreSQL 17.11 is
+    ordinary executable SQL. That hid whole `CREATE ... SECURITY DEFINER`
+    statements and whole GRANT statements from every consumer at once, a full
+    acceptance bypass rather than a missed sub-case.
+
+    The boundary lives HERE, in the one shared reader, so `mask_sql_checked()`,
+    `_dollar_spans()`, `_read_string_literal_at()` and the SQLSTATE literal
+    reader cannot disagree about where a literal starts - the same reason the
+    tag grammar itself was centralized.
+
     This deliberately shares ONE compiled boundary rule with the SQLSTATE
     literal reader. They were two separate transcriptions of the same grammar
     before, and they disagreed: a tag this masker refused to recognize left the
     literal's content exposed as executable text. A single reader cannot drift.
     """
     if i >= len(sql) or sql[i] != "$":
+        return None
+    if i > 0 and _IDENT_CONT_RE.match(sql, i - 1):
+        # The previous character continues an identifier, so this `$` does too.
+        # `$` itself is in ident_cont, which is what makes `a$$$` - identifier
+        # `a$$` followed by a stray `$` - open nothing either.
         return None
     match = _DOLLAR_TAG_RE.match(sql, i)
     return match.group(0) if match else None
@@ -2091,6 +2196,14 @@ def _canonical_type(tokens) -> "_TypeRef | None":
     return None
 
 
+# The schemas an UNQUALIFIED type name may resolve through. Every migration
+# here runs with `public` first and `pg_catalog` is always implicitly on the
+# search path, so a bare `mood` may be `public.mood` and a bare `regclass` may
+# be `pg_catalog.regclass`. Anything else is a schema PostgreSQL would have to
+# be told about, so it stays a distinct identity.
+_SEARCH_PATH_SCHEMAS = ("public", "pg_catalog")
+
+
 def _custom_type_ref(tokens, suffix: str) -> "_TypeRef":
     """A type this scanner cannot resolve through the catalog - a user-defined
     one, or a quoted spelling with no built-in meaning.
@@ -2100,10 +2213,39 @@ def _custom_type_ref(tokens, suffix: str) -> "_TypeRef":
     set also carries the quote-folded form, because whether quoting matters here
     depends on a catalog this scanner does not have - so a GRANT is never
     dismissed on an equivalence that was merely unproven.
+
+    Round 13 (Fable, F7): the candidate set also carries the SEARCH-PATH
+    equivalent spellings. `public.mood` and a bare `mood` are one PostgreSQL
+    type, and so are `regclass` and `pg_catalog.regclass` - verified on
+    PostgreSQL 17.11, where a GRANT written either way reached the same
+    routine. Because the two spellings shared no candidate, an applicable
+    GRANT was dropped from the replay while the scanner still reported the
+    surface closed.
+
+    Only the MAY-MATCH direction widens. `exact` is untouched, so a REVOKE
+    still earns closure only for the spelling it provably names, and a type in
+    some other schema (`archive.mood`) shares no candidate with a bare `mood`
+    and does not collapse into it.
     """
     exact = _render_type_tokens(tokens, preserve_quoting=True) + suffix
     folded = _render_type_tokens(tokens, preserve_quoting=False) + suffix
-    return _TypeRef(exact, {exact, folded})
+    candidates = {exact, folded}
+    dots = [i for i, tok in enumerate(tokens) if tok[0] == "punct" and tok[1] == "."]
+    if len(dots) == 1 and dots[0] == 1 and len(tokens) == 3:
+        if tokens[0][0] == "ident" and tokens[0][1] in _SEARCH_PATH_SCHEMAS:
+            bare = (tokens[2],)
+            candidates.add(_render_type_tokens(bare, preserve_quoting=True) + suffix)
+            candidates.add(_render_type_tokens(bare, preserve_quoting=False) + suffix)
+    elif not dots and len(tokens) == 1 and tokens[0][0] == "ident":
+        for schema in _SEARCH_PATH_SCHEMAS:
+            qualified = (("ident", schema, False), ("punct", ".", False), tokens[0])
+            candidates.add(
+                _render_type_tokens(qualified, preserve_quoting=True) + suffix
+            )
+            candidates.add(
+                _render_type_tokens(qualified, preserve_quoting=False) + suffix
+            )
+    return _TypeRef(exact, candidates)
 
 
 def _is_array_suffix_only(tokens) -> bool:
@@ -2383,7 +2525,8 @@ def _scan_statement(masked: str, i: int):
 
 
 _CREATE_ROUTINE_RE = re.compile(
-    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+", re.IGNORECASE
+    r"\bCREATE\s+(?P<or_replace>OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+",
+    re.IGNORECASE,
 )
 _ALTER_ROUTINE_RE = re.compile(
     r"\bALTER\s+(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE
@@ -2432,13 +2575,19 @@ _ON_ALL_ROUTINES_RE = re.compile(
 
 class Definition:
     __slots__ = ("identity", "start", "end", "body_span", "is_definer", "final_definer",
-                 "promoted_by")
+                 "promoted_by", "or_replace")
 
-    def __init__(self, identity, start, end, body_span, is_definer):
+    def __init__(self, identity, start, end, body_span, is_definer,
+                 or_replace: bool = False):
         self.identity = identity
         self.start = start
         self.end = end
         self.body_span = body_span
+        # True for `CREATE OR REPLACE`. PostgreSQL PRESERVES the replaced
+        # routine's owner and permissions, so the ACL this migration ends with
+        # may include a grant made BEFORE this statement. A plain CREATE
+        # cannot: the routine did not exist, so there was no ACL to preserve.
+        self.or_replace = or_replace
         # The mode this statement DECLARES.
         self.is_definer = is_definer
         # The mode the function ends the migration in, after every later ALTER
@@ -2460,7 +2609,12 @@ def parse_definitions(raw: str, masked: str) -> list[Definition]:
         definer = bool(
             _SECURITY_DEFINER_RE.search(header) or _SECURITY_DEFINER_RE.search(trailer)
         )
-        out.append(Definition(identity, m.start(), end, body_span, definer))
+        out.append(
+            Definition(
+                identity, m.start(), end, body_span, definer,
+                or_replace=bool(m.group("or_replace")),
+            )
+        )
     return out
 
 
@@ -2486,8 +2640,28 @@ def parse_alter_security(raw: str, masked: str) -> list[AlterSecurity]:
     DEFINER direction gets the state wrong in both directions - it misses a
     promotion and it keeps flagging a demotion.
     """
+    # Round 13 (Fable, F2): this swept the WHOLE masked file, so text that
+    # PostgreSQL never executes at CREATE time moved the model's security
+    # state. Creating a routine does not run its body, and a DO body is
+    # procedural code whose branches this scanner does not evaluate, so
+    #
+    #   CREATE FUNCTION public.maintenance_later() ... AS $m$
+    #   BEGIN ALTER FUNCTION public.victim(uuid) SECURITY INVOKER; END $m$;
+    #
+    # and the same statement under `IF false THEN` inside a DO both demoted
+    # the victim to INVOKER here while the live catalog kept prosecdef = true
+    # (verified on PostgreSQL 17.11). The scanner then stopped reviewing an
+    # unguarded SECURITY DEFINER function.
+    #
+    # Ownership is the SAME structural concept the privilege replay already
+    # uses - routine_body_spans() plus do_body_spans() - not a new lexer and
+    # not a blacklist of the word ALTER. A DO that MAY demote earns no proven
+    # demotion either: an unproven effect must never be replayed as a fact.
+    bodies = routine_body_spans(masked) + do_body_spans(masked, raw)
     out = []
     for m in _ALTER_ROUTINE_RE.finditer(masked):
+        if any(start <= m.start() < stop for start, stop in bodies):
+            continue
         identity, after = _identity_at(raw, masked, m.end())
         if identity is None:
             continue
@@ -2497,6 +2671,81 @@ def parse_alter_security(raw: str, masked: str) -> list[AlterSecurity]:
             out.append(AlterSecurity(identity, m.start(), end, True))
         elif _SECURITY_INVOKER_RE.search(clause):
             out.append(AlterSecurity(identity, m.start(), end, False))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Round 13 (F6): routine IDENTITY mutation
+# ---------------------------------------------------------------------------
+# Scanner v1 models a routine's SECURITY mode as state, but modelled its
+# IDENTITY as fixed. PostgreSQL does not: `ALTER FUNCTION ... RENAME TO` and
+# `ALTER FUNCTION ... SET SCHEMA` move the SAME routine - same oid, same
+# prosecdef, same body - to a new name, and a GRANT on the new identity
+# reaches it. Verified on PostgreSQL 17.11: a fully revoked SECURITY DEFINER
+# function, renamed and then granted under its new name, is executable by
+# `authenticated` again.
+#
+# A full identity-state machine is not what this round buys. Nothing here
+# rewrites identities; a mutation that touches anything the verdict rests on
+# simply stops the scanner from claiming proof, which is the conservative half
+# of the same asymmetry the ACL replay already uses. Renaming some other
+# routine INTO a recognized helper name is the mirror case: the guard this
+# file reads would not be the guard the database runs, exactly what
+# redefined_guard_names() already refuses for a CREATE.
+_ALTER_RENAME_RE = re.compile(
+    r"\ARENAME[" + _PG_WS + r"]+TO[" + _PG_WS + r"]+", re.IGNORECASE
+)
+_ALTER_SET_SCHEMA_RE = re.compile(
+    r"\ASET[" + _PG_WS + r"]+SCHEMA[" + _PG_WS + r"]+", re.IGNORECASE
+)
+
+
+class AlterIdentity:
+    __slots__ = ("identity", "start", "end", "kind", "new_name")
+
+    def __init__(self, identity, start, end, kind, new_name):
+        self.identity = identity
+        self.start = start
+        self.end = end
+        # "RENAME" or "SET SCHEMA".
+        self.kind = kind
+        # The new ROUTINE name for a RENAME; None for SET SCHEMA (which moves
+        # the routine without renaming it) and when the operand is unreadable.
+        self.new_name = new_name
+
+
+def parse_alter_identity(raw: str, masked: str) -> list[AlterIdentity]:
+    """Top-level `ALTER ROUTINE ... RENAME TO` / `... SET SCHEMA` statements.
+
+    Body ownership is the same as parse_alter_security(): the text must be a
+    statement the migration executes, not prose inside a routine or DO body.
+    """
+    bodies = routine_body_spans(masked) + do_body_spans(masked, raw)
+    out = []
+    for m in _ALTER_ROUTINE_RE.finditer(masked):
+        if any(start <= m.start() < stop for start, stop in bodies):
+            continue
+        identity, after = _identity_at(raw, masked, m.end())
+        if identity is None:
+            continue
+        end, _ = _scan_statement(masked, after)
+        offset = _skip_ws(masked, after)
+        tail = masked[offset:end]
+        rename = _ALTER_RENAME_RE.match(tail)
+        if rename:
+            # `RENAME TO` takes a bare routine name, resolved by the SAME
+            # identifier reader as every other name in this module so a quoted
+            # or `U&"..."` spelling cannot slip past the comparison below.
+            parsed, _ = _parse_identity(raw, masked, offset + rename.end())
+            new_name = parsed[0][-1] if parsed else None
+            out.append(
+                AlterIdentity(identity, m.start(), end, "RENAME", new_name)
+            )
+            continue
+        if _ALTER_SET_SCHEMA_RE.match(tail):
+            out.append(
+                AlterIdentity(identity, m.start(), end, "SET SCHEMA", None)
+            )
     return out
 
 
@@ -2695,8 +2944,41 @@ _EXECUTE_WORD_RE = re.compile(r"\bEXECUTE\b", re.IGNORECASE)
 _PROCEDURAL_CALL_RE = re.compile(
     r"\b(?:PERFORM|CALL)\b[^;]*\(", re.IGNORECASE | re.DOTALL
 )
+# Round 13 (Fable, F4): keying migration-time execution to three keyword
+# spellings was too narrow. PostgreSQL 17.11 runs a same-file function - and
+# with it any `GRANT EXECUTE` its body performs - from every statement class
+# below; each was verified to move `authenticated` from false to true on a
+# fully revoked victim. The keyword only LOCATES a candidate region; whether
+# the region is flagged is decided by _region_calls_defined_routine(), so
+# `ON UPDATE CASCADE` and a `DELETE` that calls nothing are not affected.
 _TOP_LEVEL_RUNTIME_KW_RE = re.compile(
-    r"\b(?:CALL|SELECT|WITH)\b", re.IGNORECASE
+    r"\b(?:CALL|SELECT|WITH|INSERT|UPDATE|DELETE|MERGE|VALUES)\b",
+    re.IGNORECASE,
+)
+
+# Migration-time statements inside a DO body that may change who can execute a
+# routine. Round 13 (Fable, F10): do_is_acl_uncertain() recognized only
+# GRANT/REVOKE of routine EXECUTE, so a DO that granted ROLE MEMBERSHIP
+# (`GRANT stock_ops TO authenticated WITH INHERIT TRUE`) or set
+# `ALTER DEFAULT PRIVILEGES ... GRANT EXECUTE ON FUNCTIONS TO authenticated`
+# was read as harmless - while on PostgreSQL 17.11 both made the victim
+# executable by `authenticated`. The top-level parsers already model these two
+# classes; the DO path simply has to notice them. Branch reachability is
+# deliberately NOT evaluated: presence alone makes the DO unknown.
+#
+# The match runs on MASKED body text, so the keyword must be executable: a
+# GRANT named in a comment or a string literal inside the DO is already blank.
+# Both boundaries on every keyword. `\bGRANT` alone also matched the COLUMN
+# names `grantee` and `grantor`, which every read-only `aclexplode()` /
+# `information_schema.role_table_grants` postflight block uses - so migrations
+# 171 and 191, whose DO blocks only VERIFY the ACL they were given, were
+# reported as changing it.
+_DO_ACL_KEYWORD_RE = re.compile(
+    r"(?:\bGRANT\b|\bREVOKE\b"
+    r"|\bALTER[" + _PG_WS + r"]+DEFAULT[" + _PG_WS + r"]+PRIVILEGES\b"
+    r"|\bALTER[" + _PG_WS + r"]+(?:ROLE|GROUP|USER)\b"
+    r")",
+    re.IGNORECASE,
 )
 
 ACL_OPEN = "open"
@@ -2717,8 +2999,30 @@ class DoBlock:
         self.readable = readable
 
 
+# A string constant's optional PREFIX. PostgreSQL accepts `E'...'` (escape
+# string) and `U&'...'` (Unicode string) wherever a plain `'...'` is accepted,
+# including as the code body of a DO statement - verified on PostgreSQL 17.11,
+# where `DO E'BEGIN EXECUTE \'GRANT ...\'; END'` and the U& spelling both ran
+# and reopened `authenticated` EXECUTE on a fully revoked function.
+#
+# Round 13 (Fable, F3): this reader knew only `$tag$` and a bare `'`, so
+# parse_do_blocks() did not recognize those statements as DO statements at
+# all. They did not become PROCEDURAL_ACL_UNKNOWN - they vanished, and the
+# revoke before them still read as proven closure. Recognizing the prefix here
+# rather than at the call site keeps ONE literal reader, which is what the
+# SQLSTATE and identifier paths already share.
+_STRING_PREFIX_RE = re.compile(r"(?:U&|E)(?=')", re.IGNORECASE)
+
+
 def _read_string_literal_at(masked: str, i: int):
-    """(content_start, content_end, after, is_dollar) for a literal at `i`."""
+    """(content_start, content_end, after, is_dollar) for a literal at `i`.
+
+    A `$tag$` literal is reported as readable (is_dollar True); a
+    single-quoted one is not, because mask_sql_checked() blanks its content, so
+    the caller cannot prove what it contains. An `E''`/`U&''` prefix is owned
+    the same way a bare `''` is: the span is found, and the body is flagged
+    unreadable rather than silently dropped.
+    """
     n = len(masked)
     if i >= n:
         return None
@@ -2730,7 +3034,10 @@ def _read_string_literal_at(masked: str, i: int):
         if close == -1:
             return None
         return (i + len(tag), close, close + len(tag), True)
-    if masked[i] == "'":
+    prefix = _STRING_PREFIX_RE.match(masked, i)
+    if prefix:
+        i = prefix.end()
+    if masked[i:i + 1] == "'":
         close = masked.find("'", i + 1)
         if close == -1:
             return None
@@ -2834,7 +3141,8 @@ def _body_has_routine_privilege_text(
 
 
 def do_is_acl_uncertain(
-    block: DoBlock, raw: str, masked: str, strict: bool = False
+    block: DoBlock, raw: str, masked: str, strict: bool = False,
+    definitions=None,
 ) -> bool:
     """True when this DO's effect on routine EXECUTE cannot be proven."""
     if not block.readable or block.body_span is None:
@@ -2844,25 +3152,95 @@ def do_is_acl_uncertain(
         return True
     if strict and _PROCEDURAL_CALL_RE.search(masked[start:end]):
         return True
+    # Round 13 (F4): a same-file routine can be executed from a DO body
+    # without PERFORM or CALL - an assignment (`ok := public.reopen();`) and an
+    # IF condition both run it, and both were verified to reopen client
+    # EXECUTE on PostgreSQL 17.11. The call detector is the shared,
+    # identifier-aware one, so the U& spelling is covered here too.
+    if strict and definitions and _region_calls_defined_routine(
+        raw[start:end], masked[start:end], definitions
+    ):
+        return True
+    # Round 13 (F10): role membership and default privileges change effective
+    # routine execution rights just as a direct GRANT does.
+    if _DO_ACL_KEYWORD_RE.search(masked[start:end]):
+        return True
     return _body_has_routine_privilege_text(raw, masked, start, end)
+
+
+def _called_routine_names(raw_region: str, masked_region: str) -> set[str]:
+    """Every routine NAME that appears in a call shape `<identifier> (` here.
+
+    Round 13 (Codex, F4): the previous detector matched each definition's name
+    with a regex over masked text plus a second regex for the RENDERED
+    `"name"` spelling. PostgreSQL has a third spelling - the Unicode delimited
+    identifier - so
+
+        SELECT public.U&"reo\\0070en"();
+
+    resolved to the same-file helper `reopen()` in the catalog (verified on
+    PostgreSQL 17.11) while matching neither pattern, and the helper's runtime
+    `GRANT EXECUTE ... TO authenticated` stayed invisible.
+    Names are therefore resolved by the SHARED identifier machinery -
+    _read_delimited_identifier() for `"..."` / `U&"..."` (with its UESCAPE
+    handling) and _pg_identifier() for the unquoted form - rather than by a
+    second ad-hoc decoder, which is the shape that left the gap.
+
+    STRUCTURE comes from the masked region, so a name inside a comment, a
+    string literal or a dollar-quoted literal is not a call. Only a name
+    directly followed by `(` counts, so a mere mention is not a call either.
+    """
+    if len(masked_region) != len(raw_region):
+        return set()
+    names: set[str] = set()
+    i, n = 0, len(masked_region)
+    while i < n:
+        ch = masked_region[i]
+        if ch == "'":
+            close = masked_region.find("'", i + 1)
+            i = n if close == -1 else close + 1
+            continue
+        if ch == "$":
+            tag = _dollar_tag_at(masked_region, i)
+            if tag is not None:
+                close = masked_region.find(tag, i + len(tag))
+                i = n if close == -1 else close + len(tag)
+                continue
+            i += 1
+            continue
+        if ch == '"' or _UAMP_PREFIX_RE.match(masked_region, i):
+            read = _read_delimited_identifier(raw_region, i, masked_region)
+            if read is None:
+                # An identifier this scanner cannot resolve may BE the helper.
+                # Reported as a call so the caller fails closed.
+                names.add(UNRESOLVED_GRANTEE)
+                i += 1
+                continue
+            name, after = read
+            nxt = _skip_ws(masked_region, after)
+            if masked_region[nxt:nxt + 1] == "(":
+                names.add(name)
+            i = max(after, i + 1)
+            continue
+        m = _UNQUOTED_IDENT_RE.match(masked_region, i)
+        if m is not None:
+            nxt = _skip_ws(masked_region, m.end())
+            if masked_region[nxt:nxt + 1] == "(":
+                names.add(_pg_identifier(m.group(0)))
+            i = m.end()
+            continue
+        i += 1
+    return names
 
 
 def _region_calls_defined_routine(
     raw_region: str, masked_region: str, definitions
 ) -> bool:
-    """Conservative same-file call detector for top-level SELECT/WITH."""
-    for definition in definitions:
-        name = definition.identity.name
-        if re.search(
-            r"(?<![\w$])" + re.escape(name) + r"\s*\(",
-            masked_region,
-            re.IGNORECASE,
-        ):
-            return True
-        quoted = '"' + name.replace('"', '""') + '"'
-        if re.search(re.escape(quoted) + r"\s*\(", raw_region):
-            return True
-    return False
+    """Conservative same-file call detector for a migration-time region."""
+    called = _called_routine_names(raw_region, masked_region)
+    if UNRESOLVED_GRANTEE in called:
+        return True
+    return any(d.identity.name in called for d in definitions)
 
 
 def _top_level_runtime_call_unknowns(
@@ -2884,6 +3262,36 @@ def _top_level_runtime_call_unknowns(
     return out
 
 
+def parse_procedural_security_unknown(raw: str, masked: str) -> list[int]:
+    """DO blocks whose body may change a routine's SECURITY mode.
+
+    Round 13 (F2). parse_alter_security() now refuses to read a DO body as a
+    security-state change, which is correct - the effect is not provable - but
+    "not provable" must not silently become "did not happen" either. A DO that
+    may promote some routine to SECURITY DEFINER, or demote the very function
+    under review, is reported so the migration fails closed instead.
+    """
+    out = []
+    for block in parse_do_blocks(masked, raw):
+        if block.body_span is None:
+            continue
+        start, end = block.body_span
+        if not block.readable:
+            # An unreadable body is already PROCEDURAL_ACL_UNKNOWN; its
+            # security effect cannot be read either, and reporting it twice
+            # would only duplicate the finding.
+            continue
+        for m in _ALTER_ROUTINE_RE.finditer(masked, start, end):
+            clause_end, _ = _scan_statement(masked, m.end())
+            clause = masked[m.end():min(clause_end, end)]
+            if _SECURITY_DEFINER_RE.search(clause) or _SECURITY_INVOKER_RE.search(
+                clause
+            ):
+                out.append(block.start)
+                break
+    return sorted(set(out))
+
+
 def parse_procedural_acl_unknown(
     raw: str, masked: str, definitions=None, strict: bool = False
 ) -> list[int]:
@@ -2894,7 +3302,9 @@ def parse_procedural_acl_unknown(
     out = [
         block.start
         for block in blocks
-        if do_is_acl_uncertain(block, raw, masked, strict=strict)
+        if do_is_acl_uncertain(
+            block, raw, masked, strict=strict, definitions=definitions
+        )
     ]
     if strict:
         out.extend(_top_level_runtime_call_unknowns(raw, masked, definitions, blocks))
@@ -2966,6 +3376,25 @@ def parse_default_privilege_unknowns(raw: str, masked: str):
     """Default EXECUTE grants that may affect routines created later."""
     bodies = routine_body_spans(masked) + do_body_spans(masked, raw)
     out = []
+    # Round 13 (F10): `ALTER DEFAULT PRIVILEGES` inside a DO body runs at
+    # migration time and applies to every routine CREATEd after it - verified
+    # on PostgreSQL 17.11, where a DO setting default EXECUTE for
+    # `authenticated` left a later function executable by it despite a
+    # PUBLIC-only revoke. Such a DO is already PROCEDURAL_ACL_UNKNOWN, but
+    # that event is keyed to a file offset BEFORE the definition and the ACL
+    # replay only reads events after it. Default privileges are exactly the
+    # class that reaches backwards across that boundary, so the DO is recorded
+    # here as well, with an unresolved grantee: which roles the body finally
+    # names is not something this scanner can prove.
+    for block in parse_do_blocks(masked, raw):
+        if block.body_span is None:
+            continue
+        body_start, body_end = block.body_span
+        if not block.readable:
+            out.append((block.start, {UNRESOLVED_GRANTEE}))
+            continue
+        if _DEFAULT_PRIVILEGES_RE.search(masked, body_start, body_end):
+            out.append((block.start, {UNRESOLVED_GRANTEE}))
     for match in _DEFAULT_PRIVILEGES_RE.finditer(masked):
         if any(start <= match.start() < stop for start, stop in bodies):
             continue
@@ -2985,12 +3414,40 @@ def parse_default_privilege_unknowns(raw: str, masked: str):
     return out
 
 
+# PostgreSQL keeps two LEGACY spellings for the same membership change, and
+# `ALTER GROUP <g> ADD USER <r>` is documented as an alias for GRANT. Verified
+# on PostgreSQL 17.11: it moved `authenticated` from false to true on a
+# function reachable only through `stock_ops`, exactly as
+# `GRANT stock_ops TO authenticated` does. `ALTER ROLE`/`ALTER USER ... ADD
+# USER` and `ALTER GROUP ... ADD ROLE` are syntax ERRORS there, so only the
+# confirmed spelling is recognized here - a mutant PostgreSQL rejects is not a
+# reachable class and modelling it would be guesswork.
+#
+# `ALTER ROLE <r> INHERIT` is the other half: it does not change membership,
+# it changes whether the role's existing memberships confer their privileges
+# automatically, which moves the same effective execution right.
+_ALTER_GROUP_MEMBER_RE = re.compile(
+    r"\bALTER[" + _PG_WS + r"]+GROUP\b", re.IGNORECASE
+)
+_GROUP_MEMBER_VERB_RE = re.compile(
+    r"\b(?:ADD|DROP)[" + _PG_WS + r"]+USER[" + _PG_WS + r"]+", re.IGNORECASE
+)
+_ALTER_ROLE_INHERIT_RE = re.compile(
+    r"\bALTER[" + _PG_WS + r"]+(?:ROLE|USER)\b", re.IGNORECASE
+)
+_INHERIT_OPTION_RE = re.compile(r"\b(?:NOINHERIT|INHERIT)\b", re.IGNORECASE)
+
+
 def parse_role_membership_unknown_roles(raw: str, masked: str) -> set[str]:
     """Client roles whose inherited privileges changed in this migration."""
     bodies = routine_body_spans(masked) + do_body_spans(masked, raw)
+
+    def owned(pos: int) -> bool:
+        return any(start <= pos < stop for start, stop in bodies)
+
     unknown: set[str] = set()
     for match in _GRANT_WORD_RE.finditer(masked):
-        if any(start <= match.start() < stop for start, stop in bodies):
+        if owned(match.start()):
             continue
         end, _ = _scan_statement(masked, match.end())
         region = masked[match.start():end]
@@ -3000,6 +3457,25 @@ def parse_role_membership_unknown_roles(raw: str, masked: str) -> set[str]:
         if _ON_ANY_WORD_RE.search(region, 0, to_match.start()) is not None:
             continue
         roles = _grantee_names(raw[match.start() + to_match.end():end])
+        unknown.update(role for role in CLIENT_ROLES if role in roles)
+    for match in _ALTER_GROUP_MEMBER_RE.finditer(masked):
+        if owned(match.start()):
+            continue
+        end, _ = _scan_statement(masked, match.end())
+        verb = _GROUP_MEMBER_VERB_RE.search(masked, match.end(), end)
+        if verb is None:
+            continue
+        # The MEMBER list is what gains or loses the group's privileges; the
+        # group named before the verb is not itself the changed role.
+        roles = _grantee_names(raw[verb.end():end])
+        unknown.update(role for role in CLIENT_ROLES if role in roles)
+    for match in _ALTER_ROLE_INHERIT_RE.finditer(masked):
+        if owned(match.start()):
+            continue
+        end, _ = _scan_statement(masked, match.end())
+        if _INHERIT_OPTION_RE.search(masked, match.end(), end) is None:
+            continue
+        roles = _grantee_names(raw[match.end():end])
         unknown.update(role for role in CLIENT_ROLES if role in roles)
     return unknown
 
@@ -3012,6 +3488,7 @@ def revoke_closes_client_surface(
     procedural_unknowns: list[int] | None = None,
     default_privilege_unknowns=None,
     membership_unknown_roles: set[str] | None = None,
+    preserves_prior_acl: bool = False,
 ) -> bool:
     """True when the migration leaves THIS function unreachable by every client.
 
@@ -3040,6 +3517,22 @@ def revoke_closes_client_surface(
     makes every client-role cell UNKNOWN. UNKNOWN is not closure. A later
     provably applicable top-level privilege statement restores proof for the
     roles it names; roles it does not name stay UNKNOWN. Ordering matters.
+
+    Round 13 (Fable, F5) adds `preserves_prior_acl`, set for a
+    `CREATE OR REPLACE`. PostgreSQL does not reset a replaced routine's
+    permissions, so
+
+        GRANT EXECUTE ON FUNCTION public.victim(uuid) TO authenticated;
+        CREATE OR REPLACE FUNCTION public.victim(uuid) ... SECURITY DEFINER ...;
+        REVOKE EXECUTE ON FUNCTION public.victim(uuid) FROM PUBLIC;
+
+    leaves `authenticated` able to execute it - verified on PostgreSQL 17.11 -
+    while this replay dropped every event before `after` and reported the
+    surface closed. Only GRANTs are carried across that boundary, and the
+    asymmetry is the point: a GRANT before the replace MAY still apply, so it
+    is replayed, while an earlier REVOKE earns no closure credit for an
+    identity whose pre-existing ACL this scanner never saw. File order still
+    decides the outcome, so a later REVOKE naming the role closes it again.
     """
     public_state = ACL_OPEN
     explicit = {role: ACL_CLOSED for role in CLIENT_ROLES if role != "public"}
@@ -3064,7 +3557,12 @@ def revoke_closes_client_surface(
     events.sort(key=lambda item: (item[0], item[1]))
 
     for start, _kind, stmt in events:
-        if start < after:
+        if start < after and not (
+            preserves_prior_acl
+            and stmt is not None
+            and not stmt.is_revoke
+            and not stmt.grant_option_only
+        ):
             continue
         if stmt is None:
             public_state = ACL_UNKNOWN
@@ -3177,6 +3675,52 @@ def redefined_guard_names(definitions) -> list[str]:
     return sorted({d.identity.name for d in definitions if d.identity.name in recognized})
 
 
+def _identity_mutation_errors(path, raw: str, masked: str, definitions,
+                              privileges) -> list[str]:
+    """Round 13 (F6): refuse to claim proof across a routine identity change.
+
+    A mutation is reported when it touches something the verdict rests on:
+      * a SECURITY DEFINER routine this migration defines, whose closure or
+        guard was judged under the OLD name;
+      * a routine named by one of this file's own privilege statements, whose
+        replayed ACL is keyed to that identity;
+      * a recognized authorization helper, on either side of the rename - the
+        guard this scanner READ would not be the guard the database RUNS.
+    Anything else (renaming an unrelated legacy routine) is untouched, so this
+    adds no blanket suspicion of ALTER.
+    """
+    recognized = {n.lower() for n in GUARD_NAMES + BOOLEAN_PREDICATES}
+    definer_identities = [d.identity for d in definitions if d.final_definer]
+    acl_identities = [t for stmt in privileges for t in stmt.targets]
+    errors = []
+    for alter in parse_alter_identity(raw, masked):
+        reason = None
+        if alter.identity.name in recognized:
+            reason = "is a recognized authorization helper"
+        elif alter.new_name is not None and alter.new_name in recognized:
+            reason = (
+                f"gives it the recognized authorization helper name "
+                f"'{alter.new_name}'"
+            )
+        elif any(
+            alter.identity.may_be_same_function(i) for i in definer_identities
+        ):
+            reason = "is a SECURITY DEFINER routine this migration defines"
+        elif any(
+            alter.identity.may_be_same_function(i) for i in acl_identities
+        ):
+            reason = "is named by this migration's own privilege statements"
+        if reason is None:
+            continue
+        errors.append(
+            f"  ❌ {path.name}: 'ALTER ROUTINE {alter.identity.qualified} "
+            f"{alter.kind}' changes the identity of a routine that {reason}; "
+            f"this scanner does not model identity mutation, so it cannot "
+            f"prove the guard or the closure still holds"
+        )
+    return errors
+
+
 def check_file(path: pathlib.Path) -> list[str]:
     errors = []
     number = migration_number(path)
@@ -3216,6 +3760,17 @@ def check_file(path: pathlib.Path) -> list[str]:
                 f"helper '{name}'; a migration may not both replace a guard and "
                 f"be validated by it"
             )
+        # Round 13 (F2): a DO body that may change a SECURITY mode is not
+        # replayed as a state change, so it must be reported instead.
+        for pos in parse_procedural_security_unknown(raw_sql, sql):
+            errors.append(
+                f"  ❌ {path.name}: a DO block at offset {pos} may change a "
+                f"routine's SECURITY mode; this scanner cannot prove its "
+                f"effect, so move the ALTER to SQL top level"
+            )
+        errors.extend(
+            _identity_mutation_errors(path, raw_sql, sql, definitions, privileges)
+        )
 
     for definition in definitions:
         if not definition.final_definer:
@@ -3239,6 +3794,7 @@ def check_file(path: pathlib.Path) -> list[str]:
             procedural_unknowns=procedural_unknowns,
             default_privilege_unknowns=default_privilege_unknowns,
             membership_unknown_roles=membership_unknown_roles,
+            preserves_prior_acl=definition.or_replace,
         ):
             continue
 
