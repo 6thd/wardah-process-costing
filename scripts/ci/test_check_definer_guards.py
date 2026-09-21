@@ -7023,8 +7023,19 @@ class Round14ShiftOperatorTests(unittest.TestCase):
         # A single `>` was never a label terminator and still is not.
         self.assertFalse(guards._is_statement_start("a > raise", 4))
         # Every position where PostgreSQL really admits a statement still does.
+        #
+        # `DECLARE RAISE` was in this list when Round 14 was written, on the
+        # assumption that DECLARE opens a statement. Round 16 put that to the
+        # oracle and it is FALSE: `DECLARE RAISE EXCEPTION 'x';` is a syntax
+        # error on PostgreSQL 17.11, because the parser reads the token after
+        # DECLARE as a variable NAME - `DECLARE RAISE integer := 7;` compiles
+        # and returns 7. The case is therefore not a statement position at
+        # all, and asserting it was asserting a false fact about PostgreSQL.
+        # It now lives in Round16DeclareIdentifierTests as a proven
+        # NON-opener; keeping it here would have forced `declare` to stay in
+        # the opener set and with it two live misclassifications.
         for text in ("; RAISE", "THEN RAISE", "ELSE RAISE", "BEGIN RAISE",
-                     "LOOP RAISE", "DECLARE RAISE", "RAISE"):
+                     "LOOP RAISE", "RAISE"):
             with self.subTest(opener=text):
                 self.assertTrue(
                     guards._is_statement_start(text, text.index("RAISE"))
@@ -7582,6 +7593,361 @@ class Round15LoopEndLabelTests(unittest.TestCase):
                 "  PERFORM public.wardah_assert_org_member(p_org);\n"
                 "END auth_block;\n"
                 "$$;\n",
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# Round 16: DECLARE opens a declaration section, not a statement
+# ---------------------------------------------------------------------------
+# `declare` sat in _STATEMENT_OPENER_KEYWORDS, so the identifier in
+# `DECLARE raise integer := 1;` read as the start of a RAISE statement.
+#
+# Oracle (PostgreSQL 17.11). A RAISE statement cannot follow DECLARE at all -
+# every spelling is a syntax error, because the parser takes the token after
+# DECLARE as a variable NAME and then chokes on the message literal:
+#
+#   DECLARE RAISE EXCEPTION 'x'; BEGIN ... END          -> syntax error
+#   DECLARE \n RAISE EXCEPTION 'x'; BEGIN ... END       -> syntax error
+#   BEGIN DECLARE RAISE EXCEPTION 'x'; BEGIN ... END;   -> syntax error
+#
+# and `DECLARE RAISE integer := 7; BEGIN RETURN RAISE; END` compiles and
+# returns 7 - proof that the token is a name. The real form reaches its RAISE
+# through BEGIN, which is still an opener:
+#
+#   DECLARE x integer; BEGIN RAISE EXCEPTION 'x'; END   -> valid
+#
+# Every declaration form naming the variable `raise` is valid there: bare,
+# initialised, custom-typed, `ALIAS FOR $1`, and CONSTANT.
+#
+# Both callers of the shared helper were wrong, in OPPOSITE directions:
+#   * parse_blocks() recorded the declared identifier as the IF frame's
+#     raise_pos (170, token 'raise '), so a deny branch that denies nothing
+#     read as an authorization boundary. Proven unsafe: prosecdef = true,
+#     PUBLIC and authenticated both executable, and a non-member call raised
+#     nothing and drove the privileged UPDATE (bins.actual_qty 55 -> 0).
+#     check_file() returned [].
+#   * unconditional_abort_before() counted it as an earlier outer-level
+#     abort, so a real PERFORM guard after an outer `DECLARE raise integer :=
+#     1;` was reported unreachable - a false RED on a routine the oracle
+#     shows really denies (guard raised TENANT_MEMBERSHIP_REQUIRED, and the
+#     UPDATE did not run for the non-member).
+class Round16DeclareIdentifierTests(unittest.TestCase):
+    """`DECLARE raise` must not be parsed as a RAISE statement."""
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._dir.name)
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def verdict(self, name: str, sql: str) -> list[str]:
+        path = self.root / f"999_round16_{name}.sql"
+        path.write_text(sql, encoding="utf-8")
+        return guards.check_file(path)
+
+    @staticmethod
+    def boolean_probe(deny_body: str) -> str:
+        """An unguarded SECURITY DEFINER routine whose only candidate
+        authorization boundary is `deny_body`, followed by privileged work."""
+        return (
+            "CREATE FUNCTION public.probe_fn(p_org uuid)\n"
+            "RETURNS void\n"
+            "LANGUAGE plpgsql\n"
+            "SECURITY DEFINER\n"
+            "AS $$\n"
+            "BEGIN\n"
+            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            f"{deny_body}"
+            "  END IF;\n"
+            "\n"
+            "  UPDATE public.bins\n"
+            "  SET actual_qty = 0\n"
+            "  WHERE org_id = p_org;\n"
+            "END;\n"
+            "$$;\n"
+        )
+
+    # -- 1. deny branch with a DECLARE variable named raise ----------------
+    def test_declared_identifier_in_deny_branch_is_rejected(self) -> None:
+        sql = self.boolean_probe(
+            "    DECLARE\n"
+            "      raise integer := 1;\n"
+            "    BEGIN\n"
+            "      raise := 2;\n"
+            "    END;\n"
+        )
+        self.assertTrue(
+            self.verdict("deny_branch_declare", sql),
+            "a DECLARE'd variable named `raise` counted as a denying "
+            "PL/pgSQL RAISE statement",
+        )
+        # The defect proper: the IF frame must not record it.
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        definition = guards.parse_definitions(sql, masked)[0]
+        body = masked[definition.start: definition.body_span[1]]
+        raw_body = sql[definition.start: definition.body_span[1]]
+        for frame in guards.parse_blocks(body, raw_body):
+            if frame.kind == "IF":
+                self.assertIsNone(
+                    frame.raise_pos,
+                    "the IF frame still records the declared identifier as a "
+                    "raise",
+                )
+
+    # -- 2. outer DECLARE raise before a real PERFORM guard ---------------
+    def test_declared_identifier_does_not_make_a_guard_unreachable(self) -> None:
+        sql = (
+            "CREATE FUNCTION public.probe_fn(p_org uuid)\n"
+            "RETURNS void\n"
+            "LANGUAGE plpgsql\n"
+            "SECURITY DEFINER\n"
+            "AS $$\n"
+            "DECLARE\n"
+            "  raise integer := 1;\n"
+            "BEGIN\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "\n"
+            "  UPDATE public.bins\n"
+            "  SET actual_qty = 0\n"
+            "  WHERE org_id = p_org;\n"
+            "END;\n"
+            "$$;\n"
+        )
+        self.assertEqual(
+            self.verdict("guard_after_declare", sql),
+            [],
+            "a declared identifier named `raise` was treated as an earlier "
+            "abort and a real guard after it was reported unreachable",
+        )
+        masked, _ = guards.mask_sql_checked(sql)
+        definition = guards.parse_definitions(sql, masked)[0]
+        body = masked[definition.start: definition.body_span[1]]
+        raw_body = sql[definition.start: definition.body_span[1]]
+        frames = guards.parse_blocks(body, raw_body)
+        guard_at = guards.GUARD_RE.search(body).start()
+        self.assertFalse(
+            guards.unconditional_abort_before(body, frames, guard_at)
+        )
+        self.assertFalse(
+            guards.is_unreachable_at(body, frames, guard_at, raw_body)
+        )
+
+    # -- 3. DECLARE raise then a genuine BEGIN RAISE control --------------
+    def test_declare_section_then_begin_raise_still_denies(self) -> None:
+        """The oracle's valid form: the real RAISE arrives through BEGIN, so
+        removing `declare` from the opener set must not cost it."""
+        sql = (
+            "CREATE FUNCTION public.probe_fn(p_org uuid)\n"
+            "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "DECLARE\n"
+            "  raise integer := 1;\n"
+            "BEGIN\n"
+            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            "    RAISE EXCEPTION 'TENANT_DENIED';\n"
+            "  END IF;\n"
+            "\n"
+            "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+            "END;\n"
+            "$$;\n"
+        )
+        self.assertEqual(self.verdict("declare_then_begin_raise", sql), [])
+
+    # -- 4. combined with nested block / loop / exception structure -------
+    def test_declared_identifier_with_nested_structure(self) -> None:
+        cases = {
+            # A nested DECLARE ... BEGIN ... EXCEPTION block. Nothing denies.
+            "nested_declare_with_handler": self.boolean_probe(
+                "    DECLARE\n"
+                "      raise integer := 1;\n"
+                "    BEGIN\n"
+                "      raise := 2;\n"
+                "    EXCEPTION WHEN OTHERS THEN\n"
+                "      NULL;\n"
+                "    END;\n"
+            ),
+            # A declared identifier used inside a loop.
+            "declare_then_loop": self.boolean_probe(
+                "    DECLARE\n"
+                "      raise integer := 1;\n"
+                "    BEGIN\n"
+                "      WHILE raise < 2 LOOP\n"
+                "        raise := raise + 1;\n"
+                "      END LOOP;\n"
+                "    END;\n"
+            ),
+            # Round 15's end-label and Round 16's declaration in one body.
+            "declare_and_loop_end_label": self.boolean_probe(
+                "    DECLARE\n"
+                "      raise integer := 1;\n"
+                "    BEGIN\n"
+                "      <<raise_lbl>>\n"
+                "      LOOP\n"
+                "        EXIT raise_lbl;\n"
+                "      END LOOP raise_lbl;\n"
+                "    END;\n"
+            ),
+            # Round 14's shift and Round 16's declaration in one body.
+            "declare_and_shift": self.boolean_probe(
+                "    DECLARE\n"
+                "      raise integer := 1;\n"
+                "      v integer;\n"
+                "    BEGIN\n"
+                "      v := 8 >> raise;\n"
+                "    END;\n"
+            ),
+        }
+        for name, sql in cases.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a declaration supplied an authorization "
+                    f"boundary PostgreSQL never executes",
+                )
+
+    # -- every declaration form the oracle accepts ------------------------
+    def test_every_valid_declaration_form_is_inert(self) -> None:
+        """Bare, initialised, custom-typed, ALIAS FOR and CONSTANT - all five
+        compile on PostgreSQL 17.11 with the variable named `raise`."""
+        cases = {
+            "bare": "      raise integer;\n    BEGIN\n      raise := 1;\n",
+            "initialised":
+                "      raise integer := 1;\n    BEGIN\n      raise := 2;\n",
+            "custom_type":
+                "      raise public.some_type;\n    BEGIN\n      NULL;\n",
+            "constant":
+                "      raise CONSTANT integer := 1;\n    BEGIN\n      NULL;\n",
+        }
+        for name, decl in cases.items():
+            with self.subTest(case=name):
+                sql = self.boolean_probe(
+                    "    DECLARE\n" + decl + "    END;\n"
+                )
+                self.assertTrue(self.verdict(f"form_{name}", sql), name)
+        # `ALIAS FOR $1` needs a positional parameter, so it gets its own body.
+        alias = (
+            "CREATE FUNCTION public.probe_fn(p_org uuid, integer)\n"
+            "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "DECLARE\n"
+            "  raise ALIAS FOR $2;\n"
+            "BEGIN\n"
+            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            "    PERFORM raise;\n"
+            "  END IF;\n"
+            "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+            "END;\n"
+            "$$;\n"
+        )
+        self.assertTrue(self.verdict("form_alias_for", alias))
+
+    def test_statement_start_helper_rejects_a_declaration(self) -> None:
+        """The shared helper and the shared opener set, so BOTH callers
+        inherit one rule rather than being patched separately."""
+        self.assertNotIn("declare", guards._STATEMENT_OPENER_KEYWORDS)
+        self.assertEqual(
+            guards._STATEMENT_OPENER_KEYWORDS,
+            frozenset({"then", "else", "begin", "loop"}),
+        )
+        for text in (
+            "  DECLARE\n    raise integer := 1;",
+            "  DECLARE raise integer;",
+            "  declare\n\traise integer;",
+            "  DECLARE         raise integer;",   # masked comment
+        ):
+            with self.subTest(declaration=text):
+                self.assertFalse(
+                    guards._is_statement_start(text, text.lower().rindex("raise"))
+                )
+        # Every position where PostgreSQL really admits a statement still does.
+        for text in ("; RAISE", "THEN RAISE", "ELSE RAISE", "BEGIN RAISE",
+                     "LOOP RAISE", "RAISE"):
+            with self.subTest(opener=text):
+                self.assertTrue(
+                    guards._is_statement_start(text, text.index("RAISE"))
+                )
+
+    # -- genuine RAISE controls -------------------------------------------
+    def test_genuine_raise_boundaries_still_deny(self) -> None:
+        for name, deny in {
+            "then_raise": "    RAISE EXCEPTION 'denied';\n",
+            "semicolon_raise":
+                "    PERFORM 1;\n    RAISE EXCEPTION 'denied';\n",
+            "raise_using":
+                "    RAISE EXCEPTION 'denied' USING HINT = 'no';\n",
+            "raise_sqlstate": "    RAISE EXCEPTION SQLSTATE '28000';\n",
+            # A real RAISE after a DECLARE section's BEGIN.
+            "raise_after_declare_begin":
+                "    DECLARE\n      raise integer := 1;\n"
+                "    BEGIN\n      NULL;\n    END;\n"
+                "    RAISE EXCEPTION 'denied';\n",
+        }.items():
+            with self.subTest(accept=name):
+                self.assertEqual(
+                    self.verdict(name, self.boolean_probe(deny)), [], name
+                )
+
+    def test_non_aborting_raise_levels_remain_non_denials(self) -> None:
+        for level in ("NOTICE", "WARNING", "INFO", "LOG", "DEBUG"):
+            with self.subTest(level=level):
+                self.assertTrue(
+                    self.verdict(
+                        f"raise_{level.lower()}",
+                        self.boolean_probe(
+                            f"    RAISE {level} 'not a denial';\n"
+                        ),
+                    )
+                )
+
+    # -- Rounds 13-15 must stay closed ------------------------------------
+    def test_rounds_13_to_15_stay_closed(self) -> None:
+        """One helper serves them all, so each earlier correction is
+        re-proven through the corrected path."""
+        # Round 15: the loop END-LABEL.
+        for text in ("  END LOOP raise;", "  END LOOP\n    raise;",
+                     "  END\tLOOP\traise;", "  END LOOP         raise;"):
+            with self.subTest(round15=text):
+                self.assertFalse(
+                    guards._is_statement_start(text, text.lower().rindex("raise"))
+                )
+        # Round 14: the shift operator.
+        for text in ("8 >> raise", "8>>raise", "(8 >> raise)",
+                     "8 >>         raise", "(j->>'k')::int >> raise"):
+            with self.subTest(round14=text):
+                self.assertFalse(
+                    guards._is_statement_start(text, text.index("raise"))
+                )
+        # Round 13 F8: an ordinary identifier in SQL.
+        for text in ("SELECT 1 AS raise", "SELECT raise FROM t",
+                     "v := raise"):
+            with self.subTest(round13=text):
+                self.assertFalse(
+                    guards._is_statement_start(text, text.index("raise"))
+                )
+        # And end to end for each round, so the verdicts are proven too.
+        self.assertTrue(
+            self.verdict(
+                "r15_end_loop_label",
+                self.boolean_probe(
+                    "    <<raise>>\n    WHILE false LOOP\n      NULL;\n"
+                    "    END LOOP raise;\n"
+                ),
+            )
+        )
+        self.assertTrue(
+            self.verdict(
+                "r14_shift",
+                self.boolean_probe(
+                    "    PERFORM (SELECT 8 >> raise "
+                    "FROM public.raise_source LIMIT 1);\n"
+                ),
+            )
+        )
+        self.assertTrue(
+            self.verdict(
+                "r13_as_raise",
+                self.boolean_probe("    PERFORM (SELECT 1 AS raise);\n"),
             )
         )
 

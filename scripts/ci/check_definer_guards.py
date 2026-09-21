@@ -293,8 +293,35 @@ _RAISE_BEFORE_RE = re.compile(r"\bRAISE\s*$", re.IGNORECASE)
 # Labels themselves are untouched. _block_labels() and _labelled_opener()
 # remain the only label parser, they attribute a label FORWARD to the BEGIN or
 # LOOP it owns, and nothing here duplicates that knowledge.
+# The keywords after which a PL/pgSQL STATEMENT may begin.
+#
+# Round 16: `declare` was in this set and does not belong. DECLARE opens a
+# DECLARATION section, and PostgreSQL reads the token after it as a variable
+# NAME - `DECLARE RAISE integer := 7;` declares a variable literally called
+# RAISE and returns 7. All three spellings of a RAISE statement placed
+# directly after DECLARE are syntax errors on PostgreSQL 17.11 (the parser
+# takes `RAISE EXCEPTION` as name + type and then chokes on the message
+# literal), while `DECLARE x integer; BEGIN RAISE EXCEPTION 'x'; END` is
+# valid: the real RAISE is reached through BEGIN, which is in this set.
+#
+# So `declare` defended no real case and cost two live misclassifications of
+# `DECLARE raise integer := 1;` - a declaration PostgreSQL accepts in all of
+# its forms (bare, initialised, custom-typed, ALIAS FOR $1, CONSTANT):
+#
+#   * parse_blocks() recorded the declared identifier as the IF frame's
+#     raise_pos, so a deny branch that denies nothing read as an
+#     authorization boundary. Proven unsafe on the oracle: prosecdef = true,
+#     PUBLIC and authenticated both executable, and a non-member call raised
+#     nothing and drove the privileged UPDATE (bins.actual_qty 55 -> 0).
+#   * unconditional_abort_before() counted it as an earlier outer-level
+#     abort, so a real `PERFORM public.wardah_assert_org_member(...)` after
+#     an outer `DECLARE raise integer := 1;` was written off as unreachable -
+#     a false RED on a routine the oracle shows really does deny (the guard
+#     raised TENANT_MEMBERSHIP_REQUIRED and the UPDATE did not run).
+#
+# Removing the keyword fixes both at once, in the one shared definition.
 _STATEMENT_OPENER_KEYWORDS = frozenset(
-    {"then", "else", "begin", "loop", "declare"}
+    {"then", "else", "begin", "loop"}
 )
 
 # PostgreSQL's whitespace characters as THEMSELVES, not as a regex class.
@@ -350,6 +377,10 @@ def _is_statement_start(body: str, pos: int) -> bool:
     `END` was never an opener. Labels are still parsed only by
     _block_labels()/_labelled_opener(); this reads two keywords, and adds no
     second label parser.
+
+    DECLARE is deliberately absent from the opener set - see the note there.
+    It begins a DECLARATION section, not a statement, so the identifier after
+    it is a variable name.
     """
     j = pos - 1
     while j >= 0 and body[j] in _PLPGSQL_WS:
