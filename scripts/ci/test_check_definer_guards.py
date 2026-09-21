@@ -6873,5 +6873,288 @@ class Round13ClosureTests(unittest.TestCase):
             )
         )
 
+
+# ---------------------------------------------------------------------------
+# Round 14: `>>` is PostgreSQL's right-shift operator, not only a label end
+# ---------------------------------------------------------------------------
+# Round 13 (F8) made a denying RAISE prove it sits where a PL/pgSQL statement
+# may BEGIN, and accepted `>>` there as the terminator of a `<<label>>`.
+# PostgreSQL also spells integer right shift `>>`, so an ordinary expression
+# whose right operand is an identifier named `raise` puts a bare `raise`
+# directly after `>>` - and it counted as a real RAISE statement again. The
+# exception F8 itself introduced reopened the very false green F8 closed.
+#
+# The oracle decides which correction is smallest, rather than the Round 13
+# comment that claimed `>>` was needed. On PostgreSQL 17.11:
+#
+#   * `<<lbl>> RAISE EXCEPTION 'x';`  ->  ERROR: syntax error at or near
+#     "RAISE". A label owns a BLOCK or a LOOP, never a bare statement, so a
+#     real RAISE after a labelled construct is ALWAYS reached through `BEGIN`
+#     or `LOOP` - both of which _STATEMENT_OPENER_KEYWORDS already admits.
+#   * `<<lbl>> BEGIN RAISE ...; END lbl;` and `<<lp>> LOOP RAISE ...; END LOOP
+#     lp;` are both valid, and both reach the RAISE through those keywords.
+#   * `8 >> raise` is valid and evaluates to 4 - spaced, unspaced,
+#     parenthesised, with an intervening comment, in a nested SELECT, over a
+#     column named `raise`, and over a function PARAMETER named `raise`.
+#
+# So `>>` can never legitimately precede a RAISE statement: the branch that
+# accepted it was pure false-green surface with no real case to defend, and
+# deleting it is the whole correction. Nothing else about statement position,
+# label parsing or block ownership changes.
+class Round14ShiftOperatorTests(unittest.TestCase):
+    """The Codex `>>` P2 from the Round 13 closure review of 6109f8a7."""
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._dir.name)
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def verdict(self, name: str, sql: str) -> list[str]:
+        path = self.root / f"999_round14_{name}.sql"
+        path.write_text(sql, encoding="utf-8")
+        return guards.check_file(path)
+
+    @staticmethod
+    def boolean_probe(deny_body: str, args: str = "p_org uuid") -> str:
+        """An unguarded SECURITY DEFINER routine whose ONLY candidate
+        authorization boundary is `deny_body`, inside the negated-predicate
+        deny branch, followed by privileged work.
+
+        There is deliberately no `raise` in a DECLARE section here. A PL/pgSQL
+        variable declared `raise integer := 1;` follows the DECLARE keyword,
+        which IS a statement position, so the scanner reads it as an
+        outer-level aborting RAISE and rejects the routine for that unrelated
+        reason - a pre-existing conservative false RED, not this finding. A
+        fixture resting on it would go green without testing the shift class
+        at all, so the `raise` identifier below is always a column or a
+        parameter and the token after `>>` is the only one in the body.
+        """
+        return (
+            f"CREATE FUNCTION public.probe_fn({args}) RETURNS void\n"
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "DECLARE v_flag integer;\n"
+            "BEGIN\n"
+            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            f"{deny_body}"
+            "  END IF;\n"
+            "\n"
+            "  UPDATE public.bins\n"
+            "  SET actual_qty = 0\n"
+            "  WHERE org_id = p_org;\n"
+            "END;\n"
+            "$$;\n"
+        )
+
+    # -- the exact Codex reproducer ---------------------------------------
+    def test_codex_right_shift_reproducer_is_rejected(self) -> None:
+        """Oracle (PostgreSQL 17.11): the routine is `prosecdef = true` and
+        executable by both PUBLIC and `authenticated`; a NON-MEMBER call
+        raised nothing and drove the privileged UPDATE (bins.actual_qty
+        99 -> 0). The frozen head returned []."""
+        sql = self.boolean_probe(
+            "    v_flag := (\n"
+            "      SELECT 8 >> raise\n"
+            "      FROM public.raise_source\n"
+            "      LIMIT 1\n"
+            "    );\n"
+        )
+        self.assertTrue(
+            self.verdict("codex_right_shift", sql),
+            "a right-shift expression made a bare `raise` identifier count as "
+            "a denying PL/pgSQL RAISE statement",
+        )
+
+    # -- every required variant, over a COLUMN named `raise` ---------------
+    def test_right_shift_spellings_never_supply_a_denial(self) -> None:
+        select = "(SELECT 8 %s raise FROM public.raise_source LIMIT 1)"
+        cases = {
+            "spaced": select % ">>",
+            "no_space": "(SELECT 8>>raise FROM public.raise_source LIMIT 1)",
+            "parenthesised":
+                "(SELECT (8 >> raise) FROM public.raise_source LIMIT 1)",
+            "block_comment_between":
+                "(SELECT 8 >> /* c */ raise "
+                "FROM public.raise_source LIMIT 1)",
+            "line_comment_between":
+                "(SELECT 8 >> -- why\n      raise "
+                "FROM public.raise_source LIMIT 1)",
+            "newline_between":
+                "(SELECT 8 >>\n      raise "
+                "FROM public.raise_source LIMIT 1)",
+            # Left shift is the mirror spelling and must not manufacture a
+            # label terminator either.
+            "left_shift": select % "<<",
+        }
+        for name, expr in cases.items():
+            with self.subTest(case=name):
+                sql = self.boolean_probe(f"    v_flag := {expr};\n")
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a shift operator supplied an authorization "
+                    f"boundary PostgreSQL never executes",
+                )
+
+    def test_right_shift_over_a_parameter_named_raise_is_rejected(self) -> None:
+        """The PL/pgSQL-assignment form, without the confounding DECLARE.
+        Oracle: a function PARAMETER may be named `raise`, and
+        `RETURN 8 >> raise` returns 4."""
+        sql = self.boolean_probe(
+            "    v_flag := 8 >> raise;\n", args="p_org uuid, raise integer"
+        )
+        self.assertTrue(self.verdict("parameter_named_raise", sql))
+
+    def test_statement_start_helper_rejects_a_shift_operator(self) -> None:
+        """The shared helper itself, so BOTH callers inherit one rule.
+
+        parse_blocks() asks it whether a RAISE token is a denying statement;
+        unconditional_abort_before() asks it whether an earlier RAISE already
+        ended the invocation. Correcting one caller would have left the two
+        disagreeing about what a statement position is.
+        """
+        for text in ("8 >> raise", "8>>raise", "(8 >> raise", "8 <<raise",
+                     "8 >>\n      raise", "8 >>\traise", "8 >>> raise",
+                     "(j->>'k')::int >> raise"):
+            with self.subTest(shift=text):
+                self.assertFalse(
+                    guards._is_statement_start(text, text.index("raise"))
+                )
+        # A single `>` was never a label terminator and still is not.
+        self.assertFalse(guards._is_statement_start("a > raise", 4))
+        # Every position where PostgreSQL really admits a statement still does.
+        for text in ("; RAISE", "THEN RAISE", "ELSE RAISE", "BEGIN RAISE",
+                     "LOOP RAISE", "DECLARE RAISE", "RAISE"):
+            with self.subTest(opener=text):
+                self.assertTrue(
+                    guards._is_statement_start(text, text.index("RAISE"))
+                )
+
+    # -- real denial controls ---------------------------------------------
+    def test_genuine_raise_boundaries_still_deny(self) -> None:
+        for name, deny in {
+            "then_raise": "    RAISE EXCEPTION 'denied';\n",
+            "semicolon_raise":
+                "    v_flag := 1;\n    RAISE EXCEPTION 'denied';\n",
+            "raise_using":
+                "    RAISE EXCEPTION 'denied' USING HINT = 'no';\n",
+            "raise_sqlstate": "    RAISE EXCEPTION SQLSTATE '28000';\n",
+            # A real RAISE that FOLLOWS a shift expression is still a real
+            # RAISE: the correction narrows what counts as a statement START,
+            # it does not distrust a body that contains `>>`.
+            "raise_after_a_shift_expression":
+                "    v_flag := 8 >> 1;\n    RAISE EXCEPTION 'denied';\n",
+            # The two ways a RAISE can genuinely follow a LABELLED construct,
+            # which is what the deleted `>>` branch claimed to serve. Oracle:
+            # both are valid, and in both the RAISE is preceded by the `;`
+            # ending the labelled construct - never by the label's own `>>`.
+            "raise_after_a_labelled_block_end":
+                "    <<inner>>\n    BEGIN\n      NULL;\n    END inner;\n"
+                "    RAISE EXCEPTION 'denied';\n",
+            "raise_after_a_labelled_loop_end":
+                "    <<lp>>\n    LOOP\n      EXIT lp;\n    END LOOP lp;\n"
+                "    RAISE EXCEPTION 'denied';\n",
+            # A jsonb `->>` is another `>>` producer; a following real RAISE
+            # still arrives through the statement separator.
+            "raise_after_a_jsonb_arrow":
+                "    v_flag := (j->>'k')::int;\n"
+                "    RAISE EXCEPTION 'denied';\n",
+        }.items():
+            with self.subTest(accept=name):
+                self.assertEqual(
+                    self.verdict(name, self.boolean_probe(deny)), [], name
+                )
+
+    def test_nested_begin_raise_stays_rejected_for_its_own_reason(self) -> None:
+        """A RAISE wrapped in a nested BEGIN inside the deny branch is NOT a
+        recognized boundary, and that is a SEPARATE, older rule: PR #241
+        Finding 3/4 requires the deny branch to raise at the IF's OWN nesting
+        level. Verified unchanged at the frozen head, so Round 14 neither
+        relies on it nor relaxes it - `BEGIN RAISE` is proven at the helper
+        level in test_statement_start_helper_rejects_a_shift_operator instead.
+        """
+        sql = self.boolean_probe(
+            "    BEGIN\n      RAISE EXCEPTION 'denied';\n    END;\n"
+        )
+        self.assertTrue(self.verdict("nested_begin_raise", sql))
+
+    def test_non_aborting_raise_levels_remain_non_denials(self) -> None:
+        for level in ("NOTICE", "WARNING", "INFO", "LOG", "DEBUG"):
+            with self.subTest(level=level):
+                sql = self.boolean_probe(f"    RAISE {level} 'not a denial';\n")
+                self.assertTrue(self.verdict(f"raise_{level.lower()}", sql))
+
+    # -- label machinery must not regress ---------------------------------
+    def test_real_labelled_constructs_still_parse(self) -> None:
+        """`<<auth_block>> BEGIN ... END auth_block;` is the form PostgreSQL
+        actually accepts - a label owning a bare RAISE is a syntax error - and
+        it must still produce a real labelled frame."""
+        body = (
+            "<<auth_block>>\n"
+            "BEGIN\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "END auth_block;\n"
+        )
+        self.assertIn("auth_block", guards._block_labels(body, body).values())
+        frames = guards.parse_blocks(body, body)
+        self.assertIn(
+            "auth_block", [f.label for f in frames if f.kind == "BEGIN"]
+        )
+        # The labelled-EXIT bypass that machinery protects still trips.
+        self.assertTrue(
+            self.verdict(
+                "labelled_exit_still_rejected",
+                "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void\n"
+                "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+                "<<auth_block>>\n"
+                "BEGIN\n"
+                "  UPDATE public.bins SET actual_qty = 0;\n"
+                "  EXIT auth_block;\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "END auth_block;\n"
+                "$$;\n",
+            )
+        )
+        # A labelled LOOP - the other construct a label may own - is still a
+        # labelled frame too.
+        loop = (
+            "<<lp>>\n"
+            "LOOP\n"
+            "  RAISE EXCEPTION 'denied';\n"
+            "END LOOP lp;\n"
+        )
+        self.assertIn("lp", guards._block_labels(loop, loop).values())
+
+    def test_shift_expressions_do_not_manufacture_label_structure(self) -> None:
+        """A shift operator must not invent a labelled frame for the block
+        machinery either - the same confusion seen from the other side."""
+        body = (
+            "BEGIN\n"
+            "  v_flag := 8 >> 1;\n"
+            "  v_other := 1 << 3;\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "END;\n"
+        )
+        self.assertEqual(guards._block_labels(body, body), {})
+        frames = guards.parse_blocks(body, body)
+        self.assertEqual([f.label for f in frames if f.kind == "BEGIN"], [None])
+        # And a routine whose body merely contains shifts is still judged on
+        # its real guard.
+        self.assertEqual(
+            self.verdict(
+                "shift_body_with_real_guard",
+                "CREATE FUNCTION public.probe_fn(p_org uuid) RETURNS void\n"
+                "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+                "DECLARE v_flag integer;\n"
+                "BEGIN\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "  v_flag := 8 >> 1;\n"
+                "  UPDATE public.bins SET actual_qty = 0;\n"
+                "END;\n"
+                "$$;\n",
+            ),
+            [],
+        )
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -268,10 +268,31 @@ _RAISE_BEFORE_RE = re.compile(r"\bRAISE\s*$", re.IGNORECASE)
 #
 # A RAISE counts only where a PL/pgSQL statement can BEGIN. The test is the
 # smallest one that is robust: the previous token must open a statement -
-# nothing at all, a `;`, one of the keywords that introduces a statement list,
-# or the `>>` closing a block label. `AS raise`, `SELECT raise` and
-# `v := raise` all fail it, and every real spelling (`THEN RAISE`,
-# `; RAISE`, `BEGIN RAISE`, `LOOP RAISE`) passes.
+# nothing at all, a `;`, or one of the keywords that introduces a statement
+# list. `AS raise`, `SELECT raise` and `v := raise` all fail it, and every
+# real spelling (`THEN RAISE`, `; RAISE`, `BEGIN RAISE`, `LOOP RAISE`) passes.
+#
+# Round 14 (Codex): this ALSO accepted `>>`, on the reasoning that `>>` closes
+# a `<<label>>`. PostgreSQL spells integer right shift `>>` too, so an
+# ordinary expression whose right operand is an identifier named `raise` -
+# `8 >> raise` over a column, or over a function parameter of that name -
+# placed a bare `raise` directly after `>>` and it counted as a denying
+# statement again. That reopened the very false green this helper closed: the
+# oracle shows such a routine stays SECURITY DEFINER and client-callable, and
+# a non-member call raises nothing and reaches the privileged write.
+#
+# The exception was never needed. PostgreSQL 17.11 rejects
+# `<<lbl>> RAISE EXCEPTION 'x';` with `syntax error at or near "RAISE"`: a
+# label owns a BLOCK or a LOOP, never a bare statement, so a real RAISE after
+# a labelled construct is always reached through `BEGIN` (`<<lbl>> BEGIN RAISE
+# ...; END lbl;`) or `LOOP` (`<<lp>> LOOP RAISE ...; END LOOP lp;`) - both
+# already in the keyword set below. A `>>` can therefore NEVER legitimately
+# precede a RAISE statement, which makes deleting the branch the whole
+# correction: it removes false-green surface and defends no real case.
+#
+# Labels themselves are untouched. _block_labels() and _labelled_opener()
+# remain the only label parser, they attribute a label FORWARD to the BEGIN or
+# LOOP it owns, and nothing here duplicates that knowledge.
 _STATEMENT_OPENER_KEYWORDS = frozenset(
     {"then", "else", "begin", "loop", "declare"}
 )
@@ -285,8 +306,6 @@ def _is_statement_start(body: str, pos: int) -> bool:
     if j < 0:
         return True
     if body[j] == ";":
-        return True
-    if body[j] == ">" and j >= 1 and body[j - 1] == ">":
         return True
     end = j + 1
     while j >= 0 and (body[j].isalnum() or body[j] == "_"):
