@@ -1,0 +1,80 @@
+name: PR255 E2E Validation
+
+on:
+  push:
+    branches:
+      - ci/e2e-pr255-validation
+
+jobs:
+  e2e:
+    name: Playwright E2E on PR255 exact preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Preflight
+        shell: bash
+        run: |
+          missing=()
+          [ -z "$E2E_USER_EMAIL" ] && missing+=("E2E_USER_EMAIL")
+          [ -z "$E2E_USER_PASSWORD" ] && missing+=("E2E_USER_PASSWORD")
+          [ -z "$E2E_ORG_ADMIN_EMAIL" ] && missing+=("E2E_ORG_ADMIN_EMAIL")
+          [ -z "$E2E_ORG_ADMIN_PASSWORD" ] && missing+=("E2E_ORG_ADMIN_PASSWORD")
+          [ -z "$E2E_SUPER_ADMIN_EMAIL" ] && missing+=("E2E_SUPER_ADMIN_EMAIL")
+          [ -z "$E2E_SUPER_ADMIN_PASSWORD" ] && missing+=("E2E_SUPER_ADMIN_PASSWORD")
+          [ -z "$E2E_ORG_B_USER_EMAIL" ] && missing+=("E2E_ORG_B_USER_EMAIL")
+          [ -z "$E2E_ORG_B_USER_PASSWORD" ] && missing+=("E2E_ORG_B_USER_PASSWORD")
+          [ -z "$VERCEL_AUTOMATION_BYPASS_SECRET" ] && missing+=("VERCEL_AUTOMATION_BYPASS_SECRET")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "Missing required secrets: ${missing[*]}"
+            exit 1
+          fi
+        env:
+          E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          E2E_ORG_ADMIN_EMAIL: ${{ secrets.E2E_ORG_ADMIN_EMAIL }}
+          E2E_ORG_ADMIN_PASSWORD: ${{ secrets.E2E_ORG_ADMIN_PASSWORD }}
+          E2E_SUPER_ADMIN_EMAIL: ${{ secrets.E2E_SUPER_ADMIN_EMAIL }}
+          E2E_SUPER_ADMIN_PASSWORD: ${{ secrets.E2E_SUPER_ADMIN_PASSWORD }}
+          E2E_ORG_B_USER_EMAIL: ${{ secrets.E2E_ORG_B_USER_EMAIL }}
+          E2E_ORG_B_USER_PASSWORD: ${{ secrets.E2E_ORG_B_USER_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Run exact-preview E2E
+        run: npx playwright test --project=chromium
+        env:
+          PLAYWRIGHT_BASE_URL: https://wardah-process-costing-msqy3el0j-6thds-projects.vercel.app
+          E2E_EXPECTED_SUPABASE_HOST: bhomjavdkzcvjyymzyla.supabase.co
+          E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          E2E_ORG_ADMIN_EMAIL: ${{ secrets.E2E_ORG_ADMIN_EMAIL }}
+          E2E_ORG_ADMIN_PASSWORD: ${{ secrets.E2E_ORG_ADMIN_PASSWORD }}
+          E2E_SUPER_ADMIN_EMAIL: ${{ secrets.E2E_SUPER_ADMIN_EMAIL }}
+          E2E_SUPER_ADMIN_PASSWORD: ${{ secrets.E2E_SUPER_ADMIN_PASSWORD }}
+          E2E_ORG_B_USER_EMAIL: ${{ secrets.E2E_ORG_B_USER_EMAIL }}
+          E2E_ORG_B_USER_PASSWORD: ${{ secrets.E2E_ORG_B_USER_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          CI: 'true'
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr255-playwright-${{ github.run_id }}
+          path: playwright-report/
+          retention-days: 14
