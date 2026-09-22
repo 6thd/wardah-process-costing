@@ -83,9 +83,10 @@ test.describe('Mobile smoke (390×844)', () => {
     // Click it — the sidebar nav must become visible
     await toggle.first().click();
 
-    // At least one navigation link must now appear in the viewport
-    const navLink = page.locator('nav a, [role="navigation"] a').first();
-    await expect(navLink).toBeVisible({ timeout: 5_000 });
+    // Target the visible mobile drawer, not the hidden desktop <nav> that
+    // intentionally remains in the DOM at this viewport.
+    const navItem = page.locator('aside:visible [role="menuitem"]').first();
+    await expect(navItem).toBeVisible({ timeout: 5_000 });
 
     await ctx.close();
   });

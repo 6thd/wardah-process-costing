@@ -1,4 +1,4 @@
-import { type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 export interface TestAccount {
   email: string;
@@ -53,15 +53,17 @@ export async function loginAs(page: Page, account: TestAccount): Promise<void> {
 }
 
 export async function logout(page: Page): Promise<void> {
-  // Try dropdown-based logout
+  // Logout is a UI action in Wardah; there is deliberately no /logout route.
+  // Wait for the real hydrated header instead of racing it and falling back to
+  // a route the application does not own.
   const userMenu = page.locator('[data-testid="user-menu"]').first();
-  if (await userMenu.isVisible()) {
-    await userMenu.click();
-    await page.locator('[data-testid="logout-btn"]').click();
-  } else {
-    // Navigate directly to logout route as fallback
-    await page.goto('/logout');
-  }
+  await expect(userMenu).toBeVisible({ timeout: 10_000 });
+  await userMenu.click();
+
+  const logoutButton = page.locator('[data-testid="logout-btn"]').first();
+  await expect(logoutButton).toBeVisible({ timeout: 5_000 });
+  await logoutButton.click();
+
   await page.waitForURL(url => url.pathname.includes('/login'), { timeout: 10_000 });
 }
 

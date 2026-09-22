@@ -1,122 +1,158 @@
 /**
- * T4 — Org isolation from the UI layer.
+ * T4 — tenant isolation at the authenticated Supabase boundary.
  *
- * Strategy: log in as Org A user and Org B user separately;
- * extract visible data identifiers from key list screens and
- * assert there is NO overlap (RLS + UI must be in sync).
- *
- * Requires env vars:
- *   E2E_USER_EMAIL / E2E_USER_PASSWORD          → user in Org A
- *   E2E_ORG_B_USER_EMAIL / E2E_ORG_B_USER_PASSWORD → user in Org B
+ * The old version inferred isolation from UI row selectors that do not exist in
+ * the live tables and waited for networkidle on pages with background traffic.
+ * This version uses the exact access token + apikey emitted by each logged-in
+ * browser session, then asks PostgREST for seeded tenant rows. The tokens are
+ * kept only in memory and are never logged or attached to reports.
  */
 
-import { test, expect } from '@playwright/test';
+import {
+  test,
+  expect,
+  type APIRequestContext,
+  type Page,
+  type Request,
+} from '@playwright/test';
 import { accounts, loginAs, skipIfMissingEnv, attachSupabaseErrorListener } from './fixtures/auth';
 
-// Routes and the selector that identifies individual data rows in each
-const ISOLATION_CHECKS: Array<{ route: string; rowSelector: string; idAttr: string }> = [
-  {
-    route: '/manufacturing/orders',
-    rowSelector: '[data-testid="order-row"], tr[data-id], [data-row-id]',
-    idAttr: 'data-id',
-  },
-  {
-    route: '/inventory/items',
-    rowSelector: '[data-testid="item-row"], tr[data-id], [data-row-id]',
-    idAttr: 'data-id',
-  },
-  {
-    route: '/accounting/journal-entries',
-    rowSelector: '[data-testid="entry-row"], tr[data-id], [data-row-id]',
-    idAttr: 'data-id',
-  },
-  {
-    route: '/sales/customers',
-    rowSelector: '[data-testid="customer-row"], tr[data-id], [data-row-id]',
-    idAttr: 'data-id',
-  },
-];
+const ISOLATION_TABLES = [
+  'products',
+  'manufacturing_orders',
+  'gl_entries',
+  'customers',
+] as const;
 
-async function collectVisibleIds(
-  browser: import('@playwright/test').Browser,
+interface SupabaseSessionHeaders {
+  origin: string;
+  apikey: string;
+  authorization: string;
+}
+
+interface TenantRow {
+  id: string;
+  org_id: string;
+}
+
+function captureSupabaseSession(page: Page): Promise<SupabaseSessionHeaders> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      page.off('request', onRequest);
+      reject(new Error('No authenticated Supabase REST request observed after login'));
+    }, 15_000);
+
+    const onRequest = (request: Request) => {
+      const url = new URL(request.url());
+      if (!url.hostname.endsWith('.supabase.co') || !url.pathname.startsWith('/rest/v1/')) return;
+
+      const headers = request.headers();
+      const apikey = headers.apikey;
+      const authorization = headers.authorization;
+      if (!apikey || !authorization?.startsWith('Bearer ')) return;
+
+      clearTimeout(timeout);
+      page.off('request', onRequest);
+      resolve({ origin: url.origin, apikey, authorization });
+    };
+
+    page.on('request', onRequest);
+  });
+}
+
+async function loginAndCapture(
+  page: Page,
+  account: { email: string; password: string },
   storageStatePath: string,
-  route: string,
-  rowSelector: string,
-  idAttr: string
-): Promise<Set<string>> {
-  const ctx = await browser.newContext({ storageState: storageStatePath });
-  const page = await ctx.newPage();
+): Promise<SupabaseSessionHeaders> {
+  const captured = captureSupabaseSession(page);
+  await loginAs(page, account);
+  const sessionHeaders = await captured;
+  await page.context().storageState({ path: storageStatePath });
+  return sessionHeaders;
+}
 
-  try {
-    await page.goto(route, { waitUntil: 'networkidle', timeout: 20_000 });
+async function readTenantRows(
+  request: APIRequestContext,
+  session: SupabaseSessionHeaders,
+  table: typeof ISOLATION_TABLES[number],
+): Promise<TenantRow[]> {
+  const response = await request.get(
+    `${session.origin}/rest/v1/${table}?select=id%2Corg_id&order=id.asc`,
+    {
+      headers: {
+        apikey: session.apikey,
+        authorization: session.authorization,
+        accept: 'application/json',
+      },
+    },
+  );
 
-    const rows = page.locator(rowSelector);
-    const count = await rows.count();
-    const ids = new Set<string>();
+  const body = await response.text();
+  expect(
+    response.ok(),
+    `[isolation] ${table} PostgREST returned HTTP ${response.status()}: ${body.slice(0, 300)}`,
+  ).toBe(true);
 
-    for (let i = 0; i < count; i++) {
-      const id = await rows.nth(i).getAttribute(idAttr);
-      if (id) ids.add(id);
-    }
-
-    // Also capture any UUIDs in row text as a fallback (e.g. rendered in a hidden span)
-    const allText = await page.locator('table, [role="table"], [data-testid$="-list"]').textContent();
-    const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-    const uuids = allText?.match(uuidRegex) ?? [];
-    uuids.forEach(u => ids.add(u.toLowerCase()));
-
-    return ids;
-  } finally {
-    await ctx.close();
-  }
+  return JSON.parse(body) as TenantRow[];
 }
 
 test.describe('Org isolation — Org A vs Org B', () => {
   let orgAStatePath: string;
   let orgBStatePath: string;
+  let orgASession: SupabaseSessionHeaders;
+  let orgBSession: SupabaseSessionHeaders;
 
   test.beforeAll(async ({ browser }) => {
     const skip = skipIfMissingEnv(['regularUser', 'orgBUser']);
     if (skip) return;
 
-    // Login Org A user
-    const pageA = await browser.newPage();
-    await loginAs(pageA, accounts.regularUser);
     orgAStatePath = '/tmp/e2e-org-a.json';
-    await pageA.context().storageState({ path: orgAStatePath });
-    await pageA.close();
+    const pageA = await browser.newPage();
+    try {
+      orgASession = await loginAndCapture(pageA, accounts.regularUser, orgAStatePath);
+    } finally {
+      await pageA.close();
+    }
 
-    // Login Org B user
-    const pageB = await browser.newPage();
-    await loginAs(pageB, accounts.orgBUser);
     orgBStatePath = '/tmp/e2e-org-b.json';
-    await pageB.context().storageState({ path: orgBStatePath });
-    await pageB.close();
+    const pageB = await browser.newPage();
+    try {
+      orgBSession = await loginAndCapture(pageB, accounts.orgBUser, orgBStatePath);
+    } finally {
+      await pageB.close();
+    }
   });
 
-  for (const { route, rowSelector, idAttr } of ISOLATION_CHECKS) {
-    test(`${route} — Org A data not visible to Org B user`, async ({ browser }) => {
+  for (const table of ISOLATION_TABLES) {
+    test(`${table} — authenticated tenants see disjoint seeded rows`, async ({ request }) => {
       const skip = skipIfMissingEnv(['regularUser', 'orgBUser']);
       if (skip) { test.skip(true, skip); return; }
 
-      const [idsA, idsB] = await Promise.all([
-        collectVisibleIds(browser, orgAStatePath, route, rowSelector, idAttr),
-        collectVisibleIds(browser, orgBStatePath, route, rowSelector, idAttr),
+      const [rowsA, rowsB] = await Promise.all([
+        readTenantRows(request, orgASession, table),
+        readTenantRows(request, orgBSession, table),
       ]);
 
-      expect(
-        idsA.size,
-        `[isolation] ${route}: Org A returned 0 rows — seed data or fix the selector before running isolation checks`
-      ).toBeGreaterThan(0);
-      expect(
-        idsB.size,
-        `[isolation] ${route}: Org B returned 0 rows — seed data or fix the selector before running isolation checks`
-      ).toBeGreaterThan(0);
+      expect(rowsA.length, `[isolation] ${table}: Org A returned no seeded rows`).toBeGreaterThan(0);
+      expect(rowsB.length, `[isolation] ${table}: Org B returned no seeded rows`).toBeGreaterThan(0);
 
-      const leaked = [...idsA].filter(id => idsB.has(id));
+      const orgIdsA = new Set(rowsA.map(row => row.org_id));
+      const orgIdsB = new Set(rowsB.map(row => row.org_id));
+      expect(orgIdsA.size, `[isolation] ${table}: Org A response spans multiple org_ids`).toBe(1);
+      expect(orgIdsB.size, `[isolation] ${table}: Org B response spans multiple org_ids`).toBe(1);
+
+      const [orgA] = [...orgIdsA];
+      const [orgB] = [...orgIdsB];
+      expect(orgA).toBeTruthy();
+      expect(orgB).toBeTruthy();
+      expect(orgA, `[isolation] ${table}: both sessions resolved to the same tenant`).not.toBe(orgB);
+
+      const idsA = new Set(rowsA.map(row => row.id));
+      const leaked = rowsB.map(row => row.id).filter(id => idsA.has(id));
       expect(
         leaked,
-        `Data leak on ${route}: these IDs from Org A are visible to Org B user: ${leaked.join(', ')}`
+        `Data leak on ${table}: Org A row ids visible to Org B: ${leaked.join(', ')}`,
       ).toHaveLength(0);
     });
   }
@@ -132,14 +168,18 @@ test.describe('Org isolation — Org A vs Org B', () => {
       const page = await ctx.newPage();
       const { errors } = attachSupabaseErrorListener(page);
 
-      await page.goto(route, { waitUntil: 'networkidle', timeout: 20_000 });
+      try {
+        await page.goto(route, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+        await expect(page.locator('[data-testid="user-menu"]').first()).toBeVisible({ timeout: 10_000 });
+        await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => undefined);
 
-      expect(
-        errors,
-        `Supabase errors for Org B on ${route}: ${errors.join(', ')}`
-      ).toHaveLength(0);
-
-      await ctx.close();
+        expect(
+          errors,
+          `Supabase errors for Org B on ${route}: ${errors.join(', ')}`,
+        ).toHaveLength(0);
+      } finally {
+        await ctx.close();
+      }
     }
   });
 });
