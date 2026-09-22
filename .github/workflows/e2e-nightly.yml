@@ -42,6 +42,11 @@ jobs:
           [ -z "$E2E_ORG_B_USER_EMAIL" ] && missing+=("E2E_ORG_B_USER_EMAIL")
           [ -z "$E2E_ORG_B_USER_PASSWORD" ] && missing+=("E2E_ORG_B_USER_PASSWORD")
           [ -z "$VERCEL_AUTOMATION_BYPASS_SECRET" ] && missing+=("VERCEL_AUTOMATION_BYPASS_SECRET")
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF_NAME" != "main" ] && [ -z "$DISPATCH_STAGING_URL" ]; then
+            echo "❌ Manual runs on non-main branches must provide the branch preview URL in staging_url."
+            echo "   Refusing to fall back to the shared STAGING_URL because that would test old/main frontend bytes."
+            exit 1
+          fi
           if [ ${#missing[@]} -gt 0 ]; then
             echo "❌ Missing required secrets: ${missing[*]}"
             echo "   Add them in Settings → Secrets → Actions before running E2E."
@@ -59,6 +64,9 @@ jobs:
           E2E_ORG_B_USER_EMAIL: ${{ secrets.E2E_ORG_B_USER_EMAIL }}
           E2E_ORG_B_USER_PASSWORD: ${{ secrets.E2E_ORG_B_USER_PASSWORD }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          DISPATCH_STAGING_URL: ${{ inputs.staging_url }}
 
       - name: Install Playwright browsers (Chromium only)
         run: npx playwright install chromium --with-deps
@@ -76,6 +84,7 @@ jobs:
           E2E_ORG_B_USER_EMAIL: ${{ secrets.E2E_ORG_B_USER_EMAIL }}
           E2E_ORG_B_USER_PASSWORD: ${{ secrets.E2E_ORG_B_USER_PASSWORD }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          E2E_EXPECTED_SUPABASE_HOST: bhomjavdkzcvjyymzyla.supabase.co
           CI: 'true'
 
       - name: Upload Playwright HTML report
