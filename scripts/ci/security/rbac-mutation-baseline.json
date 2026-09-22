@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 358,
-  "signature_count": 331,
-  "signature_sha256": "69be2874070be8c454339bc27f2e7e21c8477f824b6af991c2bd1cb451259219",
-  "note": "Reviewed #200 trial-balance single-source migration: two direct rpc_get_trial_balance call sites in useTrialBalance and PostingService were removed and replaced by one canonical call in trial-balance-rpc.ts. No new table mutation or RPC target was introduced; the net reduction is one candidate and one signature."
+  "candidate_count": 357,
+  "signature_count": 330,
+  "signature_sha256": "bcb65cb3e9d4a171be08b0b5c36cc62527400bd064d37f1fcbc741c339d8359f",
+  "note": "Reviewed PR #255 staging E2E closure: auth-store removed its legacy direct INSERT into public.users while switching auth hydration to read-only public.user_profiles. No new table mutation, RPC target, or edge-function call was introduced; the net reduction is one candidate and one signature."
 }
