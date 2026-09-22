@@ -497,6 +497,102 @@ def _ends_dollar_body_opener(body: str, j: int) -> bool:
     return k >= 0 and _dollar_tag_at(body, k) == body[k:j + 1]
 
 
+def _owns_statement_list(body: str, word: str, word_start: int) -> bool:
+    """True when the keyword at `word_start` opens a PL/pgSQL STATEMENT LIST.
+
+    `_opens_statement_position()` asks only WHICH WORD precedes, and three of
+    the four words in its opener set also occur inside ordinary SQL, where they
+    open an expression arm rather than a statement list. PostgreSQL 17.11
+    accepts all three, and each one manufactured a declaration section:
+
+        SELECT CASE WHEN true  THEN declare ELSE 0       END INTO v FROM t
+        SELECT CASE WHEN false THEN 0       ELSE declare END INTO v FROM t
+        SELECT loop declare INTO v FROM t
+        SELECT loop << b >> declare INTO v FROM t
+        SELECT begin declare INTO v FROM t
+
+    `THEN` and `ELSE` are SQL CASE keywords there; `loop` and `begin` are
+    unreserved, so they are ordinary column names with `declare` as the alias.
+    The span a fake DECLARE opens runs to the next BEGIN, and every RAISE inside
+    it stops counting - so a routine that really aborts at
+    `RAISE EXCEPTION 'NOT_IMPLEMENTED'` had that abort hidden and the DEAD
+    `PERFORM public.wardah_assert_org_member(...)` after it credited as its
+    authorization boundary. Proven live on all five: prosecdef = true,
+    client-executable, the call aborted for member and non-member alike, and
+    check_file() still returned [].
+
+    The question the WORD cannot answer - which construct OWNS this keyword - is
+    one `_control_frames()` already answers, so it is asked there rather than in
+    a second parser:
+
+      * a THEN or an ELSE belongs to a statement list exactly when the
+        innermost construct enclosing it is an IF. A SQL CASE arm is enclosed by
+        the CASE frame instead, which a bare END closes.
+      * a LOOP opens one exactly when `_opens_loop_statement()` proves the
+        keyword is a real loop. Frame closure ALONE is not that proof: in
+        `LOOP SELECT loop declare INTO v FROM t; EXIT; END LOOP;` the identifier
+        is pushed after the real loop, so it STEALS the END LOOP that pops the
+        innermost frame and comes back closed - a live false green on 17.11 if
+        closure were the whole test.
+
+    Anything else - including a word that is not an opener at all - owns no
+    statement list. Narrowing here can only WITHHOLD a declaration section, and
+    withholding one leaves the RAISE statements inside it counted, which is the
+    fail-closed direction for both consumers.
+    """
+    if word in ("then", "else"):
+        enclosing = _enclosing(_block_frames(body), word_start)
+        if not enclosing:
+            return False
+        return max(enclosing, key=lambda fr: fr.start).kind == "IF"
+    if word == "loop":
+        return _opens_loop_statement(body, word_start)
+    return False
+
+
+def _opens_loop_statement(body: str, pos: int) -> bool:
+    """True when the LOOP keyword at `pos` really opens a loop body.
+
+    Two independent things must hold, because neither is sufficient alone:
+
+      * a LOOP frame BEGINS at `pos` and is CLOSED by its own END LOOP. An
+        unclosed frame is already dropped, which disposes of a bare
+        `SELECT loop declare INTO v FROM t;` with no loop anywhere.
+      * the loop's HEAD stands where a statement may begin. The head is the
+        keyword `_labelled_opener()` already models - a bare LOOP, or the
+        WHILE / FOR / FOREACH whose header ends at this LOOP - and a header
+        contains no `;`, so one is not looked for across a statement boundary.
+        A `<<lp>>` label is enough by itself: `_block_labels()` keys the label
+        on the very offset parse_blocks() pushes the frame at, for the plain
+        and the WHILE / FOR / FOREACH forms alike.
+
+    The second test is what the stolen END LOOP above cannot fake: the word
+    before that `loop` is `SELECT`, which opens no statement.
+
+    Bounded residue, fail-closed: a loop whose head reaches `pos` only through
+    text this does not model keeps its DECLARE section unrecognized, which
+    leaves the RAISE statements inside it counted.
+    """
+    if not any(
+        fr.kind == "LOOP" and fr.start == pos for fr in _block_frames(body)
+    ):
+        return False
+    if pos in _block_labels(body):
+        return True
+    for m in _LOOP_HEAD_RE.finditer(body, 0, pos + 1):
+        head = m.start()
+        if ";" in body[head:pos]:
+            continue
+        keyword = _LOOP_KW_RE.search(body, head)
+        if (
+            keyword is not None
+            and keyword.start() == pos
+            and _opens_block_position(body, head)
+        ):
+            return True
+    return False
+
+
 def _opens_block_position(body: str, pos: int) -> bool:
     """True when a PL/pgSQL BLOCK may begin at `pos`.
 
@@ -504,11 +600,28 @@ def _opens_block_position(body: str, pos: int) -> bool:
     own outermost block is the one that does not, because callers slice the body
     from the CREATE statement and it opens directly after the dollar-quote that
     opens the body.
+
+    Round 19: `BEGIN` is handled by walking back rather than by accepting the
+    word, because `begin` is unreserved and `SELECT begin declare INTO v FROM t`
+    is the same false green as the CASE arms above. A block-opening BEGIN itself
+    stands where a block may begin, so the test simply repeats there - which
+    keeps `BEGIN DECLARE v integer; BEGIN v := 1; END; END` (valid on 17.11)
+    working at the body opener, after a `;`, and after a THEN, an ELSE or a LOOP
+    that `_owns_statement_list()` accepts. The walk is iterative and each step
+    moves strictly left, so no chain of BEGINs can recurse without bound.
     """
-    j = _prev_nonspace(body, pos)
-    if j >= 0 and body[j] == "$" and _ends_dollar_body_opener(body, j):
-        return True
-    return _opens_statement_position(body, pos)
+    while True:
+        j = _prev_nonspace(body, pos)
+        if j < 0:
+            return True
+        if body[j] == ";":
+            return True
+        if body[j] == "$" and _ends_dollar_body_opener(body, j):
+            return True
+        word, word_start = _previous_word(body, pos)
+        if word != "begin":
+            return _owns_statement_list(body, word, word_start)
+        pos = word_start
 
 
 @functools.lru_cache(maxsize=256)
@@ -682,9 +795,28 @@ def _skip_subscript(body: str, i: int) -> int | None:
 
 
 def _is_assignment_target(body: str, pos: int) -> bool:
-    """True when the word at `pos` is the left side of a PL/pgSQL assignment."""
+    """True when the word at `pos` is the left side of a PL/pgSQL assignment.
+
+    Round 19: the word is walked with `_IDENT_CONT_RE`, the file's one
+    continuation class, not `str.isalnum() + "_"`. Those are not the same set,
+    and PostgreSQL 17.11 sides with ident_cont on every disagreement:
+
+      * `$` continues an identifier, so `raise$x := 2`, `raise$x = 2`,
+        `raise$ := 2` and `raise$$x := 2` each assign to ONE ordinary variable.
+        The old walk stopped at the `$`, found no assignment operator there and
+        reported a RAISE statement, so a deny branch that denies nothing read as
+        an authorization boundary. Proven live: prosecdef = true, executable by
+        the client role, nothing raised, and the privileged UPDATE ran for a
+        non-member (bins.actual_qty 55 -> 0).
+      * EVERY non-ASCII code point continues an identifier (scan.l takes the
+        whole \200-\377 byte range), while str.isalnum() is a Unicode CATEGORY
+        test that excludes combining marks, format characters, punctuation and
+        emoji. `raise\u0301`, `raise\u00b7`, `raise\u200b` and `raise\U0001F600`
+        are single identifiers PostgreSQL accepts and assigns to; all four were
+        the same live bypass.
+    """
     end = pos
-    while end < len(body) and (body[end].isalnum() or body[end] == "_"):
+    while end < len(body) and _IDENT_CONT_RE.match(body, end):
         end += 1
     end = _skip_target_selectors(body, end)
     return _ASSIGNMENT_OPERATOR_RE.match(body, end) is not None
@@ -697,14 +829,36 @@ def _previous_word(body: str, pos: int) -> tuple[str, int]:
     body every caller passes - which is what makes the decision below
     independent of spacing. Returns ("", pos) when the preceding token is not
     an identifier word at all.
+
+    Round 19: the walk back uses `_IDENT_CONT_RE` for the same reason, and the
+    run it collects must then BE one identifier - `_UNQUOTED_IDENT_RE` matching
+    it exactly. That is what keeps a keyword-shaped SUFFIX from passing for a
+    keyword:
+
+      * `col$then`, `col$loop` and `col\u0301then` are each ONE identifier on
+        17.11, so `SELECT col$then raise INTO v FROM t` selects that column
+        under the alias `raise` and raises nothing. Walking back over
+        `isalnum() + "_"` stopped at the `$` and read `then`, which opens a
+        statement, so the alias counted as a RAISE statement and manufactured a
+        deny boundary - live, with the UPDATE reached by a non-member.
+      * When the run does not start where an identifier may start, `pos` is
+        INSIDE a token rather than after one (`col$then$raise` is a single
+        identifier, and `\bRAISE\b` still matches its tail). "" is returned, so
+        no opener is claimed for a boundary PostgreSQL does not have. A run that
+        begins with a digit cannot arise from text 17.11 compiles at all - it
+        rejects `8then` as "trailing junk after numeric literal".
     """
     j = pos - 1
     while j >= 0 and body[j] in _PLPGSQL_WS:
         j -= 1
     end = j + 1
-    while j >= 0 and (body[j].isalnum() or body[j] == "_"):
+    while j >= 0 and _IDENT_CONT_RE.match(body, j):
         j -= 1
-    return body[j + 1:end].lower(), j + 1
+    start = j + 1
+    word = _UNQUOTED_IDENT_RE.match(body, start) if start < end else None
+    if word is None or word.end() != end:
+        return "", start
+    return body[start:end].lower(), start
 
 
 def _opens_statement_position(body: str, pos: int) -> bool:
@@ -864,12 +1018,26 @@ _PG_WS = r" \t\n\r\f\v"
 _DOLQ_START = "A-Za-z_\x80-\U0010FFFF"
 _DOLQ_CONT = "A-Za-z0-9_\x80-\U0010FFFF"
 _DOLLAR_TAG_RE = re.compile(f"\\$(?:[{_DOLQ_START}][{_DOLQ_CONT}]*)?\\$")
-# One character of PostgreSQL's unquoted-identifier continuation class
-# (scan.l ident_cont), used by _dollar_tag_at() to refuse a tag that would
-# start inside an identifier. `$` is deliberately included: it continues an
-# identifier there, and `_IDENT_CONT` further down spells the same class for
-# the statement model.
-_IDENT_CONT_RE = re.compile("[A-Za-z0-9_$\x80-\U0010FFFF]")
+# ONE unquoted-identifier alphabet, matching PostgreSQL's ident_start /
+# ident_cont: an ASCII letter or underscore, or ANY non-ASCII character, then
+# the same plus digits and `$`. PostgreSQL's scanner accepts every high-bit
+# byte, so the range runs to U+10FFFF - it previously stopped at U+FFFF, which
+# made an identifier containing a 4-byte UTF-8 character unparseable and, for a
+# block label, invisible: no label was recorded and the labelled-EXIT bypass
+# reopened.
+#
+# Round 19: these two strings are the file's ONLY spelling of that alphabet.
+# `_IDENT_CONT_RE` - one character of the continuation class, used by
+# _dollar_tag_at() to refuse a tag that would start inside an identifier, and
+# by the statement model to walk an identifier - is now DERIVED from
+# `_IDENT_CONT` rather than transcribed beside it, so the tag reader and the
+# statement model cannot drift the way `str.isalnum() + "_"` had drifted from
+# both. `$` is deliberately in the continuation class: it continues an
+# identifier (`a$$$` is identifier `a$$` plus a stray `$`), which is exactly
+# why a dollar tag may not begin there.
+_IDENT_START = "A-Za-z_\x80-\U0010FFFF"
+_IDENT_CONT = "A-Za-z0-9_$\x80-\U0010FFFF"
+_IDENT_CONT_RE = re.compile(f"[{_IDENT_CONT}]")
 _SIMPLE_ESCAPES = {
     "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t",
     "\\": "\\", "'": "'", '"': '"',
@@ -1409,17 +1577,16 @@ class _Frame:
         self.label = label
 
 
-def parse_blocks(body: str, raw_body: str | None = None):
-    """Model BEGIN / IF / LOOP / CASE nesting and EXCEPTION sections.
+def _control_frames(body: str, labels: dict[int, str], on_raise=None):
+    """The BEGIN / IF / LOOP / CASE / EXCEPTION stack walk itself.
 
-    LOOP covers WHILE, FOR and FOREACH, which all open with LOOP and close with
-    END LOOP. A bare END closes the innermost BEGIN or CASE, so a CASE
-    expression cannot silently close an enclosing block.
-
-    `raw_body` is the SAME span of the unmasked source. It is consulted only for
-    block-label text, which masking necessarily hides for a quoted label.
+    Round 19 split this out of parse_blocks() so the DECLARE-evidence test can
+    ask the SAME structure which construct owns a THEN, an ELSE or a LOOP,
+    instead of a second parser drifting from this one. `on_raise` carries the
+    only part that is not pure structure - and the only part that calls back
+    into the statement classifier - so passing None gives a walk the
+    declaration model can use without recursing through it.
     """
-    labels = _block_labels(body, raw_body)
     stack, frames = [], []
 
     def pop(kinds, at):
@@ -1457,22 +1624,49 @@ def parse_blocks(body: str, raw_body: str | None = None):
             pop(("CASE",), m.start())
         elif token == "END":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             pop(("BEGIN", "CASE"), m.start())
-        elif token == "RAISE":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
-            fr = stack[-1] if stack else None
-            if (
-                fr is not None
-                and fr.kind == "IF"
-                and fr.then_pos is not None
-                and not fr.closed
-                and fr.raise_pos is None
-                and not _NON_ABORTING_RAISE_RE.match(body, m.start())
-                and _is_statement_start(body, m.start())
-            ):
-                fr.raise_pos = m.start()
+        elif token == "RAISE" and on_raise is not None:  # nosec B105 - parsed PL/pgSQL keyword, not a credential
+            on_raise(stack, m)
 
     # Unclosed frames stay out of `frames`, so nothing depending on them is
     # recognized. That fails closed rather than guessing at the structure.
     return frames
+
+
+def parse_blocks(body: str, raw_body: str | None = None):
+    """Model BEGIN / IF / LOOP / CASE nesting and EXCEPTION sections.
+
+    LOOP covers WHILE, FOR and FOREACH, which all open with LOOP and close with
+    END LOOP. A bare END closes the innermost BEGIN or CASE, so a CASE
+    expression cannot silently close an enclosing block.
+
+    `raw_body` is the SAME span of the unmasked source. It is consulted only for
+    block-label text, which masking necessarily hides for a quoted label.
+    """
+    def on_raise(stack, m):
+        fr = stack[-1] if stack else None
+        if (
+            fr is not None
+            and fr.kind == "IF"
+            and fr.then_pos is not None
+            and not fr.closed
+            and fr.raise_pos is None
+            and not _NON_ABORTING_RAISE_RE.match(body, m.start())
+            and _is_statement_start(body, m.start())
+        ):
+            fr.raise_pos = m.start()
+
+    return _control_frames(body, _block_labels(body, raw_body), on_raise)
+
+
+@functools.lru_cache(maxsize=256)
+def _block_frames(body: str) -> tuple:
+    """The same walk, structure only, for the DECLARE-evidence test.
+
+    No label text is needed (only kind/start/end are read) and no `on_raise`,
+    so this cannot re-enter _is_statement_start() and the declaration model
+    that depends on it.
+    """
+    return tuple(_control_frames(body, {}))
 
 
 def _enclosing(frames, pos):
@@ -2302,15 +2496,6 @@ _TYPE_LEAD_CONTINUATIONS = {
     ),
 }
 _ARG_MODES = frozenset({"in", "out", "inout", "variadic"})
-# ONE unquoted-identifier alphabet, matching PostgreSQL's ident_start /
-# ident_cont: an ASCII letter or underscore, or ANY non-ASCII character, then
-# the same plus digits and `$`. PostgreSQL's scanner accepts every high-bit
-# byte, so the range runs to U+10FFFF - it previously stopped at U+FFFF, which
-# made an identifier containing a 4-byte UTF-8 character unparseable and, for a
-# block label, invisible: no label was recorded and the labelled-EXIT bypass
-# reopened.
-_IDENT_START = "A-Za-z_\x80-\U0010FFFF"
-_IDENT_CONT = "A-Za-z0-9_$\x80-\U0010FFFF"
 _UNQUOTED_IDENT_RE = re.compile(f"[{_IDENT_START}][{_IDENT_CONT}]*")
 # The same alphabet, anchored: "is this whole token one bare identifier".
 _PLAIN_IDENT_RE = re.compile(f"\\A[{_IDENT_START}][{_IDENT_CONT}]*\\Z")
