@@ -512,12 +512,19 @@ _STATEMENT_OPENER_KEYWORDS = frozenset(
 #     [ <<label>> ] [ DECLARE declarations ] BEGIN statements END
 #
 # A declaration is `name [CONSTANT] type [:= expr];` and cannot contain a nested
-# block, so the FIRST `BEGIN` after a `DECLARE` is always the one that ends that
-# declaration section - including for a DECLARE nested inside an enclosing block
-# or an IF branch, where the enclosing BEGIN lies BEFORE the DECLARE and is
-# never a candidate. Comments and string literals are already whitespace in the
-# masked body every caller passes, so no masked `BEGIN` text can be mistaken for
-# the keyword, and a quoted `"raise"` never reaches here at all.
+# block, so the BEGIN that ends a declaration section is always one the section
+# itself reaches - including for a DECLARE nested inside an enclosing block or
+# an IF branch, where the enclosing BEGIN lies BEFORE the DECLARE and is never a
+# candidate.
+#
+# Round 22: that is NOT the same as the FIRST `BEGIN` after the DECLARE, which
+# is what this file used to take. A declaration's initializer is an ordinary SQL
+# expression and `begin` is UNRESERVED, so an initializer may legally SPELL the
+# keyword - and masking does not remove it, because the masker blanks comments
+# and literal CONTENT while deliberately keeping executable identifiers. The
+# offset that ends the section is resolved by `_owned_section_begin()`, the one
+# helper both declaration consumers ask, and its note carries the 17.11 grammar
+# evidence and the boundary rule that separates the two readings.
 #
 # Suppression therefore ends at exactly the right BEGIN, and the control that
 # matters most stays recognized: in
@@ -835,6 +842,13 @@ def _opens_block_position(body: str, pos: int, owns=None) -> bool:
     so `SELECT a << b >> declare` and `SELECT a << b >> loop` - both ordinary
     shift expressions on 17.11 - reach the operand `a` and are refused. Every
     step still moves strictly left, the label step included.
+
+    Round 22: a DECLARE is stepped over the same way, because the BEGIN that
+    OWNS a declaration section opens a block wherever that section does - and
+    for the empty `DECLARE BEGIN` list, valid on 17.11, no `;` stands between
+    them to say so. Which offset that is comes from `_owned_section_begin()`,
+    the one resolver both declaration consumers use, so the frame model and the
+    span model cannot disagree about where a block opens.
     """
     while True:
         j = _prev_nonspace(body, pos)
@@ -849,6 +863,27 @@ def _opens_block_position(body: str, pos: int, owns=None) -> bool:
             pos = label
             continue
         word, word_start = _previous_word(body, pos)
+        if word == "declare":
+            # Round 22: `DECLARE BEGIN ... END` is a legal EMPTY declaration
+            # list on 17.11, so a block DOES open directly after the keyword
+            # with no `;` before it - and the frame model used to refuse it, so
+            # a labelled `<<blk>> DECLARE BEGIN` pushed no BEGIN frame, the
+            # label attached to nothing, and an `EXIT blk` that really does skip
+            # a guard became invisible. Proven live: the routine compiles, the
+            # non-member UPDATE runs and no assertion executes.
+            #
+            # Only ONE offset after a DECLARE qualifies, and which one is
+            # `_owned_section_begin()`'s answer, never a second reading of the
+            # section - `SELECT declare BEGIN` must still open nothing. Where
+            # the DECLARE itself stands is decided by continuing this same walk
+            # from it, exactly as the `begin` step below does, so a label before
+            # it is handled by the label step already in this loop and no new
+            # grammar is introduced. The step moves strictly left.
+            declare = _DECLARE_TOKEN_RE.match(body, word_start)
+            if declare is None or _owned_section_begin(body, declare.end()) != pos:
+                return False
+            pos = word_start
+            continue
         if word != "begin":
             return (owns or _owns_statement_list)(body, word, word_start)
         pos = word_start
@@ -966,6 +1001,77 @@ def _opens_declaration_section(body: str, pos: int) -> bool:
     )
 
 
+@functools.lru_cache(maxsize=1024)
+def _owned_section_begin(body: str, start: int) -> int | None:
+    """Offset of the BEGIN that actually OPENS the block `start` declares.
+
+    `start` is the offset just past a DECLARE keyword that
+    `_opens_declaration_section()` has already proved opens a section. The
+    answer is the ONE thing both declaration consumers need - where the
+    declaration list stops and the block begins - so it is resolved once here
+    rather than searched for separately in each.
+
+    Round 22. The model this file carried was that the FIRST `BEGIN` after a
+    DECLARE always ends the section. It does not. A declaration's initializer is
+    an ordinary SQL expression, `begin` is UNRESERVED in PostgreSQL, and the
+    masker keeps executable identifiers by design - it blanks comments and
+    literal CONTENT, nothing else. Every one of these compiles on 17.11, and in
+    each the masked body still spells a `begin` that opens no block:
+
+        x integer := (SELECT begin FROM t LIMIT 1);
+        x integer := (SELECT 1 AS begin);
+        x integer := (SELECT t.begin FROM t t LIMIT 1);
+        x integer := (SELECT (t).begin FROM t t LIMIT 1);
+        x integer := abs((SELECT begin FROM t LIMIT 1));
+        c CURSOR FOR SELECT begin FROM t;   -- and at paren depth 0
+
+    Taking the first of those as the section end truncated the span in two
+    security-bearing directions at once: a later declaration fell OUT of the
+    section, so `raise integer := 2;` was read as an abort that PostgreSQL never
+    executes, and a block label attached to a `begin` owning no frame, so an
+    `EXIT` that really does skip a guard stopped being visible.
+
+    The discriminator is the declaration grammar, confirmed on 17.11, not an
+    expression parser:
+
+        [ <<label>> ] DECLARE declaration* BEGIN statements END
+
+    Every declaration ends with `;`, and no declaration may be NAMED `begin`:
+    `DECLARE begin integer := 1;` is rejected, because BEGIN is reserved to
+    PL/pgSQL even though SQL leaves the word unreserved. So the opening BEGIN is
+    the first candidate standing at a DECLARATION BOUNDARY - either the section
+    start itself, which is the empty `DECLARE BEGIN` section 17.11 accepts, or
+    directly after the `;` that ended the previous declaration. A `begin`
+    anywhere else inside the section is expression text, whatever it spells.
+
+    Two conditions refuse the spellings that could reach a boundary by accident.
+    A block opener never stands inside an unclosed parenthesis - parens survive
+    masking exactly where they are structural, since any inside a comment or a
+    literal are already blank - and it is never the tail of a dot-qualified name
+    (`t.begin`, `t . begin`, `(t).begin`), which is the rule `_is_sql_qualified()`
+    already states once for every structural token.
+
+    Ambiguity fails CLOSED: a candidate that cannot be PROVED to own the block is
+    skipped, which leaves the declaration section open rather than ending it
+    early. `None` means no BEGIN in this body owns the section at all.
+    """
+    depth = 0
+    cursor = start
+    for match in _SECTION_BEGIN_RE.finditer(body, start):
+        at = match.start()
+        depth += body.count("(", cursor, at) - body.count(")", cursor, at)
+        cursor = at
+        if depth != 0 or _is_sql_qualified(body, at):
+            continue
+        if _skip_ws(body, start) == at:
+            # `DECLARE BEGIN` - an empty declaration list, valid on 17.11.
+            return at
+        previous = _prev_nonspace(body, at)
+        if previous >= 0 and body[previous] == ";":
+            return at
+    return None
+
+
 @functools.lru_cache(maxsize=256)
 def _declaration_spans(body: str) -> tuple[tuple[int, int], ...]:
     """`(start, end)` for every DECLARE section in the body, end-exclusive.
@@ -977,8 +1083,8 @@ def _declaration_spans(body: str) -> tuple[tuple[int, int], ...]:
     for m in _DECLARE_TOKEN_RE.finditer(body):
         if not _opens_declaration_section(body, m.start()):
             continue
-        opener = _SECTION_BEGIN_RE.search(body, m.end())
-        spans.append((m.end(), opener.start() if opener else len(body)))
+        opener = _owned_section_begin(body, m.end())
+        spans.append((m.end(), opener if opener is not None else len(body)))
     return tuple(spans)
 
 
@@ -1731,11 +1837,12 @@ def _labelled_opener(body: str, pos: int) -> int | None:
         return i
     declare = _DECLARE_KW_RE.match(body, i)
     if declare:
-        # A declaration section runs to the BEGIN that opens the block. Nothing
-        # in it can spell BEGIN: comments and every literal form are already
-        # blanked in the masked text this reads.
-        opener = _BEGIN_KW_RE.search(body, declare.end())
-        return opener.start() if opener else None
+        # A declaration section runs to the BEGIN that opens the block - and a
+        # declaration CAN spell BEGIN, because masking keeps executable
+        # identifiers and `begin` is unreserved in SQL. The label belongs to the
+        # real opener, so this asks `_owned_section_begin()`, the same resolver
+        # `_declaration_spans()` uses; there is no second search for it.
+        return _owned_section_begin(body, declare.end())
     if _LOOP_HEAD_RE.match(body, i):
         # WHILE/FOR/FOREACH open their frame at the LOOP keyword that ends the
         # loop header, which is where parse_blocks() pushes the frame.

@@ -165,9 +165,11 @@ by scripts/ci/fresh-db/selftest_definer_guard_contract.sh.
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 import pathlib
 import re
+import sys
 import tempfile
 import unittest
 
@@ -10920,10 +10922,6 @@ class Round20CorpusTests(_Round20Base):
         )
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
 # ---------------------------------------------------------------------------
 # Round 21: lexical ownership and structural ownership
 # ---------------------------------------------------------------------------
@@ -11853,3 +11851,1154 @@ class Round21CorpusTests(_Round21Base):
             {p.name: out for p in files if (out := guards.check_file(p))}, {},
             "the 122-191 sweep stopped being clean",
         )
+
+# ---------------------------------------------------------------------------
+# Round 22: the BEGIN that OWNS a declaration section
+# ---------------------------------------------------------------------------
+# Three independent Round-21 reviews converged on one remaining root cause: the
+# scanner equated
+#
+#     the first textual BEGIN after DECLARE
+#
+# with
+#
+#     the BEGIN that actually opens THAT PL/pgSQL block.
+#
+# Those are not the same offset. A declaration's initializer is an ordinary SQL
+# expression, `begin` is UNRESERVED in PostgreSQL, and the masker keeps
+# executable identifiers by design - it blanks comments and literal CONTENT and
+# nothing else. So a declaration can legally SPELL the keyword, and every form
+# below compiles on the 17.11 oracle:
+#
+#     x integer := (SELECT begin FROM t LIMIT 1);
+#     x integer := (SELECT 1 AS begin);
+#     x integer := (SELECT t.begin FROM t t LIMIT 1);
+#     x integer := (SELECT (t).begin FROM t t LIMIT 1);
+#     c CURSOR FOR SELECT begin FROM t;        -- at paren depth 0
+#
+# The same wrong premise lived in TWO security-bearing consumers, which is why
+# this is one root cause and not two patches:
+#
+#   _declaration_spans()  truncated the section at the fake `begin`, so a later
+#   declaration fell OUT of it. `raise integer := 2;` - a variable declaration
+#   PostgreSQL never executes - was then read as an abort, and an IF denial
+#   branch that raises nothing looked like it aborts.
+#
+#   _labelled_opener()    attached the block label to the fake `begin`, so the
+#   REAL BEGIN frame carried no label. `EXIT auth_block;` then stopped making a
+#   later PERFORM guard unreachable, and a dead assertion counted as live.
+#
+# Both now ask ONE resolver, `_owned_section_begin()`. The classes below pin the
+# grammar it rests on, both wrong-ACCEPT directions, the wrong-REJECT mirror,
+# the label offsets themselves, and the opposite direction - that the real block
+# opener is never skipped.
+class _Round22Base(unittest.TestCase):
+    """Fixtures shared by the Round-22 classes.
+
+    ORACLE, PostgreSQL 17.11 (`SELECT version()` = 17.11 on x86_64-pc-linux-gnu,
+    disposable local cluster). Every fixture in these classes was COMPILED, and
+    every one with a stated runtime claim was also RUN, against a schema holding
+
+        CREATE TABLE public.t ("begin" integer, "end" integer, a integer);
+        CREATE TABLE public.bins (actual_qty integer, org_id uuid);
+
+    plus `wardah_assert_org_member(uuid)` raising P0001 and
+    `wardah_is_org_member(uuid)` returning false, so "non-member" is the
+    executed path.
+
+    Measured grammar facts the resolver rests on:
+
+      * `DECLARE BEGIN ... END` compiles - an EMPTY declaration list is legal,
+        so the opening BEGIN may stand at the section start itself.
+      * `DECLARE begin integer := 1;` does NOT compile ("integer" is not a known
+        variable): BEGIN is reserved to PL/pgSQL, so no declaration can be NAMED
+        begin. A depth-0 `begin` at a declaration boundary is therefore always
+        the block opener.
+      * Every declaration ends with `;`, so the opening BEGIN is always preceded
+        - modulo whitespace and already-masked comments - by either the DECLARE
+        keyword or that `;`.
+      * `SELECT 1 AS <word>` accepts every structural word including the
+        RESERVED ones (end, case, when, then, else), because ColLabel takes any
+        keyword; a BARE column of a reserved word does not parse.
+    """
+
+    GUARD = f"  PERFORM {OUTER}(p_org);\n"
+    PRIV = f"{WORK_LINE}\n"
+    #: The smallest fake: `begin` as a column LABEL inside a scalar subquery.
+    FAKE = "(SELECT 1 AS begin)"
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._dir.name)
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def verdict(self, name: str, sql: str) -> list[str]:
+        path = self.root / f"999_round22_{self.slug(name)}.sql"
+        path.write_text(sql, encoding="utf-8")
+        return guards.check_file(path)
+
+    def accepts(self, name: str, sql: str) -> bool:
+        return self.verdict(name, sql) == []
+
+    @staticmethod
+    def slug(text: str) -> str:
+        return "".join(
+            ch if ch.isalnum() or ch == "_" else f"u{ord(ch):x}" for ch in text
+        )
+
+    @staticmethod
+    def routine(body: str, close: str = "END;\n") -> str:
+        """A SECURITY DEFINER routine whose body text is exactly `body`.
+
+        `close` is separate because the labelled fixtures close with
+        `END auth_block;`, which is the whole point of those cases.
+        """
+        return (
+            "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+            "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+            "SET search_path TO 'public', 'pg_temp'\n"
+            f"AS $function$\n{body}{close}$function$;\n"
+        )
+
+    def deny_branch(self, declarations: str, inner: str = "      v_x := v_x;\n") -> str:
+        """RED A's shape: the denial branch holds a nested DECLARE block.
+
+        On 17.11 this routine raises NOTHING for a non-member - the `raise`
+        declaration is an ordinary integer variable - so the UPDATE that follows
+        runs unauthorized. The scanner must REJECT it.
+        """
+        return (
+            "BEGIN\n"
+            f"  IF NOT {QPRED}(p_org) THEN\n"
+            "    DECLARE\n" + declarations +
+            "    BEGIN\n" + inner +
+            "    END;\n"
+            "  END IF;\n" + self.PRIV
+        )
+
+    def mirror(self, initializer: str) -> str:
+        """RED B's shape: the SAME initializer, with a real standalone guard.
+
+        On 17.11 this DENIES a non-member - the guard raises
+        TENANT_MEMBERSHIP_REQUIRED and the UPDATE does not run - so the scanner
+        must ACCEPT it.
+        """
+        return (
+            "DECLARE\n"
+            f"  v_x integer := {initializer};\n"
+            "  raise integer := 2;\n"
+            "BEGIN\n" + self.GUARD + self.PRIV
+        )
+
+    def labelled(self, initializer: str | None, exit_line: str) -> str:
+        """RED C's shape: `<<auth_block>> DECLARE ... BEGIN ... END auth_block`.
+
+        On 17.11 the write happens and the EXIT skips the PERFORM entirely, so
+        no assertion executes and the scanner must REJECT.
+        """
+        declare = (
+            f"DECLARE\n  v_x integer := {initializer};\n"
+            if initializer is not None else ""
+        )
+        return (
+            "<<auth_block>>\n" + declare + "BEGIN\n" + self.PRIV
+            + exit_line + self.GUARD
+        )
+
+    @staticmethod
+    def masked(text: str) -> str:
+        return guards.mask_sql_checked(text)[0]
+
+
+#: The initializer matrix. Every entry COMPILES on 17.11 inside
+#: `DECLARE v_x integer := <form>;` and spells a `begin` the masker preserves,
+#: yet none of them opens a block.
+R22_FAKE_INITIALIZERS = {
+    "scalar_subquery_bare_column": "(SELECT begin FROM public.t LIMIT 1)",
+    "column_label_alias": "(SELECT 1 AS begin)",
+    "qualified_column": "(SELECT t.begin FROM public.t t LIMIT 1)",
+    "composite_field": "(SELECT (t).begin FROM public.t t LIMIT 1)",
+    "spaced_qualified_column": "(SELECT t . begin FROM public.t t LIMIT 1)",
+    "repeated_parentheses": "((( SELECT begin FROM public.t LIMIT 1 )))",
+    "block_comment_before_identifier": "(SELECT /* c */ begin FROM public.t LIMIT 1)",
+    "line_comment_then_newline": "(SELECT -- c\n     begin FROM public.t LIMIT 1)",
+    "function_call_around_subquery": "abs((SELECT begin FROM public.t LIMIT 1))",
+    "two_scalar_subqueries": (
+        "((SELECT begin FROM public.t LIMIT 1) + (SELECT 1 AS begin))"
+    ),
+    "cast_around_subquery": "((SELECT begin FROM public.t LIMIT 1))::integer",
+}
+
+#: Declarations that put the fake `begin` at paren depth ZERO, so nesting alone
+#: cannot refuse them. Both compile on 17.11.
+R22_DEPTH0_FAKE_DECLARATIONS = {
+    "cursor_bare_column": "c CURSOR FOR SELECT begin FROM public.t;",
+    "cursor_column_label": "c CURSOR FOR SELECT 1 AS begin;",
+}
+
+
+class Round22DeclarationGrammarTests(_Round22Base):
+    """PARSER-INTERNAL. The grammar facts `_owned_section_begin()` rests on.
+
+    These assert the RESOLVER directly, on offsets, because a verdict cannot say
+    WHICH BEGIN was chosen - and choosing the wrong one is the whole defect.
+    """
+
+    def resolve(self, section: str) -> int | None:
+        """Resolve the opener for the FIRST DECLARE in `section`."""
+        body = self.masked(section)
+        match = guards._DECLARE_TOKEN_RE.search(body)
+        self.assertIsNotNone(match, "fixture has no DECLARE")
+        return guards._owned_section_begin(body, match.end())
+
+    def assert_opener_is(self, section: str, occurrence: int = -1) -> int:
+        """The resolver must land on the LAST `begin` spelling, which in every
+        fixture here is the real block opener; `occurrence` picks another."""
+        body = self.masked(section)
+        hits = [m.start() for m in guards._SECTION_BEGIN_RE.finditer(body)]
+        self.assertTrue(hits, "fixture spells no BEGIN at all")
+        got = self.resolve(section)
+        self.assertEqual(got, hits[occurrence], f"wrong BEGIN chosen in:\n{section}")
+        return got
+
+    def test_empty_declaration_list_opens_at_the_section_start(self) -> None:
+        """`DECLARE BEGIN ... END` compiles on 17.11, so the opener may stand
+        directly after the keyword with no `;` before it."""
+        self.assert_opener_is("DECLARE\nBEGIN\n  PERFORM 1;\nEND;\n")
+
+    def test_a_comment_between_declare_and_begin_is_still_the_empty_list(self) -> None:
+        self.assert_opener_is("DECLARE /* nothing here */\nBEGIN\n  PERFORM 1;\nEND;\n")
+
+    def test_every_ordinary_declaration_shape_reaches_its_own_begin(self) -> None:
+        """One declaration, several, and each type-spelling form. All compile."""
+        for name, declarations in {
+            "one": "  x integer;\n",
+            "several": "  x integer;\n  y text;\n  z numeric(10,2);\n",
+            "initialized": "  x integer := 1;\n",
+            "constant": "  x CONSTANT integer := 1;\n",
+            "alias_for": "  a ALIAS FOR p_org;\n",
+            "pct_type": "  x public.t.a%TYPE;\n",
+            "pct_rowtype": "  r public.t%ROWTYPE;\n",
+            "custom_type": "  u uuid := p_org;\n",
+            "array_bound": "  arr integer[3];\n",
+            "default_keyword": "  x integer DEFAULT 1;\n",
+        }.items():
+            with self.subTest(declaration=name):
+                self.assert_opener_is(f"DECLARE\n{declarations}BEGIN\n  PERFORM 1;\nEND;\n")
+
+    def test_an_initializer_that_spells_begin_never_ends_the_section(self) -> None:
+        """The matrix, at the resolver. The LAST `begin` is the real opener in
+        each; every earlier one is expression text."""
+        for name, initializer in R22_FAKE_INITIALIZERS.items():
+            with self.subTest(form=name):
+                self.assert_opener_is(
+                    f"DECLARE\n  v_x integer := {initializer};\nBEGIN\n  PERFORM 1;\nEND;\n"
+                )
+
+    def test_a_depth_zero_fake_begin_never_ends_the_section(self) -> None:
+        """Paren depth alone cannot refuse these: the fake `begin` in a cursor
+        declaration stands at depth 0. The `;` boundary rule is what refuses it."""
+        for name, declaration in R22_DEPTH0_FAKE_DECLARATIONS.items():
+            with self.subTest(form=name):
+                self.assert_opener_is(
+                    f"DECLARE\n  {declaration}\nBEGIN\n  PERFORM 1;\nEND;\n"
+                )
+
+    def test_the_fake_begin_position_among_declarations_does_not_matter(self) -> None:
+        for name, declarations in {
+            "first": f"  v_x integer := {self.FAKE};\n  v_b integer := 1;\n",
+            "middle": f"  v_a integer := 1;\n  v_x integer := {self.FAKE};\n  v_b integer := 2;\n",
+            "last": f"  v_a integer := 1;\n  v_x integer := {self.FAKE};\n",
+        }.items():
+            with self.subTest(position=name):
+                self.assert_opener_is(f"DECLARE\n{declarations}BEGIN\n  PERFORM 1;\nEND;\n")
+
+    def test_a_section_that_never_reaches_a_real_begin_resolves_to_nothing(self) -> None:
+        """Fail CLOSED: an unterminated section is not ended at a fake `begin`.
+        `_declaration_spans()` then runs the span to the end of the body."""
+        self.assertIsNone(
+            self.resolve("DECLARE\n  v_x integer := (SELECT 1 AS begin);\n")
+        )
+
+    def test_the_resolver_is_the_only_declaration_begin_search(self) -> None:
+        """ARCHITECTURAL. No second implementation of `find the BEGIN after
+        DECLARE` may exist, or the two consumers drift apart again."""
+        source = pathlib.Path(guards.__file__).read_text(encoding="utf-8")
+        self.assertEqual(
+            source.count("_BEGIN_KW_RE.search("), 0,
+            "_BEGIN_KW_RE is a first-textual-BEGIN consumer again",
+        )
+        self.assertEqual(
+            source.count("_SECTION_BEGIN_RE.finditer("), 1,
+            "_SECTION_BEGIN_RE is read outside the shared resolver",
+        )
+        self.assertEqual(
+            source.count("_SECTION_BEGIN_RE.search("), 0,
+            "_SECTION_BEGIN_RE is searched outside the shared resolver",
+        )
+        resolver = inspect.getsource(guards._owned_section_begin)
+        self.assertIn("_SECTION_BEGIN_RE.finditer(", resolver)
+        for consumer in (guards._declaration_spans, guards._labelled_opener):
+            with self.subTest(consumer=consumer.__name__):
+                self.assertIn(
+                    "_owned_section_begin(", inspect.getsource(consumer),
+                    f"{consumer.__name__} no longer uses the shared resolver",
+                )
+
+
+class Round22SharedConsumerTests(_Round22Base):
+    """PARSER-INTERNAL. The two consumers must resolve the SAME real BEGIN.
+
+    `_declaration_spans()` ends its span there and `_labelled_opener()` attaches
+    the label there. Before Round 22 both searched independently, which is how
+    one root cause produced two separate wrong verdicts. This pins them to one
+    offset so they cannot drift apart again.
+    """
+
+    def both_consumers(self, initializer: str) -> tuple[int, int, int]:
+        body = self.masked(
+            f"<<auth_block>>\nDECLARE\n  v_x integer := {initializer};\n"
+            "BEGIN\n  PERFORM 1;\nEND auth_block;\n"
+        )
+        declare = guards._DECLARE_TOKEN_RE.search(body)
+        span_end = guards._declaration_spans(body)[0][1]
+        label_target = guards._labelled_opener(body, body.index(">>") + 2)
+        resolved = guards._owned_section_begin(body, declare.end())
+        return span_end, label_target, resolved
+
+    def test_both_consumers_resolve_one_offset(self) -> None:
+        for name, initializer in R22_FAKE_INITIALIZERS.items():
+            with self.subTest(form=name):
+                span_end, label_target, resolved = self.both_consumers(initializer)
+                self.assertEqual(span_end, resolved)
+                self.assertEqual(label_target, resolved)
+
+    def test_the_one_offset_is_the_real_block_begin(self) -> None:
+        """Not merely equal - equal to the LAST `begin`, which is the opener."""
+        for name, initializer in R22_FAKE_INITIALIZERS.items():
+            with self.subTest(form=name):
+                body = self.masked(
+                    f"<<auth_block>>\nDECLARE\n  v_x integer := {initializer};\n"
+                    "BEGIN\n  PERFORM 1;\nEND auth_block;\n"
+                )
+                real = [m.start() for m in guards._SECTION_BEGIN_RE.finditer(body)][-1]
+                span_end, label_target, _ = self.both_consumers(initializer)
+                self.assertEqual(span_end, real)
+                self.assertEqual(label_target, real)
+
+
+class Round22DeclareSpanTruncationTests(_Round22Base):
+    """RED A. The declaration span must not end at a fake `begin`.
+
+    Every fixture compiles on 17.11 and, called as a NON-MEMBER, raises nothing
+    and lets the UPDATE run - `raise integer := 2;` is an integer variable, not
+    a RAISE statement. At the starting head each of these returned [], because
+    the truncated span pushed that declaration OUT of the section and it was
+    read as the denial branch's abort.
+    """
+
+    def test_every_fake_initializer_is_rejected(self) -> None:
+        for name, initializer in R22_FAKE_INITIALIZERS.items():
+            with self.subTest(form=name):
+                body = self.deny_branch(
+                    f"      v_x integer := {initializer};\n"
+                    "      raise integer := 2;\n",
+                    "      v_x := v_x + raise;\n",
+                )
+                self.assertFalse(
+                    self.accepts(name, self.routine(body)),
+                    f"`{name}` authorizes an unguarded write",
+                )
+
+    def test_a_depth_zero_fake_begin_is_rejected(self) -> None:
+        """Nesting is not the discriminator - these sit at paren depth 0."""
+        for name, declaration in R22_DEPTH0_FAKE_DECLARATIONS.items():
+            with self.subTest(form=name):
+                body = self.deny_branch(
+                    f"      {declaration}\n"
+                    "      v_x integer := 1;\n      raise integer := 2;\n",
+                    "      v_x := v_x + raise;\n",
+                )
+                self.assertFalse(self.accepts(name, self.routine(body)))
+
+    def test_the_fake_begin_position_does_not_rescue_it(self) -> None:
+        for name, declarations in {
+            "first": (
+                f"      v_x integer := {self.FAKE};\n      v_b integer := 1;\n"
+                "      raise integer := 2;\n"
+            ),
+            "middle": (
+                f"      v_a integer := 1;\n      v_x integer := {self.FAKE};\n"
+                "      raise integer := 2;\n"
+            ),
+            "last": (
+                f"      v_a integer := 1;\n      raise integer := 2;\n"
+                f"      v_x integer := {self.FAKE};\n"
+            ),
+        }.items():
+            with self.subTest(position=name):
+                self.assertFalse(
+                    self.accepts(name, self.routine(
+                        self.deny_branch(declarations, "      v_x := v_x + raise;\n")))
+                )
+
+    def test_the_same_shape_without_a_fake_begin_is_the_control(self) -> None:
+        """Nothing about the DECLARE section itself is being rejected: the
+        identical routine with an ordinary initializer was already rejected at
+        the starting head, for the same reason."""
+        body = self.deny_branch(
+            "      v_a integer := 1;\n      v_x integer := 2;\n"
+            "      raise integer := 2;\n",
+            "      v_x := v_x + v_a + raise;\n",
+        )
+        self.assertFalse(self.accepts("no_fake_control", self.routine(body)))
+
+
+class Round22FalseRedMirrorTests(_Round22Base):
+    """RED B. The mirror: the same truncation also destroyed a REAL guard.
+
+    On 17.11 each routine here DENIES a non-member - the guard raises
+    TENANT_MEMBERSHIP_REQUIRED (P0001) and `actual_qty` is unchanged - yet the
+    starting head reported it unguarded, because the declaration named `raise`
+    fell outside the truncated span and read as an abort BEFORE the guard.
+    """
+
+    def test_every_fake_initializer_keeps_the_real_guard(self) -> None:
+        for name, initializer in R22_FAKE_INITIALIZERS.items():
+            with self.subTest(form=name):
+                self.assertTrue(
+                    self.accepts(name, self.routine(self.mirror(initializer))),
+                    f"`{name}` lost a guard the oracle proves denies",
+                )
+
+    def test_a_depth_zero_fake_begin_keeps_the_real_guard(self) -> None:
+        for name, declaration in R22_DEPTH0_FAKE_DECLARATIONS.items():
+            with self.subTest(form=name):
+                body = (
+                    f"DECLARE\n  {declaration}\n  raise integer := 2;\n"
+                    "BEGIN\n" + self.GUARD + self.PRIV
+                )
+                self.assertTrue(self.accepts(name, self.routine(body)))
+
+
+class Round22LabelledExitTests(_Round22Base):
+    """RED C. The label belongs to the real BEGIN, never to a fake one.
+
+    On 17.11 the write happens and `EXIT auth_block` jumps past the PERFORM, so
+    NO assertion executes and the routine authorizes nothing. At the starting
+    head the label attached to the initializer's `begin`, the real frame carried
+    no label, the EXIT matched no block, and the dead guard counted as live.
+    """
+
+    def test_the_labelled_exit_bypass_is_rejected(self) -> None:
+        for name, initializer in R22_FAKE_INITIALIZERS.items():
+            with self.subTest(form=name):
+                sql = self.routine(
+                    self.labelled(initializer, "  EXIT auth_block;\n"),
+                    close="END auth_block;\n",
+                )
+                self.assertFalse(
+                    self.accepts(name, sql), f"`{name}` counted a dead guard"
+                )
+
+    def test_a_conditional_labelled_exit_is_rejected(self) -> None:
+        sql = self.routine(
+            self.labelled(self.FAKE, "  EXIT auth_block WHEN p_org IS NULL;\n"),
+            close="END auth_block;\n",
+        )
+        self.assertFalse(self.accepts("exit_when", sql))
+
+    def test_the_unlabelled_control_still_behaves(self) -> None:
+        """Without the DECLARE the starting head already rejected this; the
+        fixture proves Round 22 did not reach the ordinary path."""
+        sql = self.routine(
+            self.labelled(None, "  EXIT auth_block;\n"), close="END auth_block;\n"
+        )
+        self.assertFalse(self.accepts("no_declare", sql))
+
+    # -- label attribution, asserted on offsets rather than on a verdict -----
+
+    def labelled_body(self, initializer: str) -> str:
+        return self.masked(
+            self.labelled(initializer, "  EXIT auth_block;\n") + "END auth_block;\n"
+        )
+
+    def test_the_label_lands_on_the_real_begin_and_not_the_fake_one(self) -> None:
+        for name, initializer in R22_FAKE_INITIALIZERS.items():
+            with self.subTest(form=name):
+                body = self.labelled_body(initializer)
+                spellings = [
+                    m.start() for m in guards._SECTION_BEGIN_RE.finditer(body)
+                ]
+                real, fakes = spellings[-1], spellings[:-1]
+                labels = guards._block_labels(body)
+                self.assertEqual(
+                    labels, {real: "auth_block"},
+                    "the label is not on the real block opener",
+                )
+                for fake in fakes:
+                    self.assertNotIn(
+                        fake, labels, "a fake `begin` received label attribution"
+                    )
+
+    def test_the_real_begin_frame_carries_the_exit_target(self) -> None:
+        body = self.labelled_body(self.FAKE)
+        real = [m.start() for m in guards._SECTION_BEGIN_RE.finditer(body)][-1]
+        frames = guards.parse_blocks(body, body)
+        owning = [f for f in frames if f.kind == "BEGIN" and f.start == real]
+        self.assertEqual(len(owning), 1, "no BEGIN frame opens at the real opener")
+        self.assertEqual(owning[0].label, "auth_block")
+
+    def test_labelled_exit_before_sees_the_dead_guard(self) -> None:
+        body = self.labelled_body(self.FAKE)
+        frames = guards.parse_blocks(body, body)
+        guard_pos = body.index(f"PERFORM {OUTER}")
+        self.assertTrue(
+            guards.labelled_exit_before(body, frames, guard_pos, body),
+            "the EXIT no longer makes the later assertion unreachable",
+        )
+
+
+class Round22SpanEndExactnessTests(_Round22Base):
+    """The span must suppress DECLARATION text and nothing else.
+
+    Both directions are pinned, because either one alone is satisfiable by a
+    broken resolver: ending too early un-suppresses a declaration (RED A/B), and
+    ending too late suppresses a real statement.
+    """
+
+    def test_a_declared_raise_before_the_real_begin_is_inert(self) -> None:
+        """`raise integer := 1;` declares a variable. On 17.11 it aborts
+        nothing, so it cannot satisfy a denial branch."""
+        body = self.deny_branch(
+            f"      v_x integer := {self.FAKE};\n      raise integer := 1;\n",
+            "      v_x := v_x + raise;\n",
+        )
+        self.assertFalse(self.accepts("declared_raise_inert", self.routine(body)))
+
+    def test_a_real_raise_after_the_real_begin_is_visible(self) -> None:
+        """The opposite edge. This RAISE runs on 17.11 - the call aborts with
+        UNCONDITIONAL_ABORT and `actual_qty` is unchanged - so the guard after it
+        is dead and the routine must be REJECTED. If the span ran PAST the real
+        BEGIN the RAISE would be suppressed and the dead guard would count."""
+        body = (
+            "DECLARE\n"
+            f"  v_x integer := {self.FAKE};\n"
+            "  raise integer := 2;\n"
+            "BEGIN\n"
+            "  RAISE EXCEPTION 'UNCONDITIONAL_ABORT';\n"
+            + self.GUARD + self.PRIV
+        )
+        self.assertFalse(self.accepts("real_raise_visible", self.routine(body)))
+
+    def test_the_span_ends_exactly_at_the_real_begin(self) -> None:
+        """PARSER-INTERNAL, on offsets: the suppressed region stops at the
+        opener, so the first executable statement is never inside it."""
+        for name, initializer in R22_FAKE_INITIALIZERS.items():
+            with self.subTest(form=name):
+                body = self.masked(
+                    f"DECLARE\n  v_x integer := {initializer};\n"
+                    "  raise integer := 2;\n"
+                    "BEGIN\n  RAISE EXCEPTION 'x';\nEND;\n"
+                )
+                real = [m.start() for m in guards._SECTION_BEGIN_RE.finditer(body)][-1]
+                (start, end), = guards._declaration_spans(body)
+                self.assertEqual(end, real)
+                self.assertTrue(guards._in_declaration_section(body, body.index("raise")))
+                self.assertFalse(
+                    guards._in_declaration_section(body, body.index("RAISE EXCEPTION"))
+                )
+
+    def test_the_classic_control_still_holds(self) -> None:
+        """The shape the region model was built for, unchanged by Round 22."""
+        body = self.masked("DECLARE x integer; BEGIN RAISE EXCEPTION 'x'; END")
+        self.assertTrue(guards._in_declaration_section(body, body.index("x integer")))
+        self.assertFalse(guards._in_declaration_section(body, body.index("RAISE")))
+
+
+class Round22EmptyDeclarationSectionTests(_Round22Base):
+    """`DECLARE BEGIN` - the second wrong-ACCEPT this round's grammar exposed.
+
+    Found by running the brief's own "DECLARE BEGIN if valid" control. On 17.11
+    an EMPTY declaration list is valid, so a block DOES open directly after the
+    keyword - but no `;` stands between them, and `_opens_block_position()` had
+    only the `;`, dollar-body-opener, label and statement-list-keyword rules. It
+    therefore refused the position, `_control_frames()` pushed no BEGIN frame,
+    `<<auth_block>>` attached to no frame, and `EXIT auth_block` matched
+    nothing - so a guard the EXIT demonstrably skips counted as live.
+
+    Measured on the oracle for the fixture below, as a non-member: the routine
+    compiles, raises NOTHING, and `actual_qty` goes 5 -> 0. The assertion never
+    executes. The starting head returned [] for it.
+
+    The correction is the same one fact, from the same resolver: the BEGIN that
+    OWNS the section opens a block wherever that section does. It is deliberately
+    narrow - `SELECT declare BEGIN` still opens nothing, because the walk then
+    asks where the DECLARE itself stands and reaches `SELECT`.
+    """
+
+    EMPTY_LABELLED = (
+        "<<auth_block>>\nDECLARE\nBEGIN\n"
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);\n"
+    )
+
+    def test_the_empty_section_exit_bypass_is_rejected(self) -> None:
+        self.assertFalse(
+            self.accepts("empty_labelled_exit",
+                         self.routine(self.EMPTY_LABELLED, close="END auth_block;\n")),
+            "an EXIT past the guard is invisible again",
+        )
+
+    def test_the_empty_section_opens_a_labelled_begin_frame(self) -> None:
+        """PARSER-INTERNAL: the frame exists, at the real opener, labelled."""
+        body = self.masked(self.EMPTY_LABELLED + "END auth_block;\n")
+        real, = [m.start() for m in guards._SECTION_BEGIN_RE.finditer(body)]
+        self.assertTrue(guards._opens_block_position(body, real))
+        self.assertEqual(guards._block_labels(body), {real: "auth_block"})
+        owning = [
+            f for f in guards.parse_blocks(body, body)
+            if f.kind == "BEGIN" and f.start == real
+        ]
+        self.assertEqual(len(owning), 1, "no BEGIN frame opens at DECLARE BEGIN")
+        self.assertEqual(owning[0].label, "auth_block")
+        self.assertTrue(
+            guards.labelled_exit_before(
+                body, guards.parse_blocks(body, body),
+                body.index(f"PERFORM {OUTER}"), body,
+            )
+        )
+
+    def test_an_empty_section_with_a_reachable_guard_is_accepted(self) -> None:
+        """The control in the other direction: no jump, so nothing is skipped
+        and the guard denies on 17.11. A frame was ADDED, not a rejection."""
+        for name, body in {
+            "labelled": (
+                "<<auth_block>>\nDECLARE\nBEGIN\n" + self.GUARD + self.PRIV),
+            "unlabelled": "DECLARE\nBEGIN\n" + self.GUARD + self.PRIV,
+        }.items():
+            with self.subTest(shape=name):
+                close = "END auth_block;\n" if name == "labelled" else "END;\n"
+                self.assertTrue(self.accepts(name, self.routine(body, close=close)))
+
+    def test_a_declare_identifier_still_opens_no_block(self) -> None:
+        """Round 19's class must not reopen: `declare` is UNRESERVED, and
+        `SELECT declare ...` is an ordinary column read on 17.11. The new step
+        asks where the DECLARE stands, so this reaches `SELECT` and is refused."""
+        for name, text in {
+            "select_declare_begin": "SELECT declare begin INTO v_x FROM public.t2",
+            "case_then_declare_begin": (
+                "SELECT CASE WHEN true THEN declare ELSE 0 END INTO v_x FROM public.t2"),
+        }.items():
+            with self.subTest(case=name):
+                body = self.masked(
+                    f"DECLARE\n  v_x integer;\nBEGIN\n  {text};\nEND;\n")
+                fake = guards._DECLARE_TOKEN_RE.search(body, body.index("BEGIN"))
+                self.assertIsNotNone(fake, "fixture lost its bare `declare`")
+                self.assertFalse(
+                    guards._opens_declaration_section(body, fake.start()),
+                    "a bare `declare` identifier opened a section",
+                )
+                self.assertEqual(len(guards._declaration_spans(body)), 1)
+
+
+class Round22NoOverSkippingTests(_Round22Base):
+    """The opposite failure: the resolver must not MISS the real opener.
+
+    Losing it would run the span to the end of the body, swallow every statement
+    as declaration text, and - for a labelled block - drop the label entirely,
+    which is fail-OPEN for the EXIT rule. Each fixture below compiles on 17.11
+    and keeps a guard the oracle proves denies, so a lost opener shows up as a
+    rejection.
+    """
+
+    def assert_guard_survives(self, name: str, body: str, close: str = "END;\n") -> None:
+        self.assertTrue(
+            self.accepts(name, self.routine(body, close=close)),
+            f"`{name}` lost the real block opener",
+        )
+
+    def test_ordinary_declaration_sections_keep_their_guard(self) -> None:
+        for name, declarations in {
+            "empty_section": "",
+            "one_declaration": "  v_x integer;\n",
+            "multiple_declarations": "  v_x integer;\n  v_y text;\n  v_z numeric(10,2);\n",
+            "initializer_then_begin": "  v_x integer := 1;\n",
+            "constant": "  v_x CONSTANT integer := 1;\n",
+            "alias_for": "  v_a ALIAS FOR p_org;\n",
+            "pct_type": "  v_x public.t.a%TYPE;\n",
+            "pct_rowtype": "  v_r public.t%ROWTYPE;\n",
+            "semicolon_then_comment": "  v_x integer := 1; -- trailing\n",
+            "blank_lines_before_begin": "  v_x integer := 1;\n\n\n",
+            "block_comment_before_begin": "  v_x integer := 1;\n  /* note */\n",
+            "initializer_with_case_text": (
+                "  v_x integer := (SELECT CASE WHEN true THEN 1 ELSE 0 END);\n"
+            ),
+            "initializer_with_nested_parens": "  v_x integer := (((1)));\n",
+            "initializer_with_end_label": "  v_x integer := (SELECT 1 AS end);\n",
+        }.items():
+            with self.subTest(section=name):
+                self.assert_guard_survives(
+                    name, "DECLARE\n" + declarations + "BEGIN\n" + self.GUARD + self.PRIV
+                )
+
+    def test_labelled_declaration_sections_keep_their_label(self) -> None:
+        """A dropped label is fail-open, so each of these is checked through the
+        EXIT rule: the guard after the jump is dead and must be REJECTED."""
+        for name, (label, declarations) in {
+            "plain": ("auth_block", "  v_x integer := 1;\n"),
+            "quoted": ('"Auth Block"', "  v_x integer := 1;\n"),
+            "non_ascii": ("auth_blöck", "  v_x integer := 1;\n"),
+            "comment_before_begin": ("auth_block", "  v_x integer := 1;\n  /* c */\n"),
+            "blank_lines_before_begin": ("auth_block", "  v_x integer := 1;\n\n"),
+            "empty_section": ("auth_block", ""),
+            "fake_begin_initializer": ("auth_block", f"  v_x integer := {self.FAKE};\n"),
+        }.items():
+            with self.subTest(label=name):
+                body = (
+                    f"<<{label}>>\nDECLARE\n" + declarations + "BEGIN\n" + self.PRIV
+                    + f"  EXIT {label};\n" + self.GUARD
+                )
+                self.assertFalse(
+                    self.accepts(name, self.routine(body, close=f"END {label};\n")),
+                    f"`{name}` lost its label, so the EXIT bypass went unseen",
+                )
+
+    def test_nested_declaration_blocks_each_reach_their_own_begin(self) -> None:
+        body = (
+            "DECLARE\n  v_o integer := 1;\n"
+            "BEGIN\n"
+            "  DECLARE\n    v_i integer := 2;\n"
+            "  BEGIN\n    v_i := v_i + v_o;\n  END;\n"
+            + self.GUARD + self.PRIV
+        )
+        self.assert_guard_survives("nested_declare", body)
+
+    def test_declaration_blocks_inside_control_branches(self) -> None:
+        for name, body in {
+            "if_branch": (
+                "BEGIN\n  IF true THEN\n    DECLARE w integer;\n"
+                "    BEGIN w := 1; END;\n  END IF;\n" + self.GUARD + self.PRIV
+            ),
+            "else_branch": (
+                "BEGIN\n  IF false THEN\n    NULL;\n  ELSE\n    DECLARE w integer;\n"
+                "    BEGIN w := 1; END;\n  END IF;\n" + self.GUARD + self.PRIV
+            ),
+            "loop_body": (
+                "BEGIN\n  FOR i IN 1..1 LOOP\n    DECLARE w integer;\n"
+                "    BEGIN w := 1; END;\n  END LOOP;\n" + self.GUARD + self.PRIV
+            ),
+            "after_previous_statements": (
+                "BEGIN\n  PERFORM 1;\n  DECLARE w integer;\n  BEGIN w := 1; END;\n"
+                + self.GUARD + self.PRIV
+            ),
+        }.items():
+            with self.subTest(placement=name):
+                self.assert_guard_survives(name, body)
+
+
+class Round22StructuralWordInitializerTests(_Round22Base):
+    """`begin` is not the only structural word an initializer may spell.
+
+    Measured on 17.11: `loop`, `if`, `raise`, `declare`, `exception` and `return`
+    all parse as BARE columns, and as column LABELS so do the reserved `end`,
+    `case`, `when`, `then` and `else` - ColLabel accepts any keyword. A bare
+    column of a reserved word does NOT parse, so those are controls rather than
+    fixtures. None of these may terminate a declaration section.
+    """
+
+    #: Unreserved in PostgreSQL 17.11: legal as a bare column name.
+    BARE_LEGAL = ("begin", "loop", "if", "raise", "declare", "exception", "return")
+    #: Reserved: legal only as a column LABEL after AS.
+    LABEL_ONLY = ("end", "case", "when", "then", "else")
+    #: `return` reaches the RETURN-REACHABILITY model, which is a different
+    #: consumer from declaration termination and reads the identifier as a
+    #: RETURN statement before the guard. That is a pre-existing fail-CLOSED
+    #: conservatism - the routine really does deny on 17.11, and the scanner
+    #: rejects it - measured identical at the starting head and here. Round 22
+    #: neither introduces nor changes it; it is pinned below rather than fixed,
+    #: because the DECLARE section already resolves correctly for the word.
+    RETURN_REACHABILITY_FAIL_CLOSED = ("return",)
+
+    def initializer_body(self, expression: str) -> str:
+        return (
+            f"DECLARE\n  v_x integer := {expression};\n"
+            "  raise integer := 2;\n"
+            "BEGIN\n" + self.GUARD + self.PRIV
+        )
+
+    def test_no_structural_word_ever_terminates_the_section(self) -> None:
+        """The Round-22 claim itself, at the resolver, for EVERY spelling: the
+        section still ends at the real block opener, `begin` included."""
+        forms = [(w, f"(SELECT {w} FROM public.t LIMIT 1)") for w in self.BARE_LEGAL]
+        forms += [
+            (f"as_{w}", f"(SELECT 1 AS {w})")
+            for w in self.BARE_LEGAL + self.LABEL_ONLY
+        ]
+        for name, expression in forms:
+            with self.subTest(word=name):
+                body = self.masked(self.initializer_body(expression) + "END;\n")
+                declare = guards._DECLARE_TOKEN_RE.search(body)
+                real = [m.start() for m in guards._SECTION_BEGIN_RE.finditer(body)][-1]
+                self.assertEqual(
+                    guards._owned_section_begin(body, declare.end()), real,
+                    f"`{name}` moved the section end",
+                )
+
+    def test_a_bare_structural_column_keeps_the_guard(self) -> None:
+        for word in self.BARE_LEGAL:
+            if word in self.RETURN_REACHABILITY_FAIL_CLOSED:
+                continue
+            with self.subTest(word=word):
+                body = self.initializer_body(
+                    f"(SELECT {word} FROM public.t LIMIT 1)")
+                self.assertTrue(self.accepts(f"bare_{word}", self.routine(body)))
+
+    def test_a_structural_column_label_keeps_the_guard(self) -> None:
+        for word in self.BARE_LEGAL + self.LABEL_ONLY:
+            if word in self.RETURN_REACHABILITY_FAIL_CLOSED:
+                continue
+            with self.subTest(word=word):
+                body = self.initializer_body(f"(SELECT 1 AS {word})")
+                self.assertTrue(self.accepts(f"label_{word}", self.routine(body)))
+
+    def test_the_return_word_stays_fail_closed(self) -> None:
+        """Pinned, not fixed. REJECT here is a false RED the oracle contradicts
+        - the guard raises P0001 and the write does not run - but it comes from
+        RETURN reachability, not from this section's end, and it errs toward
+        refusing. Moving it belongs to whichever round takes that consumer."""
+        for word in self.RETURN_REACHABILITY_FAIL_CLOSED:
+            for form in (f"(SELECT {word} FROM public.t LIMIT 1)", f"(SELECT 1 AS {word})"):
+                with self.subTest(word=word, form=form):
+                    self.assertFalse(
+                        self.accepts(f"failclosed_{word}", self.routine(
+                            self.initializer_body(form)))
+                    )
+
+    def test_a_structural_column_does_not_manufacture_a_guard(self) -> None:
+        """The same words in an UNGUARDED routine change nothing: the section
+        still ends at the real BEGIN and nothing after it is authorized."""
+        for word in self.BARE_LEGAL:
+            with self.subTest(word=word):
+                body = (
+                    f"DECLARE\n  v_x integer := (SELECT {word} FROM public.t LIMIT 1);\n"
+                    "  raise integer := 2;\n"
+                    "BEGIN\n  v_x := v_x + raise;\n" + self.PRIV
+                )
+                self.assertFalse(self.accepts(f"unguarded_{word}", self.routine(body)))
+
+
+#: The 16 fresh compositions. Each COMPILES on PostgreSQL 17.11, each has a
+#: measured runtime outcome, and each runs through the real `check_file()`.
+#: `must_accept` states the verdict the runtime semantics require.
+def _r22_mutants(base: _Round22Base) -> dict[str, tuple[str, str, bool]]:
+    fake, guard, priv = base.FAKE, base.GUARD, base.PRIV
+    deny = base.deny_branch
+    return {
+        # 1-7 are wrong-ACCEPTs at the starting head: the non-member write runs.
+        "01_scalar_select_begin_plus_declared_raise": (deny(
+            "      v_x integer := (SELECT begin FROM public.t LIMIT 1);\n"
+            "      raise integer := 2;\n", "      v_x := v_x + raise;\n"),
+            "END;\n", False),
+        "02_alias_begin_plus_declared_raise": (deny(
+            f"      v_x integer := {fake};\n      raise integer := 2;\n",
+            "      v_x := v_x + raise;\n"), "END;\n", False),
+        "03_qualified_begin_plus_declared_raise": (deny(
+            "      v_x integer := (SELECT t.begin FROM public.t t LIMIT 1);\n"
+            "      raise integer := 2;\n", "      v_x := v_x + raise;\n"),
+            "END;\n", False),
+        "04_composite_begin_plus_declared_raise": (deny(
+            "      v_x integer := (SELECT (t).begin FROM public.t t LIMIT 1);\n"
+            "      raise integer := 2;\n", "      v_x := v_x + raise;\n"),
+            "END;\n", False),
+        "05_fake_begin_in_first_of_several": (deny(
+            f"      v_x integer := {fake};\n      v_b integer := 1;\n"
+            "      raise integer := 2;\n", "      v_x := v_x + v_b + raise;\n"),
+            "END;\n", False),
+        "06_fake_begin_in_middle_declaration": (deny(
+            f"      v_a integer := 1;\n      v_x integer := {fake};\n"
+            "      raise integer := 2;\n", "      v_x := v_x + v_a + raise;\n"),
+            "END;\n", False),
+        # 7 was already rejected at the starting head - the truncation fell
+        # AFTER the declared raise. It is here so neither direction flips.
+        "07_fake_begin_in_last_declaration": (deny(
+            f"      v_a integer := 1;\n      raise integer := 2;\n"
+            f"      v_x integer := {fake};\n", "      v_x := v_x + v_a + raise;\n"),
+            "END;\n", False),
+        # 8: the span must not run PAST the real BEGIN either. This RAISE runs
+        # (call aborts, actual_qty unchanged), so the guard after it is dead.
+        "08_fake_begin_then_real_raise_after_real_begin": (
+            "DECLARE\n" f"  v_x integer := {fake};\n  raise integer := 2;\n"
+            "BEGIN\n  RAISE EXCEPTION 'UNCONDITIONAL_ABORT';\n" + guard + priv,
+            "END;\n", False),
+        # 9: the mirror. The guard DOES deny on 17.11 (P0001, no write).
+        "09_fake_begin_plus_standalone_perform": (
+            "DECLARE\n" f"  v_x integer := {fake};\n  raise integer := 2;\n"
+            "BEGIN\n" + guard + priv, "END;\n", True),
+        # 10: the handler swallows the assertion, so it authorizes nothing.
+        "10_fake_begin_plus_exception_handler": (
+            "DECLARE\n" f"  v_x integer := {fake};\n"
+            "BEGIN\n" + guard + priv + "EXCEPTION WHEN OTHERS THEN\n  NULL;\n",
+            "END;\n", False),
+        # 11-12: the label must reach the real BEGIN or the EXIT is invisible.
+        "11_fake_begin_plus_labelled_exit": (
+            base.labelled(fake, "  EXIT auth_block;\n"), "END auth_block;\n", False),
+        "12_fake_begin_plus_exit_when": (
+            base.labelled(fake, "  EXIT auth_block WHEN true;\n"),
+            "END auth_block;\n", False),
+        # 13: a nested LABELLED declare block, with the guard outside it.
+        "13_nested_labelled_declare_with_fake_begin": (
+            "BEGIN\n  <<inner_block>>\n  DECLARE\n"
+            f"    v_x integer := {fake};\n"
+            "  BEGIN\n    v_x := v_x;\n  END inner_block;\n" + guard + priv,
+            "END;\n", True),
+        # 14: the Round-14/18 shift operator beside the fake begin.
+        "14_fake_begin_plus_shift_expression": (
+            "DECLARE\n" f"  v_x integer := {fake};\n"
+            "  v_s integer := (SELECT 8 >> 1);\n  raise integer := 2;\n"
+            "BEGIN\n" + guard + priv, "END;\n", True),
+        # 15: the Round-19/21 non-ASCII identifier CONTINUATION control.
+        "15_fake_begin_plus_non_ascii_continuation": (
+            "DECLARE\n" f"  v_x integer := {fake};\n"
+            "  v́e integer := 1;\n  raise integer := 2;\n"
+            "BEGIN\n" + guard + priv, "END;\n", True),
+        # 16: two nested sections, only the INNER initializer spells begin.
+        "16_nested_declares_only_inner_has_fake_begin": (
+            "DECLARE\n  v_o integer := 1;\n"
+            "BEGIN\n  DECLARE\n"
+            f"    v_x integer := {fake};\n    raise integer := 2;\n"
+            "  BEGIN\n    v_x := v_x + raise + v_o;\n  END;\n" + guard + priv,
+            "END;\n", True),
+    }
+
+
+class Round22ComposedMutantTests(_Round22Base):
+    """Fresh PostgreSQL-17.11-valid compositions, not spacing variants.
+
+    Runtime outcomes, measured on the oracle as a non-member:
+
+      * 01-07, 11-12 run the UPDATE and raise nothing -> REJECT.
+      * 08 aborts with UNCONDITIONAL_ABORT before the guard -> REJECT.
+      * 09, 13-16 abort with TENANT_MEMBERSHIP_REQUIRED and leave the row
+        untouched -> ACCEPT.
+      * 10 raises inside the block and the handler swallows it, so the routine
+        returns having authorized nothing -> REJECT.
+    """
+
+    def test_composed_mutants(self) -> None:
+        mutants = _r22_mutants(self)
+        self.assertEqual(len(mutants), 16)
+        for name, (body, close, must_accept) in mutants.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(name, self.routine(body, close=close)), must_accept,
+                    f"`{name}` changed verdict",
+                )
+
+
+class Round22RegressionBatteryTests(_Round22Base):
+    """Rounds 13-21, re-proved THROUGH the Round-22 resolver.
+
+    Each entry is checked twice: as written, and with a declaration section
+    whose initializer spells `begin` prepended to the routine. The verdict must
+    be identical, which is what proves Round 22 reopened none of these classes -
+    a resolver that ended the section early or late would move one of them.
+    """
+
+    def battery(self) -> dict[str, tuple[str, bool]]:
+        guard, priv = self.GUARD, self.PRIV
+        return {
+            # Round 13 - non-executable text never authorizes.
+            "r13_guard_only_in_nested_dollar_literal": (
+                f"BEGIN\n  RAISE NOTICE $${OUTER}(p_org)$$;\n{priv}", False),
+            "r13_guard_only_in_string_literal": (
+                f"BEGIN\n  PERFORM '{OUTER}(p_org)';\n{priv}", False),
+            "r13_guard_only_in_block_comment": (
+                f"BEGIN\n  /* {OUTER}(p_org) */\n{priv}", False),
+            "r13_quoted_alias_is_not_a_call": (
+                f'BEGIN\n  PERFORM "{GUARD}";\n{priv}', False),
+            "r13_alias_named_raise_is_not_an_abort": (
+                f"DECLARE\n  raise integer := 1;\nBEGIN\n  raise := 2;\n{priv}", False),
+            # Round 14/18 - the shift operators invent neither label nor keyword.
+            "r14_shift_before_raise": (
+                f"DECLARE\n  v_x integer := (SELECT 8 >> 1);\nBEGIN\n{guard}{priv}", True),
+            "r18_shift_before_declare": (
+                f"BEGIN\n  PERFORM (SELECT 8 >> 1);\n{guard}{priv}", True),
+            # Round 15 - END LOOP does not carry a raise out of the loop.
+            "r15_raise_inside_never_entered_loop": (
+                f"BEGIN\n  WHILE false LOOP\n{guard}  END LOOP;\n{priv}", False),
+            # Round 16/17 - a DECLARED raise is inert, wherever it stands.
+            "r16_first_declared_raise": (
+                f"DECLARE\n  raise integer := 1;\n  v_x integer := 2;\n"
+                f"BEGIN\n{guard}{priv}", True),
+            "r17_second_declared_raise": (
+                f"DECLARE\n  v_x integer := 1;\n  raise integer := 2;\n"
+                f"BEGIN\n{guard}{priv}", True),
+            "r17_third_declared_raise": (
+                f"DECLARE\n  v_x integer := 1;\n  v_y integer := 2;\n"
+                f"  raise integer := 3;\nBEGIN\n{guard}{priv}", True),
+            "r17_raise_bare_equals_assignment": (
+                f"DECLARE\n  raise integer := 1;\nBEGIN\n  raise = 2;\n{guard}{priv}", True),
+            # Round 18 - a selector chain after the variable is still a target.
+            "r18_qualified_raise_assignment_target": (
+                f"DECLARE\n  raise public.t%ROWTYPE;\nBEGIN\n  raise.a := 2;\n"
+                f"{guard}{priv}", True),
+            # Round 19/20/21 - dotted structural tokens own nothing.
+            "r19_sql_case_arm_does_not_open_a_section": (
+                f"BEGIN\n  PERFORM (SELECT CASE WHEN true THEN 1 ELSE 0 END);\n"
+                f"{guard}{priv}", True),
+            "r20_dotted_end_is_a_column": (
+                f"BEGIN\n  PERFORM (SELECT t.end FROM public.t t LIMIT 1);\n"
+                f"{guard}{priv}", True),
+            "r21_sql_identifier_begin_in_a_control_frame": (
+                f"BEGIN\n  IF true THEN\n    PERFORM (SELECT begin FROM public.t LIMIT 1);\n"
+                f"  END IF;\n{guard}{priv}", True),
+            # Reachability, jumps and handlers.
+            "return_before_guard": (
+                f"BEGIN\n  RETURN;\n{guard}{priv}", False),
+            "standalone_perform_guard": (f"BEGIN\n{guard}{priv}", True),
+            "exception_handler_swallows_p0001": (
+                f"BEGIN\n{guard}{priv}EXCEPTION WHEN SQLSTATE 'P0001' THEN\n  NULL;\n",
+                False),
+            "unrelated_unique_violation_handler_is_harmless": (
+                f"BEGIN\n{guard}{priv}EXCEPTION WHEN unique_violation THEN\n  NULL;\n",
+                True),
+            "guard_inside_if_false_is_dead": (
+                f"BEGIN\n  IF false THEN\n{guard}  END IF;\n{priv}", False),
+        }
+
+    def test_each_closed_class_keeps_its_verdict(self) -> None:
+        for name, (body, must_accept) in self.battery().items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(name, self.routine(body)), must_accept,
+                    f"`{name}` changed verdict",
+                )
+
+    def test_a_fake_begin_declaration_changes_no_verdict(self) -> None:
+        """The Round-22 payload, composed onto every class above. A resolver
+        that mis-locates the opener moves at least one of these."""
+        for name, (body, must_accept) in self.battery().items():
+            with self.subTest(case=name):
+                if body.startswith("DECLARE\n"):
+                    decorated = body.replace(
+                        "DECLARE\n", f"DECLARE\n  v_fake integer := {self.FAKE};\n", 1)
+                else:
+                    decorated = (
+                        f"DECLARE\n  v_fake integer := {self.FAKE};\n" + body)
+                self.assertEqual(
+                    self.accepts(f"{name}_fake", self.routine(decorated)), must_accept,
+                    f"`{name}` changed verdict once an initializer spelled begin",
+                )
+
+
+class Round22CorpusTests(_Round22Base):
+    """The shipped corpus, through the Round-22 resolver."""
+
+    def test_numbered_migrations_122_to_191_stay_clean(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[2] / "sql" / "migrations"
+        files = sorted(
+            p for p in root.glob("*.sql")
+            if p.name[:3].isdigit() and 122 <= int(p.name[:3]) <= 191
+        )
+        self.assertEqual(len(files), 61, "the reviewed sweep changed size")
+        self.assertEqual(
+            {p.name: out for p in files if (out := guards.check_file(p))}, {},
+            "the 122-191 sweep stopped being clean",
+        )
+
+    def test_no_shipped_routine_declares_a_fake_block_opener(self) -> None:
+        """The corpus reason the change is inert here: no declaration section in
+        `sql/` spells BEGIN inside an initializer, so every span and every label
+        resolves exactly where it did before Round 22."""
+        root = pathlib.Path(__file__).resolve().parents[2] / "sql"
+        checked = 0
+        for path in sorted(root.rglob("*.sql")):
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue  # sql/archive/check-triggers.sql is not UTF-8
+            checked += 1
+            body = guards.mask_sql_checked(raw)[0]
+            for start, end in guards._declaration_spans(body):
+                self.assertIsNone(
+                    guards._SECTION_BEGIN_RE.search(body, start, end),
+                    f"{path.name} spells BEGIN inside a declaration section",
+                )
+        self.assertGreater(checked, 400, "the corpus sweep found almost nothing")
+
+
+class Round22SuiteCollectionTests(unittest.TestCase):
+    """CI must actually RUN the classes this file defines.
+
+    `ci-cd.yml` invokes the suite as `python3 scripts/ci/test_check_definer_guards.py`.
+    `unittest.main()` exits the process, so anything defined after it never runs -
+    and at the starting head ad2e748e the entry point sat mid-file, so CI
+    collected 267 of the 301 tests this file declares and every Round-21 class
+    was absent: not skipped, not reported, simply never defined. A gate that
+    reports green on tests it did not execute is the same failure mode the
+    scanner itself exists to prevent, so both halves are pinned here.
+    """
+
+    def source(self) -> str:
+        return pathlib.Path(__file__).read_text(encoding="utf-8")
+
+    def entry_line(self, lines: list[str]) -> int:
+        hits = [i for i, line in enumerate(lines) if line.startswith("if __name__")]
+        self.assertEqual(len(hits), 1, f"expected exactly one entry point, got {hits}")
+        return hits[0]
+
+    def test_nothing_is_defined_after_the_entry_point(self) -> None:
+        lines = self.source().splitlines()
+        after = lines[self.entry_line(lines) + 1:]
+        stray = [
+            line for line in after
+            if line.startswith("class ") or line.startswith("def ")
+        ]
+        self.assertEqual(
+            stray, [], "defined after unittest.main(); CI would never run it",
+        )
+
+    def test_every_declared_test_class_is_collected(self) -> None:
+        """The count CI sees must be the count the file declares."""
+        module = sys.modules[__name__]
+        declared = {
+            name for name, obj in vars(module).items()
+            if isinstance(obj, type)
+            and issubclass(obj, unittest.TestCase)
+            and not name.startswith("_")
+        }
+        suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+        collected = set()
+        stack = [suite]
+        while stack:
+            item = stack.pop()
+            if isinstance(item, unittest.TestSuite):
+                stack.extend(item)
+            else:
+                collected.add(type(item).__name__)
+        self.assertEqual(
+            declared - collected, set(),
+            "declared test classes that unittest never collected",
+        )
+        self.assertGreaterEqual(len(collected), 30, "the suite lost whole classes")
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+# This MUST stay the last statement in the file. It used to sit mid-file, just
+# after the PR #241 classes, and `unittest.main()` exits the process - so
+# `python3 scripts/ci/test_check_definer_guards.py`, which is exactly how the
+# `DEFINER guard scanner selftest` step in ci-cd.yml invokes this suite, never
+# reached the class definitions below it. Measured at the starting head
+# ad2e748e: 267 of 301 tests ran under CI's own command, and every Round-21
+# class was silently absent - defined never, let alone executed. Nothing was
+# marked skipped, so the green tick said 301 tests' worth of nothing.
+#
+# `python3 -m unittest scripts.ci.test_check_definer_guards` imports the module
+# instead of running it, which is why the full count was visible there and the
+# gap went unnoticed. Keep new classes ABOVE this block.
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
