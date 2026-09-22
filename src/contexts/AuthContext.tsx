@@ -212,6 +212,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
           setCurrentOrgIdState(null);
           safeLocalStorage.removeItem('current_org_id');
           lastLoadedUserIdRef.current = null;
+          tenantIdCacheRef.current = null;
         }
         
         setLoading(false);
@@ -231,39 +232,42 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
       console.log('⏳ Already signing out, skipping...');
       return;
     }
-    
+
     isSigningOutRef.current = true;
-    
+
     try {
       const supabase = getSupabase();
-      
-      // Clear local state first to prevent re-renders
+
+      // Do not expose signed-out UI until Supabase has actually removed the
+      // persisted session. Clearing React state first creates a short window
+      // where ProtectedRoute renders /login while a hard navigation can still
+      // restore the old session from storage.
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        console.error('Error signing out:', error);
+        throw error;
+      }
+
       setUser(null);
       setSession(null);
       setOrganizations([]);
       setCurrentOrgIdState(null);
       safeLocalStorage.removeItem('current_org_id');
       lastLoadedUserIdRef.current = null;
-      
-      const { error } = await supabase.auth.signOut();
-      
-      if (error) {
-        console.error('Error signing out:', error);
-        isSigningOutRef.current = false;
-        throw error;
-      }
+      tenantIdCacheRef.current = null;
     } catch (error) {
       console.error('Sign out error:', error);
-      isSigningOutRef.current = false;
       throw error;
     } finally {
-      // Reset after a short delay to allow auth state change to process
+      // Reset after a short delay to absorb a duplicate SIGNED_OUT callback
+      // without allowing a concurrent second sign-out request.
       setTimeout(() => {
         isSigningOutRef.current = false;
       }, 1000);
     }
   }, []);
-  
+
   const refreshSession = useCallback(async () => {
     try {
       const supabase = getSupabase();

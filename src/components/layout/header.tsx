@@ -17,7 +17,7 @@ import { HeaderUserMenu } from './HeaderUserMenu'
 export function Header() {
   const { i18n } = useTranslation()
   const navigate = useNavigate()
-  const { user: storeUser, logout: storeLogout } = useAuthStore()
+  const { user: storeUser } = useAuthStore()
   const { user: authUser, signOut } = useAuth()
   const { setSidebarOpen, setSidebarCollapsed, sidebarCollapsed, notifications } = useUIStore()
 
@@ -35,7 +35,10 @@ export function Header() {
   const handleLogout = async () => {
     try {
       await signOut()
-      storeLogout()
+      // AuthContext owns the Supabase sign-out request. Clear only the legacy
+      // Zustand mirror here; calling its logout() would issue a second
+      // overlapping Supabase signOut request.
+      useAuthStore.setState({ user: null, isAuthenticated: false })
       navigate('/login')
     } catch (error) {
       console.error('Logout error:', error)

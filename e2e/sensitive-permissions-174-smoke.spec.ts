@@ -233,11 +233,22 @@ async function writeEvidence(): Promise<void> {
 const missingCredentialReason = skipIfMissingEnv(['orgAdmin', 'regularUser']);
 
 test.describe('Migration 174 — sensitive permission smoke', () => {
+  // This test mutates real staging RBAC state. A retry after an attempt-level
+  // timeout can inherit an owned fixture that cleanup had no time to remove,
+  // causing the next attempt to observe permissions granted by its predecessor.
+  // One bounded attempt plus finally cleanup is safer than cross-attempt state.
+  test.describe.configure({ retries: 0 });
+
   // Declare the skip before fixtures are created, so a credential-free CI run
   // does not need to install or launch a browser merely to discover it is safe.
   test.skip(Boolean(missingCredentialReason), missingCredentialReason ?? undefined);
 
   test('full lifecycle: buttons follow the backend, not the client', async ({ page, baseURL }) => {
+    // Seven UI/RPC phases plus ownership-scoped cleanup can exceed the suite's
+    // 30s default on CI. Keep a bounded budget so finally cleanup still has
+    // time to revoke assignments and delete only this run's owned fixtures.
+    test.setTimeout(90_000);
+
     // Fail closed before a single byte is written anywhere. This checks the
     // FRONTEND host only — see the backend check right after login below for
     // why that alone is not enough.
