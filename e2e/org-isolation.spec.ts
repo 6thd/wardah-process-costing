@@ -16,6 +16,7 @@ import {
   type Request,
 } from '@playwright/test';
 import { accounts, loginAs, skipIfMissingEnv, attachSupabaseErrorListener } from './fixtures/auth';
+import { assertBackendAllowed } from './fixtures/prod-guard';
 
 const ISOLATION_TABLES = [
   'products',
@@ -111,6 +112,11 @@ test.describe('Org isolation — Org A vs Org B', () => {
     const pageA = await browser.newPage();
     try {
       orgASession = await loginAndCapture(pageA, accounts.regularUser, orgAStatePath);
+      assertBackendAllowed({
+        backendHost: new URL(orgASession.origin).host,
+        allowProdEnv: process.env.ALLOW_PROD_E2E,
+        expectedSupabaseHost: process.env.E2E_EXPECTED_SUPABASE_HOST,
+      });
     } finally {
       await pageA.close();
     }
@@ -119,6 +125,11 @@ test.describe('Org isolation — Org A vs Org B', () => {
     const pageB = await browser.newPage();
     try {
       orgBSession = await loginAndCapture(pageB, accounts.orgBUser, orgBStatePath);
+      assertBackendAllowed({
+        backendHost: new URL(orgBSession.origin).host,
+        allowProdEnv: process.env.ALLOW_PROD_E2E,
+        expectedSupabaseHost: process.env.E2E_EXPECTED_SUPABASE_HOST,
+      });
     } finally {
       await pageB.close();
     }
