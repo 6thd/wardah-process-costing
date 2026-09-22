@@ -9568,21 +9568,33 @@ class Round19DeclareBlockEvidenceTests(_Round19Base):
     # (TENANT_MEMBERSHIP_REQUIRED, bins left at 55), so `True` is the correct
     # verdict and `False` records a FAIL-CLOSED residue.
     #
-    # The three that stay rejected are NOT the DECLARE-evidence class this
-    # round closes, and none of them changed here - all three were rejected at
-    # the Round 18 head too. `_control_frames()` pushes a frame for the TOKEN
-    # `loop` or `begin`, so the bare column name leaves that frame on the stack
-    # and the RAISE that follows no longer sees the IF as `stack[-1]`. Telling
-    # that frame apart needs the loop-header and SQL-expression reading
-    # Scanner v1 deliberately does not do; the effect is to WITHHOLD a
-    # boundary, which reports a finding rather than accepting one, so it is
-    # left standing rather than closed by guesswork.
+    # Round 19 recorded three of the five as a FAIL-CLOSED residue:
+    # `_control_frames()` pushed a frame for the TOKEN `loop` or `begin`, so the
+    # bare column name left that frame on the stack and the RAISE that followed
+    # no longer saw the IF as `stack[-1]`. Round 19 named what closing it would
+    # take - "the loop-header and SQL-expression reading Scanner v1 deliberately
+    # does not do" - and declined to guess.
+    #
+    # Round 21 built exactly that reading, because the SAME missing proof was
+    # the Codex A1 acceptance bypass in the other direction: a frame pushed from
+    # a bare SQL `begin` took the EXCEPTION section away from the real block and
+    # a swallowed assertion read as live. `_owns_control_frame()` now proves the
+    # opener before pushing, so no frame is manufactured here either, and the
+    # residue closes as a consequence rather than by a special case.
+    #
+    # The verdicts below are therefore now all `True`, which is the verdict this
+    # table always named as the correct one. Re-proved on PostgreSQL 17.11 at
+    # Round 21: each of the three raises TENANT_MEMBERSHIP_REQUIRED for a
+    # non-member and leaves bins.actual_qty at 55, so the IF really is the
+    # authorization boundary the scanner now sees. The FALSE-GREEN direction is
+    # unchanged and still asserted above: all five must still be REJECTED when
+    # the same statement is used to hide an outer-level abort.
     DENY_VISIBLE_THROUGH = {
         "case_then": True,
         "case_else": True,
-        "loop_ident": False,
-        "loop_label": False,
-        "begin_ident": False,
+        "loop_ident": True,
+        "loop_label": True,
+        "begin_ident": True,
     }
 
     def test_sql_expression_declare_does_not_hide_a_real_deny(self) -> None:
@@ -10910,3 +10922,934 @@ class Round20CorpusTests(_Round20Base):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# ---------------------------------------------------------------------------
+# Round 21: lexical ownership and structural ownership
+# ---------------------------------------------------------------------------
+# Three independent Round-20 reviewers reported four P1 parser defects on head
+# 7f407386bf30bbac3fe2a09623a1f0fb79d98a5c. They are two root causes.
+#
+# ROOT CAUSE A - a structural keyword MATCH was treated as structural
+# OWNERSHIP. `_control_frames()` mutated frame state from token TEXT alone.
+#   A1 (Codex): `BEGIN`, `IF` and `LOOP` are UNRESERVED in PostgreSQL, so a
+#     bare SQL column named `begin` pushed a BEGIN frame. The EXCEPTION section
+#     then attached to that fake frame instead of the real block, the real
+#     block was left handler-less and dropped as unclosed, and an assertion the
+#     handler demonstrably swallows was reported as a live authorization
+#     boundary.
+#   A2 (Grok): a reserved-looking word after a dot is an ordinary SQL
+#     identifier. `t.end`, `t . end` and `(t).end` all popped a live frame.
+#
+# ROOT CAUSE B - Python's lexical classes were used where PostgreSQL's were
+# meant.
+#   B1 (Claude): multi-word structural patterns were spelled `END\s+IF`.
+#     Measured on 17.11, 23 of the 29 code points Python's `\s` matches are NOT
+#     PostgreSQL whitespace and 19 of those are PostgreSQL identifier
+#     CONTINUATION characters, so `END IF` - ONE identifier - read as the
+#     structural token `END IF`.
+#   B2 (Grok): `_is_escape_string()` decided whether `E` before a quote was a
+#     literal prefix with `str.isalnum() or "_"`, which is narrower than
+#     ident_cont. An identifier ending in `E` therefore masked an ordinary
+#     literal as an E-string and swallowed the executable text behind it.
+#
+# Every fixture below was compiled on PostgreSQL 17.11 before any scanner
+# assertion was trusted, and the acceptance cases were run to prove the runtime
+# semantics the verdict is supposed to model.
+
+
+#: BEGIN/EXCEPTION, IF, LOOP, CASE and DECLARE, real and nested. `True` = the guard is a live outer-level boundary.
+_R21_REAL_STRUCTURE = (
+    (
+        'begin_exception_handler_swallows',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\nEXCEPTION WHEN OTHERS THEN\n  NULL;\n',
+        False,
+    ),
+    (
+        'nested_begin_guard_outer',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  BEGIN\n    v_x := 1;\n  END;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'nested_begin_guard_inner',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  BEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  END;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        False,
+    ),
+    (
+        'nested_exception_inner_swallows',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  BEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  EXCEPTION WHEN OTHERS THEN\n    NULL;\n  END;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        False,
+    ),
+    (
+        'nested_exception_outer_only',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  BEGIN\n    v_x := 1;\n  EXCEPTION WHEN unique_violation THEN\n    NULL;\n  END;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'if_then_elsif_else_end_if',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  IF v_x = 1 THEN\n    v_x := 1;\n  ELSIF v_x = 2 THEN\n    v_x := 2;\n  ELSE\n    v_x := 3;\n  END IF;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'guard_inside_if_is_conditional',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  IF v_x IS NULL THEN\n    PERFORM public.wardah_assert_org_member(p_org);\n  END IF;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        False,
+    ),
+    (
+        'bare_loop',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  LOOP\n    EXIT;\n  END LOOP;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'while_loop',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  WHILE v_x IS NULL LOOP\n    EXIT;\n  END LOOP;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'for_loop',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  FOR v_x IN 1..3 LOOP\n    EXIT;\n  END LOOP;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'foreach_loop',
+        'DECLARE\n  v_x integer;\n  v_a integer[] := ARRAY[1,2];\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  FOREACH v_x IN ARRAY v_a LOOP\n    EXIT;\n  END LOOP;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'guard_inside_loop_is_nested',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  LOOP\n    PERFORM public.wardah_assert_org_member(p_org);\n    EXIT;\n  END LOOP;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        False,
+    ),
+    (
+        'plpgsql_case_end_case',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  CASE v_x\n    WHEN 1 THEN v_x := 1;\n    ELSE v_x := 2;\n  END CASE;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'guard_inside_case_is_nested',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  CASE v_x\n    WHEN 1 THEN\n      PERFORM public.wardah_assert_org_member(p_org);\n    ELSE v_x := 2;\n  END CASE;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        False,
+    ),
+    (
+        'outer_declare',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'nested_declare_block',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  DECLARE v_y integer;\n  BEGIN\n    v_y := 1;\n  END;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'labelled_declare_block',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  <<blk>>\n  DECLARE v_y integer;\n  BEGIN\n    v_y := 1;\n  END blk;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'declare_in_nested_block_position',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  IF v_x IS NULL THEN\n    DECLARE v_y integer;\n    BEGIN\n      v_y := 1;\n    END;\n  END IF;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+)
+
+
+#: Every RAISE form, in the negated-predicate deny idiom. `True` = the branch really denies; the five non-aborting levels do not.
+_R21_REAL_RAISE = (
+    (
+        'raise_exception_text',
+        "RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';",
+        True,
+    ),
+    (
+        'raise_sqlstate',
+        "RAISE SQLSTATE 'P0001';",
+        True,
+    ),
+    (
+        'raise_using',
+        "RAISE EXCEPTION 'DENIED' USING ERRCODE = 'P0001';",
+        True,
+    ),
+    (
+        'raise_condition_name',
+        'RAISE insufficient_privilege;',
+        True,
+    ),
+    (
+        'raise_format_only',
+        "RAISE 'TENANT_MEMBERSHIP_REQUIRED';",
+        True,
+    ),
+    (
+        'raise_notice_is_not_a_deny',
+        "RAISE NOTICE 'x';",
+        False,
+    ),
+    (
+        'raise_warning_is_not_a_deny',
+        "RAISE WARNING 'x';",
+        False,
+    ),
+    (
+        'raise_info_is_not_a_deny',
+        "RAISE INFO 'x';",
+        False,
+    ),
+    (
+        'raise_log_is_not_a_deny',
+        "RAISE LOG 'x';",
+        False,
+    ),
+    (
+        'raise_debug_is_not_a_deny',
+        "RAISE DEBUG 'x';",
+        False,
+    ),
+)
+
+
+#: EXCEPTION handler conditions. `True` = this handler does NOT catch the assertion, so the guard survives it.
+_R21_HANDLERS = (
+    (
+        'when_others',
+        'WHEN OTHERS THEN\n  NULL;\n',
+        False,
+    ),
+    (
+        'when_raise_exception',
+        'WHEN raise_exception THEN\n  NULL;\n',
+        False,
+    ),
+    (
+        'when_sqlstate_P0001',
+        "WHEN SQLSTATE 'P0001' THEN\n  NULL;\n",
+        False,
+    ),
+    (
+        'when_category_P0000',
+        "WHEN SQLSTATE 'P0000' THEN\n  NULL;\n",
+        False,
+    ),
+    (
+        'when_plpgsql_error',
+        'WHEN plpgsql_error THEN\n  NULL;\n',
+        False,
+    ),
+    (
+        'when_unique_violation',
+        'WHEN unique_violation THEN\n  NULL;\n',
+        True,
+    ),
+    (
+        'when_unrelated_or_list',
+        'WHEN unique_violation OR division_by_zero THEN\n  NULL;\n',
+        True,
+    ),
+    (
+        'when_catching_or_list',
+        'WHEN unique_violation OR raise_exception THEN\n  NULL;\n',
+        False,
+    ),
+)
+
+
+#: 16 fresh composed fixtures, each compiled on PostgreSQL 17.11.
+_R21_MUTANTS = (
+    (
+        'm01_sql_column_begin_before_exception',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n  v_x := (SELECT begin FROM public.t LIMIT 1);\nEXCEPTION WHEN OTHERS THEN\n  NULL;\n',
+        False,
+    ),
+    (
+        'm02_dotted_end_with_sql_case',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  v_x := (SELECT CASE WHEN t.end = 1 THEN 1 ELSE 0 END FROM public.t t LIMIT 1);\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'm03_dotted_end_before_exception',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n  v_x := (SELECT t.end FROM public.t LIMIT 1);\nEXCEPTION WHEN OTHERS THEN\n  NULL;\n',
+        False,
+    ),
+    (
+        'm04_dotted_begin_with_nested_begin',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  v_x := (SELECT t.begin FROM public.t LIMIT 1);\n  BEGIN\n    v_x := 1;\n  EXCEPTION WHEN OTHERS THEN\n    NULL;\n  END;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'm05_dotted_loop_with_real_loop',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  LOOP\n    PERFORM public.wardah_assert_org_member(p_org);\n  v_x := (SELECT t.loop FROM public.t LIMIT 1);\n    EXIT;\n  END LOOP;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        False,
+    ),
+    (
+        'm06_dotted_case_with_sql_case',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  v_x := (SELECT CASE WHEN t.case = 1 THEN 1 ELSE 0 END FROM public.t t LIMIT 1);\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'm07_end_nbsp_if_one_identifier',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  IF v_x IS NULL THEN\n  v_x := (SELECT end\xa0if FROM public.t LIMIT 1);\n    PERFORM public.wardah_assert_org_member(p_org);\n  END IF;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        False,
+    ),
+    (
+        'm08_end_ideographic_loop_one_identifier',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  LOOP\n  v_x := (SELECT end\u3000loop FROM public.t LIMIT 1);\n    PERFORM public.wardah_assert_org_member(p_org);\n    EXIT;\n  END LOOP;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        False,
+    ),
+    (
+        'm09_estring_prefix_dollar_identifier',
+        "DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  v_s := v$e'a\\';\n  RETURN;\n  -- don't reach here\n  PERFORM public.wardah_assert_org_member(p_org);\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n",
+        False,
+    ),
+    (
+        'm10_estring_prefix_nonascii_identifier',
+        "DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  v_s := v\u0301e'a\\';\n  RETURN;\n  -- don't reach here\n  PERFORM public.wardah_assert_org_member(p_org);\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n",
+        False,
+    ),
+    (
+        'm11_dotted_structural_word_with_real_outer_raise',
+        "DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  v_x := (SELECT t.exception FROM public.t LIMIT 1);\n  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n  PERFORM public.wardah_assert_org_member(p_org);\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n",
+        False,
+    ),
+    (
+        'm12_dotted_structural_word_with_standalone_perform',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  v_x := (SELECT t.then FROM public.t LIMIT 1);\n  PERFORM 1;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'm13_shift_expression_with_dotted_structural_identifier',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  v_x := (SELECT t.a << t.b >> t.end FROM public.t t LIMIT 1);\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'm14_labelled_block_beside_dotted_identifier',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  <<blk>>\n  BEGIN\n  v_x := (SELECT t.end FROM public.t LIMIT 1);\n  END blk;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+    (
+        'm15_handler_with_estring_lexical_edge',
+        "DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  v_s := v$e'a\\';\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\nEXCEPTION WHEN OTHERS THEN\n  NULL;\n",
+        False,
+    ),
+    (
+        'm16_nested_block_sql_case_whitespace_edge',
+        'DECLARE\n  v_x integer;\n  v_s text;\nBEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n  BEGIN\n    v_x := (SELECT CASE WHEN t.c = 1 THEN 1 ELSE 0 END FROM public.t t LIMIT 1);\n  v_x := (SELECT end\xa0if FROM public.t LIMIT 1);\n  END;\n  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n',
+        True,
+    ),
+)
+
+
+class _Round21Base(unittest.TestCase):
+    """Fixtures shared by the Round-21 classes.
+
+    ORACLE, PostgreSQL 17.11 (`SELECT version()` = 17.11 on x86_64-pc-linux-gnu):
+
+      * `_PG_WS` is EXACTLY PostgreSQL's lexical whitespace. Every one of the 29
+        code points Python's `\\s` matches was fed to `SELECT<cp>1` and to
+        `CREATE TEMP TABLE t AS SELECT 1 AS a<cp>b`; the six ASCII members of
+        `_PG_WS` separated tokens and nothing else did.
+      * NBSP and IDEOGRAPHIC_SPACE are identifier CONTINUATION characters:
+        `a\\u00a0b` and `a\\u3000b` each came back from `pg_attribute` as ONE
+        column name, as did `end\\u00a0if` and `end\\u3000loop`.
+      * U+0301 continues an identifier too, and `str.isalnum()` says it does
+        not - it is a combining mark, Unicode category Mn.
+      * `v$e` and `v\\u0301e` are legal unquoted identifiers, so with a DOMAIN of
+        either name `v$e'a\\'` is a type-prefixed constant whose literal is
+        `a\\` - NOT an escape string.
+    """
+
+    NBSP = " "
+    IDEOGRAPHIC = "　"
+    ACUTE = "́"
+    #: In Python's `\s` but NOT PostgreSQL whitespace, and PostgreSQL
+    #: identifier continuation characters - the whole B1 wedge.
+    PY_SPACE_IS_PG_IDENT_CONT = (
+        "\u0085", " ", " ", " ", " ", " ", " ",
+        " ", " ", " ", " ", " ", " ", " ",
+        " ", " ", " ", " ", "　",
+    )
+    #: In Python's `\s`, not PostgreSQL whitespace, and not ident_cont either:
+    #: PostgreSQL rejects these outright.
+    PY_SPACE_IS_NOTHING_TO_PG = ("\u001c", "\u001d", "\u001e", "\u001f")
+    #: Every word this scanner treats as structure. PostgreSQL accepts all 12
+    #: after a dot, in all three spellings.
+    STRUCTURAL_WORDS = (
+        "end", "begin", "loop", "case", "if", "raise",
+        "exception", "when", "return", "then", "else", "elsif",
+    )
+    QUALIFICATIONS = ("t.{w}", "t . {w}", "(t).{w}")
+
+    GUARD = "  PERFORM public.wardah_assert_org_member(p_org);\n"
+    PRIV = "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+    DECL = "DECLARE\n  v_x integer;\n  v_s text;\n"
+    SEL = "  v_x := (SELECT {expr} FROM public.t LIMIT 1);\n"
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._dir.name)
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def verdict(self, name: str, sql: str) -> list[str]:
+        path = self.root / f"999_round21_{name}.sql"
+        path.write_text(sql, encoding="utf-8")
+        return guards.check_file(path)
+
+    def accepts(self, name: str, sql: str) -> bool:
+        return self.verdict(name, sql) == []
+
+    @staticmethod
+    def routine(body: str) -> str:
+        return (
+            "CREATE FUNCTION public.probe_fn(p_org uuid)\n"
+            "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $body$\n"
+            f"{body}"
+            "END;\n"
+            "$body$;\n"
+        )
+
+    @staticmethod
+    def slug(text: str) -> str:
+        return "".join(
+            ch if ch.isalnum() or ch == "_" else f"u{ord(ch):x}" for ch in text
+        )
+
+
+class Round21LexicalPrimitiveTests(_Round21Base):
+    """PARSER-INTERNAL. ONE authoritative source per lexical concept."""
+
+    def test_the_file_spells_postgresql_whitespace_once(self) -> None:
+        self.assertEqual(guards._PG_WS_CHARS, " \t\n\r\f\v")
+        self.assertEqual(guards._PLPGSQL_WS, guards._PG_WS_CHARS)
+        self.assertEqual(guards._PG_WS, re.escape(guards._PG_WS_CHARS))
+        self.assertEqual(guards._WS1, f"[{guards._PG_WS}]+")
+        self.assertEqual(guards._WS0, f"[{guards._PG_WS}]*")
+
+    def test_the_regex_class_and_the_membership_twin_agree(self) -> None:
+        """The two spellings were transcribed separately before Round 21. They
+        are derived from one string now, so they cannot drift."""
+        klass = re.compile(f"[{guards._PG_WS}]")
+        for cp in range(0x110000):
+            ch = chr(cp)
+            self.assertEqual(
+                bool(klass.match(ch)), ch in guards._PLPGSQL_WS,
+                f"U+{cp:04X} disagrees between the class and the membership set",
+            )
+
+    def test_python_whitespace_is_not_postgresql_whitespace(self) -> None:
+        """The measured difference, straight from the 17.11 oracle matrix."""
+        py = {chr(c) for c in range(0x110000) if re.match(r"\s", chr(c))}
+        pg = set(guards._PLPGSQL_WS)
+        self.assertEqual(len(py), 29)
+        self.assertTrue(pg < py)
+        self.assertEqual(len(py - pg), 23)
+        self.assertEqual(
+            set(self.PY_SPACE_IS_PG_IDENT_CONT) | set(self.PY_SPACE_IS_NOTHING_TO_PG),
+            py - pg,
+        )
+
+    def test_the_python_space_wedge_is_postgresql_identifier_continuation(self) -> None:
+        """19 of those 23 CONTINUE a PostgreSQL identifier, which is what made
+        `END\\s+IF` match text PostgreSQL reads as one identifier."""
+        for ch in self.PY_SPACE_IS_PG_IDENT_CONT:
+            with self.subTest(codepoint=f"U+{ord(ch):04X}"):
+                self.assertTrue(guards._continues_identifier(ch, 0))
+                self.assertNotIn(ch, guards._PLPGSQL_WS)
+        for ch in self.PY_SPACE_IS_NOTHING_TO_PG:
+            with self.subTest(codepoint=f"U+{ord(ch):04X}"):
+                self.assertFalse(guards._continues_identifier(ch, 0))
+                self.assertNotIn(ch, guards._PLPGSQL_WS)
+
+    def test_ident_continuation_has_one_definition(self) -> None:
+        """`_continues_identifier()` is the membership twin of `_IDENT_CONT`,
+        and answers for a string and for the masker's list of characters
+        alike."""
+        for ch in ("a", "9", "_", "$", self.ACUTE, self.NBSP, "\U0001F600"):
+            with self.subTest(char=repr(ch)):
+                self.assertTrue(guards._continues_identifier(ch, 0))
+                self.assertTrue(guards._continues_identifier([ch], 0))
+        for ch in (" ", "\t", ".", "'", "(", "-"):
+            with self.subTest(char=repr(ch)):
+                self.assertFalse(guards._continues_identifier(ch, 0))
+                self.assertFalse(guards._continues_identifier([ch], 0))
+        self.assertFalse(guards._continues_identifier("abc", -1))
+        self.assertFalse(guards._continues_identifier("abc", 3))
+
+    def test_no_compiled_pattern_uses_a_python_lexical_class(self) -> None:
+        """The Round-22 guard: no second alphabet may reappear.
+
+        Every compiled pattern in the scanner is checked, not a chosen few, so a
+        NEW security-bearing regex written with `\\s`, `\\b` or `\\w` fails here the
+        moment it is added rather than in the next review round.
+        """
+        patterns = {
+            name: value.pattern for name in dir(guards)
+            if isinstance(value := getattr(guards, name), re.Pattern)
+        }
+        self.assertGreater(len(patterns), 60, "the scanner lost its patterns")
+        for name, pattern in sorted(patterns.items()):
+            for klass in (r"\s", r"\b", r"\w", r"\S", r"\W"):
+                with self.subTest(pattern=name, klass=klass):
+                    self.assertNotIn(
+                        klass, pattern,
+                        f"{name} defines a PostgreSQL lexical concept with "
+                        f"Python's `{klass}`",
+                    )
+
+    def test_the_two_surviving_python_classes_are_class_a(self) -> None:
+        """Both remaining occurrences are Class A - their input grammar cannot
+        contain a PostgreSQL identifier or whitespace ambiguity:
+
+          * `migration_cutoff:\\s*(\\d+)` reads the baseline manifest, which is
+            project YAML, not PostgreSQL source.
+          * `_CONDITION_NAME_RE` matches a PostgreSQL CONDITION name, and every
+            name in that catalog is ASCII; a term containing anything else is
+            not a condition name and PostgreSQL rejects the routine outright.
+
+        Everything else - `\\b`, `str.isalnum()`, `str.isspace()` and every
+        hand-written identifier walk - is gone from executable code.
+        """
+        source = pathlib.Path(guards.__file__).read_text(encoding="utf-8")
+        code = "\n".join(
+            line for line in source.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        code = re.sub(r'"""(?:.|\n)*?"""', "", code)
+        self.assertNotIn(".isalnum()", code)
+        self.assertNotIn(".isspace()", code)
+        self.assertEqual(
+            code.count(r"\s"), 1,
+            "a Python whitespace class came back into executable code",
+        )
+        self.assertIn(r"migration_cutoff:\s*", code)
+        self.assertEqual(
+            guards._CONDITION_NAME_RE.pattern, r"^[A-Za-z_][A-Za-z0-9_]*$"
+        )
+
+    def test_every_structural_pattern_uses_postgresql_whitespace(self) -> None:
+        """The multiword patterns must mean keyword + PostgreSQL whitespace +
+        keyword. The single-word ones carry no separator at all and are listed
+        separately so the assertion stays exact for both."""
+        ws = f"[{guards._PG_WS}]"
+        multiword = (
+            "_BLOCK_TOKEN_RE", "_NON_ABORTING_RAISE_RE", "_SECURITY_DEFINER_RE",
+            "_SECURITY_INVOKER_RE", "_CREATE_ROUTINE_RE", "_ALTER_ROUTINE_RE",
+            "_DEFAULT_PRIVILEGES_RE", "_ON_ROUTINE_RE",
+            "_ON_ALL_ROUTINES_RE",
+        )
+        separator_only = (
+            "_RAISE_BEFORE_RE", "_PERFORM_HEAD_RE", "_TRAILING_IDENT_RE",
+            "GUARD_RE", "NEGATED_PREDICATE_RE",
+        )
+        for name in multiword + separator_only:
+            with self.subTest(pattern=name):
+                self.assertIn(
+                    ws, getattr(guards, name).pattern,
+                    f"{name} lost its PostgreSQL whitespace class",
+                )
+        self.assertEqual(
+            guards._EXECUTE_PRIV_RE.pattern, guards._pg_kw("EXECUTE|ALL"),
+            "the last Python word boundary must stay retired",
+        )
+
+
+class Round21WhitespacePatternTests(_Round21Base):
+    """B1, end to end: a multiword structural token is keyword + PG whitespace."""
+
+    def test_block_lexer_refuses_a_one_identifier_multiword_token(self) -> None:
+        """PARSER-INTERNAL. `end<cp>if` is ONE identifier on 17.11 for all 19
+        wedge code points; the block lexer must see no token in any of them."""
+        for ch in self.PY_SPACE_IS_PG_IDENT_CONT:
+            for keyword in ("IF", "LOOP", "CASE"):
+                text = f"END{ch}{keyword}"
+                with self.subTest(codepoint=f"U+{ord(ch):04X}", keyword=keyword):
+                    self.assertTrue(
+                        re.search(rf"END\s+{keyword}", text, re.IGNORECASE),
+                        "the retired Python spelling should match - that is the bug",
+                    )
+                    self.assertIsNone(guards._BLOCK_TOKEN_RE.search(text))
+
+    def test_block_lexer_still_reads_real_postgresql_separators(self) -> None:
+        for sep in guards._PLPGSQL_WS:
+            for keyword in ("IF", "LOOP", "CASE"):
+                with self.subTest(codepoint=f"U+{ord(sep):04X}", keyword=keyword):
+                    m = guards._BLOCK_TOKEN_RE.search(f"END{sep}{keyword}")
+                    self.assertIsNotNone(m)
+                    self.assertEqual(
+                        " ".join(m.group(1).upper().split()), f"END {keyword}",
+                    )
+        for gap in ("  ", " \t ", "\n", " \n\t", "\r\n"):
+            with self.subTest(gap=repr(gap)):
+                m = guards._BLOCK_TOKEN_RE.search(f"END{gap}IF")
+                self.assertIsNotNone(m)
+                self.assertEqual(" ".join(m.group(1).upper().split()), "END IF")
+
+    def test_a_fake_end_if_no_longer_frees_a_conditional_guard(self) -> None:
+        """RED at 7f407386: ACCEPT. Oracle: `end\\u00a0if` is one column name,
+        and calling the routine with the flag false reached the privileged
+        UPDATE with the guard never executed."""
+        for ch in self.PY_SPACE_IS_PG_IDENT_CONT:
+            with self.subTest(codepoint=f"U+{ord(ch):04X}"):
+                self.assertFalse(
+                    self.accepts(
+                        f"fake_end_if_{self.slug(ch)}",
+                        self.routine(
+                            self.DECL + "BEGIN\n"
+                            "  IF v_x IS NULL THEN\n"
+                            + self.SEL.format(expr=f"end{ch}if")
+                            + "  " + self.GUARD
+                            + "  END IF;\n" + self.PRIV
+                        ),
+                    ),
+                    "a one-identifier END IF popped a live IF frame and the "
+                    "conditional guard was credited at outer statement level",
+                )
+
+
+class Round21EscapeStringPrefixTests(_Round21Base):
+    """B2: the E-string prefix boundary is PostgreSQL's ident_cont."""
+
+    def test_a_real_escape_string_is_still_one(self) -> None:
+        for prefix in ("E", "e"):
+            for lead in ("", " ", "(", ",", "=", "||", "\t", "\n"):
+                sql = f"{lead}{prefix}'x'"
+                with self.subTest(prefix=prefix, lead=repr(lead)):
+                    self.assertTrue(
+                        guards._is_escape_string(sql, sql.index("'")),
+                        "a genuine E'' literal stopped being an escape string",
+                    )
+
+    def test_an_identifier_ending_in_e_is_not_a_prefix(self) -> None:
+        """Every one of these is ONE identifier on 17.11, so the quote after it
+        opens an ordinary literal."""
+        for ident in (
+            "v$e", "ve", "v_e", "v9e", "abce", "x$$e", "raise",
+            f"v{self.ACUTE}e", f"v{self.NBSP}e", "v​e", "v\U0001F600e",
+        ):
+            sql = f"{ident}'a'"
+            with self.subTest(identifier=ident):
+                self.assertFalse(
+                    guards._is_escape_string(sql, sql.index("'")),
+                    f"`{ident}` ends in E but is one identifier, not a prefix",
+                )
+
+    def test_the_retired_boundary_disagreed_exactly_where_it_mattered(self) -> None:
+        """PARSER-INTERNAL. `str.isalnum() or "_"` and ident_cont differ on `$`
+        and on every non-ASCII code point outside L*/N* - which is the whole
+        attack surface."""
+        for ch in ("$", self.ACUTE, "​", "·", self.NBSP):
+            with self.subTest(char=f"U+{ord(ch):04X}"):
+                self.assertFalse(ch.isalnum() or ch == "_")
+                self.assertTrue(guards._continues_identifier(ch, 0))
+
+    def test_a_masked_literal_no_longer_swallows_a_terminating_return(self) -> None:
+        """RED at 7f407386: ACCEPT. Both routines compile on 17.11; the RETURN
+        ends the invocation, so the guard behind it is dead code."""
+        for label, ident in (("dollar", "v$e"), ("nonascii", f"v{self.ACUTE}e")):
+            with self.subTest(identifier=ident):
+                self.assertFalse(
+                    self.accepts(
+                        f"estring_prefix_{label}",
+                        self.routine(
+                            self.DECL + "BEGIN\n"
+                            f"  v_s := {ident}'a\\';\n"
+                            "  RETURN;\n"
+                            "  -- don't reach here\n"
+                            + self.GUARD + self.PRIV
+                        ),
+                    ),
+                    "an ordinary literal was masked as an E-string and hid the "
+                    "RETURN that makes the guard dead",
+                )
+
+    def test_chained_literal_behaviour_is_preserved(self) -> None:
+        """Round 13's quote-continuation rule still holds through the new
+        boundary."""
+        self.assertTrue(
+            self.accepts(
+                "chained_literal_still_reads",
+                self.routine(
+                    self.DECL + "BEGIN\n" + self.GUARD
+                    + "  v_s := 'a'\n         'b';\n" + self.PRIV
+                ),
+            )
+        )
+
+
+class Round21QualifiedIdentifierTests(_Round21Base):
+    """A2: one rule - SQL `.` qualification never owns PL/pgSQL structure."""
+
+    def test_the_rule_is_shared_by_every_structural_word(self) -> None:
+        """PARSER-INTERNAL. Not END alone: all 12 words this scanner treats as
+        structure are accepted after a dot by PostgreSQL 17.11, in all three
+        spellings."""
+        for word in self.STRUCTURAL_WORDS:
+            for shape in self.QUALIFICATIONS:
+                expr = shape.format(w=word)
+                body = f"  v_x := (SELECT {expr} FROM public.t LIMIT 1);\n"
+                pos = body.lower().rindex(word)
+                with self.subTest(expression=expr):
+                    self.assertTrue(
+                        guards._is_sql_qualified(body, pos),
+                        f"`{expr}` is a qualified SQL name, not PL/pgSQL structure",
+                    )
+
+    def test_real_structural_keywords_are_not_qualified(self) -> None:
+        body = (
+            "BEGIN\n  IF v_x IS NULL THEN\n    LOOP\n      EXIT;\n"
+            "    END LOOP;\n  END IF;\nEXCEPTION WHEN OTHERS THEN\n  RAISE;\nEND;\n"
+        )
+        for m in guards._BLOCK_TOKEN_RE.finditer(body):
+            with self.subTest(token=m.group(1)):
+                self.assertFalse(guards._is_sql_qualified(body, m.start()))
+
+    def test_a_dotted_end_no_longer_detaches_a_handler(self) -> None:
+        """RED at 7f407386: ACCEPT for all three spellings. Oracle: the guard
+        raises when called directly, while the SECURITY DEFINER routine returns
+        normally - the handler really does swallow it."""
+        for shape in self.QUALIFICATIONS:
+            expr = shape.format(w="end")
+            with self.subTest(expression=expr):
+                self.assertFalse(
+                    self.accepts(
+                        f"dotted_end_{self.slug(expr)}",
+                        self.routine(
+                            self.DECL + "BEGIN\n" + self.GUARD + self.PRIV
+                            + self.SEL.format(expr=expr)
+                            + "EXCEPTION WHEN OTHERS THEN\n  NULL;\n"
+                        ),
+                    ),
+                    f"`{expr}` popped the enclosing BEGIN and hid its handler",
+                )
+
+    def test_a_dotted_end_no_longer_steals_a_case_frame(self) -> None:
+        self.assertFalse(
+            self.accepts(
+                "dotted_end_steals_case",
+                self.routine(
+                    self.DECL + "BEGIN\n"
+                    "  CASE v_x\n    WHEN 1 THEN\n    " + self.GUARD
+                    + self.SEL.format(expr="t.end")
+                    + "    ELSE v_x := 2;\n  END CASE;\n" + self.PRIV
+                ),
+            ),
+            "a qualified `t.end` closed the CASE and lifted a nested guard to "
+            "the outer statement level",
+        )
+
+
+class Round21FrameOwnershipTests(_Round21Base):
+    """A1: a frame is pushed only when the token is PROVEN to open one."""
+
+    def test_a_bare_sql_column_named_begin_pushes_no_frame(self) -> None:
+        """RED at 7f407386: ACCEPT. `SELECT begin FROM t` runs on 17.11 -
+        `begin` is UNRESERVED - and the handler swallows the assertion, but the
+        fake frame took the handler away from the real block."""
+        self.assertFalse(
+            self.accepts(
+                "sql_column_begin_before_exception",
+                self.routine(
+                    self.DECL + "BEGIN\n" + self.GUARD + self.PRIV
+                    + self.SEL.format(expr="begin")
+                    + "EXCEPTION WHEN OTHERS THEN\n  NULL;\n"
+                ),
+            ),
+            "a SQL column named `begin` manufactured a BEGIN frame and a "
+            "swallowed assertion read as live",
+        )
+
+    def test_no_unreserved_opener_is_taken_on_its_word_alone(self) -> None:
+        """PARSER-INTERNAL, and the reason this is not three special cases:
+        BEGIN, IF and LOOP are each unreserved, and each is refused where an
+        expression - not a statement - is what stands before it."""
+        for token in ("BEGIN", "IF", "LOOP"):
+            body = f"  v_x := (SELECT {token.lower()} FROM public.t LIMIT 1);\n"
+            pos = body.lower().index(token.lower())
+            with self.subTest(token=token):
+                self.assertFalse(guards._owns_control_frame(body, token, pos))
+
+    def test_case_needs_no_position_proof(self) -> None:
+        """PARSER-INTERNAL. `case` is RESERVED, so it is never a bare column
+        name; an embedded SQL CASE is a real CASE frame, which is exactly why a
+        bare END closes one."""
+        body = "  v_x := (SELECT CASE WHEN true THEN 1 ELSE 0 END FROM t);\n"
+        self.assertTrue(
+            guards._owns_control_frame(body, "CASE", body.index("CASE"))
+        )
+
+    def test_every_real_opener_is_still_owned(self) -> None:
+        """The fail-OPEN direction for the frame model is DROPPING a frame
+        PostgreSQL really opens: the construct's own closer then pops somebody
+        else's. Each real opener below is proved, so none is dropped."""
+        openers = {
+            "body start": ("$body$\nBEGIN\n  PERFORM 1;\nEND;\n", "BEGIN", 1),
+            "after DECLARE": ("$body$\nDECLARE v int;\nBEGIN\n  PERFORM 1;\nEND;\n", "BEGIN", 1),
+            "after ;": ("$body$\nBEGIN\n  PERFORM 1;\n  BEGIN\n  END;\nEND;\n", "BEGIN", 2),
+            "after THEN": ("$body$\nBEGIN\n  IF x THEN\n    BEGIN\n    END;\n  END IF;\nEND;\n", "BEGIN", 2),
+            "after ELSE": ("$body$\nBEGIN\n  IF x THEN\n    NULL;\n  ELSE\n    BEGIN\n    END;\n  END IF;\nEND;\n", "BEGIN", 2),
+            "after LOOP": ("$body$\nBEGIN\n  LOOP\n    BEGIN\n    END;\n    EXIT;\n  END LOOP;\nEND;\n", "BEGIN", 2),
+            "in a handler": ("$body$\nBEGIN\n  PERFORM 1;\nEXCEPTION WHEN OTHERS THEN\n  BEGIN\n  END;\nEND;\n", "BEGIN", 2),
+            "after a label": ("$body$\nBEGIN\n  <<blk>>\n  BEGIN\n  END blk;\nEND;\n", "BEGIN", 2),
+            "IF after BEGIN": ("$body$\nBEGIN\n  IF x THEN\n    NULL;\n  END IF;\nEND;\n", "IF", 1),
+            "bare LOOP": ("$body$\nBEGIN\n  LOOP\n    EXIT;\n  END LOOP;\nEND;\n", "LOOP", 1),
+            "WHILE LOOP": ("$body$\nBEGIN\n  WHILE x LOOP\n    EXIT;\n  END LOOP;\nEND;\n", "LOOP", 1),
+            "FOR LOOP": ("$body$\nBEGIN\n  FOR i IN 1..3 LOOP\n    EXIT;\n  END LOOP;\nEND;\n", "LOOP", 1),
+            "FOREACH LOOP": ("$body$\nBEGIN\n  FOREACH v IN ARRAY a LOOP\n    EXIT;\n  END LOOP;\nEND;\n", "LOOP", 1),
+            "labelled WHILE LOOP": ("$body$\nBEGIN\n  <<lp>>\n  WHILE x LOOP\n    EXIT;\n  END LOOP;\nEND;\n", "LOOP", 1),
+        }
+        for label, (body, token, nth) in openers.items():
+            pos, found = -1, 0
+            for m in re.finditer(guards._pg_kw(token), body, re.IGNORECASE):
+                before = body[:m.start()].rstrip().upper()
+                if token in ("IF", "LOOP") and before.endswith("END"):
+                    continue
+                found += 1
+                if found == nth:
+                    pos = m.start()
+                    break
+            with self.subTest(opener=label):
+                self.assertGreaterEqual(pos, 0, "fixture did not contain the opener")
+                self.assertTrue(
+                    guards._owns_control_frame(body, token, pos),
+                    f"a real {token} at `{label}` was dropped",
+                )
+
+    def test_frame_ownership_terminates(self) -> None:
+        """`_owns_control_frame()` reaches `_opens_block_position()` with the
+        LEXICAL ownership test, which reads no frames - so the walk that BUILDS
+        the frames cannot re-enter itself. Every step also moves strictly left,
+        so a chain of BEGINs terminates."""
+        body = "$body$\n" + "BEGIN\n" * 200 + "  PERFORM 1;\n" + "END;\n" * 200
+        pos = body.rindex("BEGIN")
+        self.assertTrue(guards._owns_control_frame(body, "BEGIN", pos))
+        self.assertTrue(guards.parse_blocks(body) is not None)
+
+    def test_an_exception_identifier_does_not_open_a_handler(self) -> None:
+        """`exception` is not a SQL keyword at all, so `SELECT exception FROM t`
+        runs on 17.11."""
+        body = "  v_x := (SELECT exception FROM public.t LIMIT 1);\n"
+        self.assertFalse(
+            guards._opens_frame_position(body, body.index("exception"))
+        )
+        for real in (
+            "$body$\nBEGIN\n  PERFORM 1;\nEXCEPTION WHEN OTHERS THEN\n  NULL;\nEND;\n",
+            "$body$\nBEGIN\nEXCEPTION WHEN OTHERS THEN\n  NULL;\nEND;\n",
+        ):
+            with self.subTest(body=real.splitlines()[2]):
+                self.assertTrue(
+                    guards._opens_frame_position(real, real.index("EXCEPTION"))
+                )
+
+
+class Round21RealStructureTests(_Round21Base):
+    """No real construct lost its meaning. Every fixture compiles on 17.11."""
+
+    def test_real_structural_controls(self) -> None:
+        for name, body, must_accept in _R21_REAL_STRUCTURE:
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(f"struct_{name}", self.routine(body)),
+                    must_accept,
+                    f"`{name}` changed verdict",
+                )
+
+    def test_real_raise_controls(self) -> None:
+        for name, stmt, is_deny in _R21_REAL_RAISE:
+            body = (
+                self.DECL + "BEGIN\n"
+                "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                f"    {stmt}\n"
+                "  END IF;\n" + self.PRIV
+            )
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(f"raise_{name}", self.routine(body)), is_deny,
+                    f"`{name}` changed which side of the deny boundary it is on",
+                )
+
+    def test_a_bare_raise_in_a_handler_still_reraises(self) -> None:
+        """A bare RAISE re-raises, but the handler still ran, so the guard it
+        catches is not an outer-level boundary."""
+        self.assertFalse(
+            self.accepts(
+                "bare_raise_in_handler",
+                self.routine(
+                    self.DECL + "BEGIN\n" + self.GUARD + self.PRIV
+                    + "EXCEPTION WHEN OTHERS THEN\n  RAISE;\n"
+                ),
+            )
+        )
+
+
+class Round21SwallowingMatrixTests(_Round21Base):
+    """A catcher PostgreSQL really applies stays enclosing in the model."""
+
+    def test_handler_condition_matrix(self) -> None:
+        for name, handler, must_accept in _R21_HANDLERS:
+            body = self.DECL + "BEGIN\n" + self.GUARD + self.PRIV + "EXCEPTION " + handler
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(f"handler_{name}", self.routine(body)),
+                    must_accept,
+                    f"`{name}` changed whether it swallows the assertion",
+                )
+
+    def test_a_nested_handler_still_swallows(self) -> None:
+        self.assertFalse(
+            self.accepts(
+                "nested_handler_swallows",
+                self.routine(
+                    self.DECL + "BEGIN\n  BEGIN\n" + self.GUARD
+                    + "  EXCEPTION WHEN OTHERS THEN\n    NULL;\n  END;\n" + self.PRIV
+                ),
+            )
+        )
+
+    def test_a_fake_token_cannot_detach_a_real_catcher(self) -> None:
+        """The two Round-21 shapes, on the handler analysis rather than on the
+        frame stack alone."""
+        for name, expr in (
+            ("sql_identifier_begin", "begin"),
+            ("dotted_identifier_end", "t.end"),
+        ):
+            with self.subTest(case=name):
+                self.assertFalse(
+                    self.accepts(
+                        f"detach_{name}",
+                        self.routine(
+                            self.DECL + "BEGIN\n" + self.GUARD + self.PRIV
+                            + self.SEL.format(expr=expr)
+                            + "EXCEPTION WHEN OTHERS THEN\n  NULL;\n"
+                        ),
+                    ),
+                    f"`{expr}` detached a catcher PostgreSQL really applies",
+                )
+
+
+class Round21ComposedMutantTests(_Round21Base):
+    """Fresh PostgreSQL-17.11-valid compositions, not spacing variants."""
+
+    def test_composed_mutants(self) -> None:
+        self.assertEqual(len(_R21_MUTANTS), 16)
+        for name, body, must_accept in _R21_MUTANTS:
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(name, self.routine(body)), must_accept,
+                    f"`{name}` changed verdict",
+                )
+
+
+class Round21CorpusTests(_Round21Base):
+    """The reviewed corpus, through the Round-21 lexer and frame model."""
+
+    def test_numbered_migrations_122_to_191_stay_clean(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[2] / "sql" / "migrations"
+        files = sorted(
+            p for p in root.glob("*.sql")
+            if p.name[:3].isdigit() and 122 <= int(p.name[:3]) <= 191
+        )
+        self.assertEqual(len(files), 61, "the reviewed sweep changed size")
+        self.assertEqual(
+            {p.name: out for p in files if (out := guards.check_file(p))}, {},
+            "the 122-191 sweep stopped being clean",
+        )

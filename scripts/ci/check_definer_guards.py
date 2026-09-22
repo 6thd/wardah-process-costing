@@ -95,54 +95,14 @@ KNOWN_EXEMPT = {
     "rpc_batch_post_manual_journal_entries",
 }
 
-GUARD_NAMES = [
-    "wardah_assert_org_member",
-    "wardah_assert_org_admin",
-    # Match only the assertion wrapper, never a bare boolean permission lookup.
-    "wardah_178_assert_permission",
-]
-
-# A recognized guard is an EXECUTABLE CALL, never a textual occurrence of the
-# name. Masking alone cannot close this class: masking keeps delimiters and
-# identifiers, so a bare-name matcher still accepted a guard named as an outer
-# dollar-quote tag ($wardah_assert_org_member$), as a nested dollar tag, as a
-# quoted alias ("wardah_assert_org_member") or as a bare non-call identifier
-# (PERFORM wardah_assert_org_member;). All of those are non-executable, so the
-# name must be followed by optional whitespace and an opening parenthesis.
-#
-#   left boundary: not preceded by an identifier character, a dollar sign (a
-#                  dollar-quote tag) or a double quote (a quoted identifier),
-#                  and not preceded by a `.` unless that qualifier is `public`,
-#                  so another schema's same-named function cannot stand in.
-#   qualification: the existing optional `public.` prefix.
-#   call shape:    name, optional whitespace, `(`.
-GUARD_CALL_PATTERN = (
-    r"(?<![\w$\".])(?:public\s*\.\s*)?(?:"
-    + "|".join(GUARD_NAMES)
-    + r")\s*\("
-)
-GUARD_RE = re.compile(GUARD_CALL_PATTERN, re.IGNORECASE)
-
 # ---------------------------------------------------------------------------
-# Boolean membership predicates
+# PostgreSQL lexical primitives
 # ---------------------------------------------------------------------------
-# wardah_is_org_member(uuid) returns BOOLEAN. It does NOT raise on denial, so
-# calling it and discarding the result authorizes nothing:
-#
-#     PERFORM public.wardah_is_org_member(p_org);   -- result thrown away
-#     UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
-#
-# It is a real guard only when its FALSE result actually denies, which in every
-# historical use means the negated form inside an IF whose branch raises:
-#
-#     IF v_org IS NULL OR NOT public.wardah_is_org_member(v_org) THEN
-#       RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
-#     END IF;
-#
-# That is checked structurally below, never by a flat regex: the call must sit
-# in the CONDITION of an IF, and that IF's own deny branch must raise at its own
-# nesting level. A raise inside a nested IF does not count, an ELSE/ELSIF branch
-# does not count, and an unbalanced block is simply not recognized (fail closed).
+# Every security-bearing pattern in this file is built from the three
+# definitions below - the identifier alphabet, the whitespace set and the
+# keyword boundary derived from the first. They lead the file because the very
+# first pattern after them, the guard CALL shape, already needs all three.
+
 # ONE unquoted-identifier alphabet, matching PostgreSQL's ident_start /
 # ident_cont: an ASCII letter or underscore, or ANY non-ASCII character, then
 # the same plus digits and `$`. PostgreSQL's scanner accepts every high-bit
@@ -163,6 +123,60 @@ GUARD_RE = re.compile(GUARD_CALL_PATTERN, re.IGNORECASE)
 _IDENT_START = "A-Za-z_\x80-\U0010FFFF"
 _IDENT_CONT = "A-Za-z0-9_$\x80-\U0010FFFF"
 _IDENT_CONT_RE = re.compile(f"[{_IDENT_CONT}]")
+
+
+def _continues_identifier(text: str, i: int) -> bool:
+    """True when `text[i]` continues a PostgreSQL identifier (scan.l ident_cont).
+
+    The ONE membership twin of `_IDENT_CONT`, for the raw-character checks that
+    cannot phrase themselves as a regex class. Round 21 (Grok, B2): the
+    E-string prefix test asked `str.isalnum() or "_"` instead, and that is a
+    Unicode CATEGORY test - it excludes `$` and every non-ASCII code point
+    outside L*/N*, all of which PostgreSQL's ident_cont accepts. Every such
+    disagreement let an identifier ENDING IN `E` masquerade as an escape-string
+    prefix, so an ordinary quoted literal was masked under backslash-escape
+    rules and swallowed the executable text after it.
+    """
+    if not 0 <= i < len(text):
+        return False
+    # Indexed one character at a time so the masker's mutable `out` list of
+    # characters and an ordinary string answer through the same rule.
+    return _IDENT_CONT_RE.match(text[i]) is not None
+
+
+# ---------------------------------------------------------------------------
+# Round 21: ONE PostgreSQL whitespace definition
+# ---------------------------------------------------------------------------
+# PostgreSQL's scan.l spells its whitespace class `space [ \t\n\r\f\v]`, and
+# that is the WHOLE of it. Python's `\s` is a strictly larger, Unicode-aware
+# set, and the difference is not cosmetic: measured against PostgreSQL 17.11,
+# 23 of the 29 code points `\s` matches are NOT PostgreSQL whitespace, and 19
+# of those 23 are PostgreSQL identifier CONTINUATION characters - U+0085,
+# U+00A0, U+1680, U+2000-U+200A, U+2028, U+2029, U+202F, U+205F and U+3000,
+# every one of which encodes to UTF-8 bytes >= 0x80 and so lands inside
+# ident_cont's `\200-\377` byte range. (The remaining four, U+001C-U+001F, are
+# neither: PostgreSQL rejects them outright.)
+#
+# So a multi-word keyword written `END\s+IF` does not mean "END, whitespace,
+# IF". It also matches `END\u00a0IF`, which PostgreSQL reads as ONE ordinary
+# identifier - `_control_frames()` popped an IF frame that PostgreSQL never
+# opened, and the guard left inside that still-open IF was credited as if it
+# stood at the routine's outer statement level. Proven live on 17.11: the
+# column `end\u00a0if` came back from `pg_attribute` as a single identifier and
+# the privileged UPDATE ran for a non-member with the guard never executed.
+#
+# These are the file's ONLY spelling of that set. `_PG_WS_CHARS` is the
+# definition; `_PG_WS` is the same characters escaped for use inside a regex
+# `[]` class, and `_PLPGSQL_WS` is the membership twin kept under its historical
+# name. A grammar cannot drift from the membership test, or either from the
+# other, because there is only one source.
+_PG_WS_CHARS = " \t\n\r\f\v"
+_PG_WS = re.escape(_PG_WS_CHARS)
+_PLPGSQL_WS = _PG_WS_CHARS
+# The two separator spellings every security-bearing pattern below uses in
+# place of `\s+` and `\s*`.
+_WS1 = f"[{_PG_WS}]+"
+_WS0 = f"[{_PG_WS}]*"
 
 # ---------------------------------------------------------------------------
 # Round 20: ONE PostgreSQL keyword boundary, derived from that alphabet
@@ -206,13 +220,62 @@ def _pg_kw(pattern: str) -> str:
     return f"{_KW_LEFT}(?:{pattern}){_KW_RIGHT}"
 
 
+GUARD_NAMES = [
+    "wardah_assert_org_member",
+    "wardah_assert_org_admin",
+    # Match only the assertion wrapper, never a bare boolean permission lookup.
+    "wardah_178_assert_permission",
+]
+
+# A recognized guard is an EXECUTABLE CALL, never a textual occurrence of the
+# name. Masking alone cannot close this class: masking keeps delimiters and
+# identifiers, so a bare-name matcher still accepted a guard named as an outer
+# dollar-quote tag ($wardah_assert_org_member$), as a nested dollar tag, as a
+# quoted alias ("wardah_assert_org_member") or as a bare non-call identifier
+# (PERFORM wardah_assert_org_member;). All of those are non-executable, so the
+# name must be followed by optional whitespace and an opening parenthesis.
+#
+#   left boundary: not preceded by an identifier character, a dollar sign (a
+#                  dollar-quote tag) or a double quote (a quoted identifier),
+#                  and not preceded by a `.` unless that qualifier is `public`,
+#                  so another schema's same-named function cannot stand in.
+#   qualification: the existing optional `public.` prefix.
+#   call shape:    name, optional whitespace, `(`.
+GUARD_CALL_PATTERN = (
+    f"(?<![{_IDENT_CONT}\".])(?:public{_WS0}[.]{_WS0})?(?:"
+    + "|".join(GUARD_NAMES)
+    + f"){_WS0}[(]"
+)
+GUARD_RE = re.compile(GUARD_CALL_PATTERN, re.IGNORECASE)
+
+# ---------------------------------------------------------------------------
+# Boolean membership predicates
+# ---------------------------------------------------------------------------
+# wardah_is_org_member(uuid) returns BOOLEAN. It does NOT raise on denial, so
+# calling it and discarding the result authorizes nothing:
+#
+#     PERFORM public.wardah_is_org_member(p_org);   -- result thrown away
+#     UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
+#
+# It is a real guard only when its FALSE result actually denies, which in every
+# historical use means the negated form inside an IF whose branch raises:
+#
+#     IF v_org IS NULL OR NOT public.wardah_is_org_member(v_org) THEN
+#       RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+#     END IF;
+#
+# That is checked structurally below, never by a flat regex: the call must sit
+# in the CONDITION of an IF, and that IF's own deny branch must raise at its own
+# nesting level. A raise inside a nested IF does not count, an ELSE/ELSIF branch
+# does not count, and an unbalanced block is simply not recognized (fail closed).
+
 BOOLEAN_PREDICATES = [
     "wardah_is_org_member",
 ]
 
 NEGATED_PREDICATE_RE = re.compile(
-    _KW_LEFT + r"NOT\s+(?:public\s*\.\s*)?(?:"
-    + "|".join(BOOLEAN_PREDICATES) + r")\s*\(",
+    _KW_LEFT + f"NOT{_WS1}(?:public{_WS0}[.]{_WS0})?(?:"
+    + "|".join(BOOLEAN_PREDICATES) + f"){_WS0}[(]",
     re.IGNORECASE,
 )
 
@@ -241,7 +304,7 @@ def _split_top_level_or(condition: str) -> list[str]:
             depth = max(0, depth - 1)
         elif depth == 0:
             m = _TOP_LEVEL_OR_RE.match(condition, i)
-            if m and (i == 0 or not (condition[i - 1].isalnum() or condition[i - 1] == "_")):
+            if m and not _continues_identifier(condition, i - 1):
                 parts.append(condition[start:i])
                 start = m.end()
     parts.append(condition[start:])
@@ -290,7 +353,7 @@ def _is_sole_negated_predicate(term: str) -> bool:
     return False
 
 
-_TRAILING_IDENT_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_$]*)\s*$")
+_TRAILING_IDENT_RE = re.compile(f"([{_IDENT_START}][{_IDENT_CONT}]*){_WS0}$")
 
 
 def _predicate_name(term: str, match) -> str:
@@ -311,16 +374,16 @@ MIGRATION_STRICT_CUTOFF = 191
 
 _BLOCK_TOKEN_RE = re.compile(
     _KW_LEFT
-    + r"(END\s+IF|END\s+LOOP|END\s+CASE|ELSIF|ELSE|EXCEPTION|BEGIN|IF|THEN"
-      r"|LOOP|CASE|END|RAISE)"
+    + f"(END{_WS1}IF|END{_WS1}LOOP|END{_WS1}CASE|ELSIF|ELSE|EXCEPTION|BEGIN|IF"
+      f"|THEN|LOOP|CASE|END|RAISE)"
     + _KW_RIGHT,
     re.IGNORECASE,
 )
 _NON_ABORTING_RAISE_RE = re.compile(
-    _KW_LEFT + r"RAISE\s+(NOTICE|WARNING|INFO|LOG|DEBUG)" + _KW_RIGHT,
+    _KW_LEFT + f"RAISE{_WS1}(NOTICE|WARNING|INFO|LOG|DEBUG)" + _KW_RIGHT,
     re.IGNORECASE,
 )
-_RAISE_BEFORE_RE = re.compile(_KW_LEFT + r"RAISE\s*$", re.IGNORECASE)
+_RAISE_BEFORE_RE = re.compile(_KW_LEFT + f"RAISE{_WS0}$", re.IGNORECASE)
 
 # Round 13 (Fable, F8): the block parser treated the TOKEN `RAISE` anywhere in
 # an IF's deny branch as a denying statement. `raise` is not reserved in
@@ -393,11 +456,9 @@ _STATEMENT_OPENER_KEYWORDS = frozenset(
     {"then", "else", "begin", "loop"}
 )
 
-# PostgreSQL's whitespace characters as THEMSELVES, not as a regex class.
-# `_PG_WS` above is a raw string spelling the same set for use inside an `[]`
-# class, so it holds backslash-t rather than a tab and cannot be used for a
-# membership test. This is the twin that can.
-_PLPGSQL_WS = " \t\n\r\f\v"
+# `_PLPGSQL_WS` - the same set as the characters THEMSELVES, for membership
+# tests - is derived from `_PG_WS_CHARS` beside the identifier alphabet, so it
+# can no longer be transcribed out of step with the regex class.
 
 # ---------------------------------------------------------------------------
 # Round 17: the DECLARE region, and assignment targets
@@ -542,8 +603,10 @@ _ASSIGNMENT_OPERATOR_RE = re.compile(r"[ \t\n\r\f\v]*(?::=|=)")
 def _prev_nonspace(body: str, pos: int) -> int:
     """Index of the last non-whitespace character before `pos`, or -1.
 
-    PostgreSQL's whitespace set, not Python's: `_skip_ws()` uses str.isspace(),
-    which also matches code points PostgreSQL's scanner rejects.
+    PostgreSQL's whitespace set, not Python's. Round 21 brought the file's last
+    `str.isspace()` walks onto this same set, so `_skip_ws()` and this reader no
+    longer disagree about the 19 Unicode spaces PostgreSQL reads as identifier
+    characters.
     """
     j = pos - 1
     while j >= 0 and body[j] in _PLPGSQL_WS:
@@ -703,7 +766,51 @@ def _opens_loop_statement(body: str, pos: int) -> bool:
     return False
 
 
-def _opens_block_position(body: str, pos: int) -> bool:
+def _owns_statement_list_lexically(body: str, word: str, word_start: int) -> bool:
+    """`_owns_statement_list()`'s question answered WITHOUT consulting frames.
+
+    The strict test asks which construct owns a THEN, an ELSE or a LOOP, and it
+    answers that by reading `_block_frames()`. `_control_frames()` cannot ask it
+    - that is the walk which BUILDS those frames - so the frame model passes
+    this variant into the same grammar instead of growing a second one.
+
+    It keeps the two rules that need no frames: the word must be one of the four
+    statement openers, and an `END LOOP` opens nothing. It drops only the
+    construct-ownership refinement, which makes it strictly MORE permissive than
+    the strict test - and that is the direction the frame model needs. Dropping
+    a frame PostgreSQL really opens is the fail-OPEN direction here: the
+    construct's own closer then pops somebody else's frame, an enclosing BEGIN
+    ends early, and a guard that sits inside a handler or a loop is reported at
+    the routine's outer statement level. Manufacturing one is the failure this
+    round closes. So the frame model refuses only what it can PROVE is not
+    structure, and `SELECT begin FROM t` - the Round-21 case - is refused here
+    because `select` opens no statement.
+    """
+    if word not in _STATEMENT_OPENER_KEYWORDS:
+        return False
+    return not (word == "loop" and _previous_word(body, word_start)[0] == "end")
+
+
+def _is_sql_qualified(body: str, pos: int) -> bool:
+    """True when the token at `pos` is the tail of a dot-qualified SQL name.
+
+    Round 21 (Grok, A2), and the ONE rule that says a PL/pgSQL structural token
+    cannot be owned through SQL `.` qualification. PostgreSQL lets EVERY word
+    this scanner treats as structure stand after a dot, reserved or not: `t.end`,
+    `t . end` and `(t).end` all resolve to a column, and so do the `begin`,
+    `loop`, `case`, `if`, `raise`, `exception`, `when`, `return`, `then`, `else`
+    and `elsif` spellings - all 36 accepted live on PostgreSQL 17.11.
+
+    No PL/pgSQL structural keyword is ever preceded by a dot, so this refuses
+    exactly the qualified-identifier reading and nothing else. It is applied to
+    every token the block lexer matches rather than to END alone, so a later
+    keyword cannot reopen the hole through a spelling nobody enumerated.
+    """
+    j = _prev_nonspace(body, pos)
+    return j >= 0 and body[j] == "."
+
+
+def _opens_block_position(body: str, pos: int, owns=None) -> bool:
     """True when a PL/pgSQL BLOCK may begin at `pos`.
 
     A block is a statement, so every statement position qualifies; the routine's
@@ -743,8 +850,71 @@ def _opens_block_position(body: str, pos: int) -> bool:
             continue
         word, word_start = _previous_word(body, pos)
         if word != "begin":
-            return _owns_statement_list(body, word, word_start)
+            return (owns or _owns_statement_list)(body, word, word_start)
         pos = word_start
+
+
+def _opens_frame_position(body: str, pos: int) -> bool:
+    """Where a PL/pgSQL BLOCK or STATEMENT may begin, without reading frames."""
+    return _opens_block_position(body, pos, _owns_statement_list_lexically)
+
+
+def _closes_loop_header(body: str, pos: int) -> bool:
+    """True when the LOOP at `pos` ends a loop HEADER.
+
+    `_opens_loop_statement()` asks this too, but it also requires a closed LOOP
+    frame, which is exactly what `_control_frames()` is still computing. This is
+    the head half alone: the bare LOOP, or the WHILE / FOR / FOREACH whose header
+    reaches this keyword with no `;` in between, standing where a statement may
+    begin. That last test is what `SELECT loop declare INTO v FROM t` fails - the
+    word before the identifier is `SELECT`.
+    """
+    for m in _LOOP_HEAD_RE.finditer(body, 0, pos + 1):
+        head = m.start()
+        if ";" in body[head:pos]:
+            continue
+        keyword = _LOOP_KW_RE.search(body, head)
+        if (
+            keyword is not None
+            and keyword.start() == pos
+            and _opens_frame_position(body, head)
+        ):
+            return True
+    return False
+
+
+def _owns_control_frame(body: str, token: str, pos: int) -> bool:
+    """True when the matched token really OPENS the PL/pgSQL construct it names.
+
+    Round 21 (Codex, A1). Matching a keyword is not owning one. `BEGIN`, `IF`
+    and `LOOP` are UNRESERVED in PostgreSQL - `SELECT begin FROM t`,
+    `SELECT if FROM t` and `SELECT loop FROM t` all run on 17.11 - so the word
+    alone pushed a frame that PostgreSQL never opened. A manufactured BEGIN in
+    particular took the EXCEPTION section away from the real block: the handler
+    attached to the fake frame, the real one was left with no handler and then
+    dropped as unclosed, and an assertion the handler demonstrably swallows was
+    reported as the routine's live authorization boundary. Proven live: the
+    guard raises when called directly, while the SECURITY DEFINER routine
+    returns normally.
+
+    Each opener is proved in its own terms rather than by one keyword list:
+
+      * BEGIN and IF must stand where a block or statement may begin.
+      * LOOP must stand there too, OR close a WHILE / FOR / FOREACH header,
+        which is not a statement position and needs the head rule instead.
+      * CASE is RESERVED, so a bare `case` cannot be an identifier at all and
+        the dot rule covers the only other spelling. An embedded SQL CASE is a
+        real CASE frame, which is why a bare END closes one.
+
+    Proving rather than guessing is what keeps this fail-closed: a token that
+    cannot be shown to open a construct opens none, and no frame is manufactured
+    that could erase a real guard's evidence.
+    """
+    if token == "CASE":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
+        return True
+    if token == "LOOP":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
+        return _opens_frame_position(body, pos) or _closes_loop_header(body, pos)
+    return _opens_frame_position(body, pos)
 
 
 @functools.lru_cache(maxsize=256)
@@ -1099,7 +1269,8 @@ _CONDITION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # a handler written `WHEN U&"other!0073" UESCAPE E'!' THEN` fails this shape
 # test, never reaches the shared reader, and silently counts as non-catching.
 _QUOTED_CONDITION_RE = re.compile(
-    r"""\A(?:U&)?"[^"]*"(?:\s*UESCAPE\s*[Ee]?'[^']*')?\Z""", re.IGNORECASE
+    f"""\\A(?:U&)?"[^"]*"(?:{_WS0}UESCAPE{_WS0}[Ee]?'[^']*')?\\Z""",
+    re.IGNORECASE,
 )
 # The masker blanks literal CONTENT, so `WHEN SQLSTATE 'P0001'` reads as
 # `WHEN SQLSTATE '     '` in the masked body. Rather than unmasking literals
@@ -1132,11 +1303,9 @@ _SQLSTATE_KEYWORD_RE = re.compile(_pg_kw("SQLSTATE"), re.IGNORECASE)
 # inside it counted as a real assertion. Verified against a live PostgreSQL 17
 # over the whole ASCII range plus a Unicode spread: every disagreement was a
 # non-ASCII codepoint PostgreSQL accepted and this scanner rejected.
-# PostgreSQL's own whitespace set, as a regex character class. Python's `\s` is
-# NOT it: `\s` also matches U+00A0 and other Unicode spaces that PostgreSQL's
-# scanner rejects (`GRANT ALL\u00a0PRIVILEGES` is a syntax error there), so a
-# grammar written against `\s` would parse text PostgreSQL never accepts.
-_PG_WS = r" \t\n\r\f\v"
+# `_PG_WS` - PostgreSQL's own whitespace set as a regex character class - is
+# defined once, beside the identifier alphabet it is used with. Round 21 moved
+# it there and removed this second spelling of it.
 
 _DOLQ_START = "A-Za-z_\x80-\U0010FFFF"
 _DOLQ_CONT = "A-Za-z0-9_\x80-\U0010FFFF"
@@ -1389,7 +1558,7 @@ def _read_delimited_identifier(raw: str, pos: int, masked: str | None = None):
         # `+`, `'`, `"` and whitespace as that character.
         if escape is None or len(escape) != 1:
             return None
-        if escape in _BAD_UESCAPE_CHARS or escape.isspace():
+        if escape in _BAD_UESCAPE_CHARS or escape in _PLPGSQL_WS:
             return None
         j = clause.end()
     elif _UESCAPE_KEYWORD_RE.match(masked, j):
@@ -1442,7 +1611,7 @@ def _split_top_level_or_spans(condition: str, base: int) -> list[tuple[int, int]
             depth = max(0, depth - 1)
         elif depth == 0:
             m = _TOP_LEVEL_OR_RE.match(condition, i)
-            if m and (i == 0 or not (condition[i - 1].isalnum() or condition[i - 1] == "_")):
+            if m and not _continues_identifier(condition, i - 1):
                 spans.append((base + start, base + i))
                 start = m.end()
     spans.append((base + start, base + len(condition)))
@@ -1721,6 +1890,57 @@ def _control_frames(body: str, labels: dict[int, str], on_raise=None):
     only part that is not pure structure - and the only part that calls back
     into the statement classifier - so passing None gives a walk the
     declaration model can use without recursing through it.
+
+    ROUND 21 FRAME-MUTATION AUDIT. Every mutation this walk performs, what
+    proves the token is PL/pgSQL structure, and what stops embedded SQL, a
+    qualified identifier or identifier-continuation ambiguity from stealing it.
+    The first three defences are shared by EVERY row, so they are stated once:
+
+      SHARED-1  the token must be a PostgreSQL keyword token. `_KW_LEFT` /
+                `_KW_RIGHT` are derived from `_IDENT_CONT`, so a keyword-shaped
+                SUFFIX inside one identifier (`col$end`, `end$x`, `co\u0301lend`)
+                matches nothing. [Round 20]
+      SHARED-2  a multiword token is keyword + `_PG_WS` + keyword, so
+                `END\u00a0IF` - ONE identifier on 17.11 - is not `END IF`.
+                [Round 21 B1]
+      SHARED-3  `_is_sql_qualified()` refuses any token whose previous
+                significant character is `.`, so `t.end`, `t . end` and
+                `(t).end` mutate nothing. Applied to all 13 tokens, not to END
+                alone. [Round 21 A2]
+
+      PUSH BEGIN / IF / LOOP - `_owns_control_frame()` must prove the token
+        OPENS the construct. All three words are UNRESERVED, so SHARED-1..3 do
+        not stop a bare column name; the position test does. BEGIN and IF need a
+        block or statement position; LOOP needs that or a WHILE/FOR/FOREACH
+        header. [Round 21 A1]
+      PUSH CASE - reserved, so it is never a bare identifier, and SHARED-3
+        covers `t.case`. An embedded SQL CASE is a REAL CASE frame, which is why
+        a bare END closes one; refusing it would leave that END to pop a BEGIN.
+      ANNOTATE THEN / ELSE - both RESERVED, so neither can be a bare column
+        name; SHARED-1..3 are the whole defence. No position test is applied,
+        because a real THEN follows an expression rather than a statement
+        boundary and testing it would DROP real annotations.
+      ANNOTATE ELSIF - not a SQL keyword at all, so a bare `elsif` identifier is
+        possible and only SHARED-1..3 apply. That direction is fail-CLOSED: a
+        spurious `closed` flag makes `on_raise` withhold the deny branch, which
+        reports a finding. Adding a position test here would risk DROPPING a
+        real ELSIF, and that IS fail-open - a RAISE in the ELSIF branch would
+        then be credited to the IF's own deny branch.
+      ANNOTATE EXCEPTION - `exception` is not a SQL keyword either, so the
+        handler section must also stand where a statement may begin. Both real
+        forms qualify: after the block's last `;`, and directly after BEGIN for
+        a block with an empty statement list.
+      POP END / END IF / END LOOP / END CASE - all four begin with RESERVED
+        `END`, so no bare identifier reaches them; SHARED-1..3 are the defence,
+        and SHARED-2 is what Round 21 added. No position test: a SQL CASE's END
+        follows an expression, and refusing it would unbalance the stack.
+      RAISE callback - SHARED-1..3, plus `_is_statement_start()` inside
+        parse_blocks()'s `on_raise`, which is the Round 13-19 statement-position
+        model.
+
+    Unclosed frames stay out of `frames`, so a stack this walk cannot balance
+    recognizes nothing rather than guessing - the same fail-closed rule as
+    before.
     """
     stack, frames = [], []
 
@@ -1733,8 +1953,15 @@ def _control_frames(body: str, labels: dict[int, str], on_raise=None):
                 return
 
     for m in _BLOCK_TOKEN_RE.finditer(body):
+        # A dot-qualified SQL name is never PL/pgSQL structure, whichever word
+        # it ends in. Applied to EVERY token the lexer matches - push, annotate,
+        # pop and RAISE alike - so no spelling is left to a per-keyword patch.
+        if _is_sql_qualified(body, m.start()):
+            continue
         token = " ".join(m.group(1).upper().split())
         if token in ("BEGIN", "IF", "LOOP", "CASE"):
+            if not _owns_control_frame(body, token, m.start()):
+                continue
             stack.append(_Frame(token, m.start(), labels.get(m.start())))
         elif token == "THEN":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             if stack and stack[-1].kind == "IF" and stack[-1].then_pos is None:
@@ -1745,6 +1972,11 @@ def _control_frames(body: str, labels: dict[int, str], on_raise=None):
         elif token == "EXCEPTION":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             # `RAISE EXCEPTION` is a statement, not a handler section.
             if _RAISE_BEFORE_RE.search(body[max(0, m.start() - 16): m.start()]):
+                continue
+            # `exception` is not a SQL keyword at all, so `SELECT exception
+            # FROM t` runs on 17.11; a handler section only ever opens where a
+            # statement may begin.
+            if not _opens_frame_position(body, m.start()):
                 continue
             for fr in reversed(stack):
                 if fr.kind == "BEGIN":
@@ -1870,7 +2102,7 @@ def is_outer_statement_level(frames, pos: int) -> bool:
 # and RETURN QUERY do NOT terminate a set-returning function, so they are not
 # treated as exits. `RETURNS` in the function header is not a word match.
 _TERMINATING_RETURN_RE = re.compile(
-    _pg_kw("RETURN") + r"(?!\s+(?:NEXT|QUERY)" + _KW_RIGHT + r")",
+    _pg_kw("RETURN") + f"(?!{_WS1}(?:NEXT|QUERY)" + _KW_RIGHT + ")",
     re.IGNORECASE,
 )
 
@@ -1904,7 +2136,7 @@ def terminating_return_before(body: str, pos: int) -> bool:
 # construction.
 _ABORTING_RAISE_RE = re.compile(
     _pg_kw("RAISE")
-    + r"(?!\s+(?:NOTICE|WARNING|INFO|LOG|DEBUG)" + _KW_RIGHT + r")",
+    + f"(?!{_WS1}(?:NOTICE|WARNING|INFO|LOG|DEBUG)" + _KW_RIGHT + ")",
     re.IGNORECASE,
 )
 
@@ -2027,7 +2259,7 @@ def is_unreachable_at(
 # rows - and `SELECT guard(x) WHERE false;` is the same trick. Migration 191
 # uses the standalone PERFORM form exclusively (9 occurrences, no other shape),
 # so this costs nothing today and keeps the authorization boundary provable.
-_PERFORM_HEAD_RE = re.compile(_KW_LEFT + r"PERFORM\s*$", re.IGNORECASE)
+_PERFORM_HEAD_RE = re.compile(_KW_LEFT + f"PERFORM{_WS0}$", re.IGNORECASE)
 
 
 def is_standalone_perform_assertion(body: str, match) -> bool:
@@ -2215,11 +2447,30 @@ def _mask_block_comment(sql: str, out: list[str], i: int) -> int:
 
 
 def _is_escape_string(sql: str, i: int) -> bool:
-    """True when the quote at i opens an E'' escape-string literal."""
+    """True when the quote at i opens an E'' escape-string literal.
+
+    The `E` counts as a literal PREFIX only when it is a token of its own. When
+    the character before it continues an identifier, PostgreSQL has read one
+    identifier ENDING in `E` and the quote after it opens an ordinary literal.
+
+    Round 21 (Grok, B2): that boundary was `str.isalnum() or "_"`, which is
+    narrower than PostgreSQL's ident_cont on exactly the characters that make
+    the difference - `$` and every non-ASCII code point outside L*/N*. With a
+    domain named `v$e` or `v\u0301e` on PostgreSQL 17.11, `v$e'a\\'` is a
+    type-prefixed constant whose literal is `a\\`; the old test read the `'` as
+    an E-string opener, applied backslash-escape rules, ran the literal past
+    the `\\'` and blanked the executable statements after it. A `RETURN;` that
+    ends the routine was masked away, and the dead guard behind it was credited
+    as the routine's authorization boundary. Both spellings compile live.
+
+    `_continues_identifier()` is the file's ONE membership test for that class,
+    the same one `_previous_word()` and `_is_assignment_target()` walk with, so
+    the masker and the statement model cannot disagree about where an
+    identifier ends.
+    """
     if i == 0 or sql[i - 1] not in "Ee":
         return False
-    k = i - 2
-    return k < 0 or not (sql[k].isalnum() or sql[k] == "_")
+    return not _continues_identifier(sql, i - 2)
 
 
 def _quoted_span_end(sql: str, i: int, escape: bool) -> int:
@@ -2350,12 +2601,19 @@ def _mask_nested_dollar(sql: str, out: list[str], i: int, tag: str) -> int:
 
 
 def _preceded_by_keyword(text, i: int, keyword: str) -> bool:
-    """Whether the token immediately before offset i is keyword."""
+    """Whether the token immediately before offset i is keyword.
+
+    Round 21: both walks use the file's PostgreSQL primitives. `str.isspace()`
+    would step over U+00A0 and its 18 siblings, which PostgreSQL reads as
+    identifier characters, and `str.isalnum() or "_"` would stop at the `$` in
+    `col$grant` - either way a keyword-shaped SUFFIX of one identifier was
+    reported as the preceding keyword.
+    """
     j = i - 1
-    while j >= 0 and str(text[j]).isspace():
+    while j >= 0 and text[j] in _PLPGSQL_WS:
         j -= 1
     end = j + 1
-    while j >= 0 and (str(text[j]).isalnum() or text[j] == "_"):
+    while j >= 0 and _continues_identifier(text, j):
         j -= 1
     return "".join(text[j + 1:end]).lower() == keyword.lower()
 
@@ -2365,7 +2623,7 @@ def _statement_starts_with_do(text, i: int) -> bool:
     prefix = "".join(text[:i])
     start = prefix.rfind(";") + 1
     return re.match(
-        r"\s*DO" + _KW_RIGHT, prefix[start:], re.IGNORECASE
+        f"{_WS0}DO" + _KW_RIGHT, prefix[start:], re.IGNORECASE
     ) is not None
 
 
@@ -2686,7 +2944,7 @@ def _tokenize_parameter(masked: str, raw: str):
     tokens, i, depth, n = [], 0, 0, len(masked)
     while i < n:
         ch = masked[i]
-        if ch.isspace():
+        if ch in _PLPGSQL_WS:
             i += 1
             continue
         if ch == "=" and depth == 0:
@@ -3214,7 +3472,10 @@ def _parse_arg_list(inner: str, raw_inner: str | None = None):
 
 
 def _skip_ws(masked: str, i: int) -> int:
-    while i < len(masked) and masked[i].isspace():
+    """Step over PostgreSQL whitespace - not `str.isspace()`, which also steps
+    over the 19 Unicode spaces PostgreSQL reads as identifier characters and so
+    could split one identifier into two while resolving a routine's identity."""
+    while i < len(masked) and masked[i] in _PLPGSQL_WS:
         i += 1
     return i
 
@@ -3334,14 +3595,15 @@ def _scan_statement(masked: str, i: int):
 
 
 _CREATE_ROUTINE_RE = re.compile(
-    _KW_LEFT + r"CREATE\s+(?P<or_replace>OR\s+REPLACE\s+)?"
-    r"(?:FUNCTION|PROCEDURE)\s+",
+    _KW_LEFT + f"CREATE{_WS1}(?P<or_replace>OR{_WS1}REPLACE{_WS1})?"
+    f"(?:FUNCTION|PROCEDURE){_WS1}",
     re.IGNORECASE,
 )
 _ALTER_ROUTINE_RE = re.compile(
-    _KW_LEFT + r"ALTER\s+(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE
+    _KW_LEFT + f"ALTER{_WS1}(?:FUNCTION|PROCEDURE|ROUTINE){_WS1}",
+    re.IGNORECASE,
 )
-_SECURITY_DEFINER_RE = re.compile(_pg_kw(r"SECURITY\s+DEFINER"), re.IGNORECASE)
+_SECURITY_DEFINER_RE = re.compile(_pg_kw(f"SECURITY{_WS1}DEFINER"), re.IGNORECASE)
 # `REVOKE GRANT OPTION FOR EXECUTE ... FROM authenticated` withdraws only the
 # right to RE-GRANT execute. The role keeps EXECUTE itself and can still call the
 # function. The optional clause was already matched here - so the statement
@@ -3385,10 +3647,13 @@ _GRANT_HEAD_RE = re.compile(
 # heads above, whose class is `[A-Za-z,` + PostgreSQL whitespace and nothing
 # else: no `$`, no digit, no non-ASCII code point can reach it, so `\b` and
 # the PostgreSQL boundary agree on every string it can see.
-_EXECUTE_PRIV_RE = re.compile(r"\b(EXECUTE|ALL)\b", re.IGNORECASE)
-_ON_ROUTINE_RE = re.compile(r"\A(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE)
+_EXECUTE_PRIV_RE = re.compile(_pg_kw("EXECUTE|ALL"), re.IGNORECASE)
+_ON_ROUTINE_RE = re.compile(
+    f"\\A(?:FUNCTION|PROCEDURE|ROUTINE){_WS1}", re.IGNORECASE
+)
 _ON_ALL_ROUTINES_RE = re.compile(
-    r"\AALL\s+(?:FUNCTIONS|PROCEDURES|ROUTINES)\s+IN\s+SCHEMA" + _KW_RIGHT,
+    f"\\AALL{_WS1}(?:FUNCTIONS|PROCEDURES|ROUTINES){_WS1}IN{_WS1}SCHEMA"
+    + _KW_RIGHT,
     re.IGNORECASE,
 )
 
@@ -3438,7 +3703,7 @@ def parse_definitions(raw: str, masked: str) -> list[Definition]:
     return out
 
 
-_SECURITY_INVOKER_RE = re.compile(_pg_kw(r"SECURITY\s+INVOKER"), re.IGNORECASE)
+_SECURITY_INVOKER_RE = re.compile(_pg_kw(f"SECURITY{_WS1}INVOKER"), re.IGNORECASE)
 
 
 class AlterSecurity:
@@ -3513,10 +3778,10 @@ def parse_alter_security(raw: str, masked: str) -> list[AlterSecurity]:
 # file reads would not be the guard the database runs, exactly what
 # redefined_guard_names() already refuses for a CREATE.
 _ALTER_RENAME_RE = re.compile(
-    r"\ARENAME[" + _PG_WS + r"]+TO[" + _PG_WS + r"]+", re.IGNORECASE
+    f"\\ARENAME{_WS1}TO{_WS1}", re.IGNORECASE
 )
 _ALTER_SET_SCHEMA_RE = re.compile(
-    r"\ASET[" + _PG_WS + r"]+SCHEMA[" + _PG_WS + r"]+", re.IGNORECASE
+    f"\\ASET{_WS1}SCHEMA{_WS1}", re.IGNORECASE
 )
 
 
@@ -4183,7 +4448,7 @@ def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement
 
 
 _DEFAULT_PRIVILEGES_RE = re.compile(
-    _pg_kw(r"ALTER\s+DEFAULT\s+PRIVILEGES"), re.IGNORECASE
+    _pg_kw(f"ALTER{_WS1}DEFAULT{_WS1}PRIVILEGES"), re.IGNORECASE
 )
 _ON_DEFAULT_ROUTINES_RE = re.compile(
     r"\A(?:FUNCTIONS|ROUTINES)" + _KW_RIGHT, re.IGNORECASE
@@ -4457,7 +4722,8 @@ GUARD_ARITY = {
 }
 
 _GUARD_NAME_RE = re.compile(
-    r"(?:public\s*\.\s*)?(" + "|".join(GUARD_NAMES + BOOLEAN_PREDICATES) + r")\s*\(",
+    f"(?:public{_WS0}[.]{_WS0})?(" + "|".join(GUARD_NAMES + BOOLEAN_PREDICATES)
+    + f"){_WS0}[(]",
     re.IGNORECASE,
 )
 
