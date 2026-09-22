@@ -143,12 +143,76 @@ GUARD_RE = re.compile(GUARD_CALL_PATTERN, re.IGNORECASE)
 # in the CONDITION of an IF, and that IF's own deny branch must raise at its own
 # nesting level. A raise inside a nested IF does not count, an ELSE/ELSIF branch
 # does not count, and an unbalanced block is simply not recognized (fail closed).
+# ONE unquoted-identifier alphabet, matching PostgreSQL's ident_start /
+# ident_cont: an ASCII letter or underscore, or ANY non-ASCII character, then
+# the same plus digits and `$`. PostgreSQL's scanner accepts every high-bit
+# byte, so the range runs to U+10FFFF - it previously stopped at U+FFFF, which
+# made an identifier containing a 4-byte UTF-8 character unparseable and, for a
+# block label, invisible: no label was recorded and the labelled-EXIT bypass
+# reopened.
+#
+# Round 19: these two strings are the file's ONLY spelling of that alphabet.
+# `_IDENT_CONT_RE` - one character of the continuation class, used by
+# _dollar_tag_at() to refuse a tag that would start inside an identifier, and
+# by the statement model to walk an identifier - is now DERIVED from
+# `_IDENT_CONT` rather than transcribed beside it, so the tag reader and the
+# statement model cannot drift the way `str.isalnum() + "_"` had drifted from
+# both. `$` is deliberately in the continuation class: it continues an
+# identifier (`a$$$` is identifier `a$$` plus a stray `$`), which is exactly
+# why a dollar tag may not begin there.
+_IDENT_START = "A-Za-z_\x80-\U0010FFFF"
+_IDENT_CONT = "A-Za-z0-9_$\x80-\U0010FFFF"
+_IDENT_CONT_RE = re.compile(f"[{_IDENT_CONT}]")
+
+# ---------------------------------------------------------------------------
+# Round 20: ONE PostgreSQL keyword boundary, derived from that alphabet
+# ---------------------------------------------------------------------------
+# Python's `\b` is NOT a PostgreSQL token boundary. It is defined against
+# `\w`, and `\w` is a Unicode CATEGORY test: it excludes `$` and every
+# non-ASCII code point outside the letter/digit categories. PostgreSQL's
+# ident_cont - the alphabet immediately above, and the one `_previous_word()`
+# and `_is_assignment_target()` were already corrected to walk in Round 19 -
+# accepts `$` and EVERY non-ASCII code point. So Python sees a word boundary in
+# the MIDDLE of a single PostgreSQL identifier, and every keyword matcher
+# written with `\b` read the identifier's keyword-shaped SUFFIX as the keyword.
+#
+# Verified on PostgreSQL 17.11: `col$end`, `end$x`, `x$end$y`, `coĺend`,
+# `col·end`, `col​end` and `col😀end` are each ONE unquoted
+# identifier - all 98 forms of this shape used by the Round 20 tests were
+# created as columns and read back from `pg_attribute` unchanged. Python's
+# `\bEND\b` matches inside every one of them.
+#
+# Round 19 fixed the two hand-written identifier WALKS. It did not fix the
+# forward keyword RECOGNIZERS, and `_BLOCK_TOKEN_RE` never consults a walk at
+# all: it builds the control-frame stack straight from its own matches. A fake
+# END from `col$end` therefore popped a live frame, which re-owned a later SQL
+# `ELSE`, which manufactured a DECLARE section, which swallowed a real outer
+# `RAISE EXCEPTION` - and the dead guard after that abort was credited as the
+# routine's authorization boundary. Proven live on 17.11 against
+# `prosecdef = true`, client-executable routines.
+#
+# These two constants are the file's ONLY spelling of that boundary. Both are
+# DERIVED from `_IDENT_CONT`, so a keyword lexer cannot drift from the
+# identifier alphabet the way `\b` had drifted from it. `\w` is a SUBSET of
+# ident_cont, so this rule is strictly narrower than `\b`: it can only REFUSE
+# a match `\b` accepted, never add one, and the matches it refuses are exactly
+# those where PostgreSQL reads one identifier rather than a keyword.
+_KW_LEFT = f"(?<![{_IDENT_CONT}])"
+_KW_RIGHT = f"(?![{_IDENT_CONT}])"
+
+
+def _pg_kw(pattern: str) -> str:
+    """`pattern` fenced by PostgreSQL token boundaries on both sides."""
+    return f"{_KW_LEFT}(?:{pattern}){_KW_RIGHT}"
+
+
 BOOLEAN_PREDICATES = [
     "wardah_is_org_member",
 ]
 
 NEGATED_PREDICATE_RE = re.compile(
-    r"\bNOT\s+(?:public\s*\.\s*)?(?:" + "|".join(BOOLEAN_PREDICATES) + r")\s*\(",
+    _KW_LEFT + r"NOT\s+(?:public\s*\.\s*)?(?:"
+    + "|".join(BOOLEAN_PREDICATES) + r")\s*\(",
     re.IGNORECASE,
 )
 
@@ -164,7 +228,7 @@ NEGATED_PREDICATE_RE = re.compile(
 # Non-membership must by itself guarantee entry into the raising branch. In a
 # disjunction each disjunct alone suffices, so an OR term is safe; under AND it
 # is not, so anything else in the term disqualifies it.
-_TOP_LEVEL_OR_RE = re.compile(r"\bOR\b", re.IGNORECASE)
+_TOP_LEVEL_OR_RE = re.compile(_pg_kw("OR"), re.IGNORECASE)
 
 
 def _split_top_level_or(condition: str) -> list[str]:
@@ -246,13 +310,17 @@ def _predicate_name(term: str, match) -> str:
 MIGRATION_STRICT_CUTOFF = 191
 
 _BLOCK_TOKEN_RE = re.compile(
-    r"\b(END\s+IF|END\s+LOOP|END\s+CASE|ELSIF|ELSE|EXCEPTION|BEGIN|IF|THEN|LOOP|CASE|END|RAISE)\b",
+    _KW_LEFT
+    + r"(END\s+IF|END\s+LOOP|END\s+CASE|ELSIF|ELSE|EXCEPTION|BEGIN|IF|THEN"
+      r"|LOOP|CASE|END|RAISE)"
+    + _KW_RIGHT,
     re.IGNORECASE,
 )
 _NON_ABORTING_RAISE_RE = re.compile(
-    r"\bRAISE\s+(NOTICE|WARNING|INFO|LOG|DEBUG)\b", re.IGNORECASE
+    _KW_LEFT + r"RAISE\s+(NOTICE|WARNING|INFO|LOG|DEBUG)" + _KW_RIGHT,
+    re.IGNORECASE,
 )
-_RAISE_BEFORE_RE = re.compile(r"\bRAISE\s*$", re.IGNORECASE)
+_RAISE_BEFORE_RE = re.compile(_KW_LEFT + r"RAISE\s*$", re.IGNORECASE)
 
 # Round 13 (Fable, F8): the block parser treated the TOKEN `RAISE` anywhere in
 # an IF's deny branch as a denying statement. `raise` is not reserved in
@@ -396,8 +464,8 @@ _PLPGSQL_WS = " \t\n\r\f\v"
 #     DECLARE x integer; BEGIN RAISE EXCEPTION 'x'; END
 #
 # the RAISE lies after the BEGIN, outside the span, and still counts.
-_DECLARE_TOKEN_RE = re.compile(r"\bDECLARE\b", re.IGNORECASE)
-_SECTION_BEGIN_RE = re.compile(r"\bBEGIN\b", re.IGNORECASE)
+_DECLARE_TOKEN_RE = re.compile(_pg_kw("DECLARE"), re.IGNORECASE)
+_SECTION_BEGIN_RE = re.compile(_pg_kw("BEGIN"), re.IGNORECASE)
 
 # `:=` is PL/pgSQL's assignment operator and 17.11 accepts a bare `=` for it too
 # (`DO $$ DECLARE raise integer := 1; BEGIN raise = 2; END $$` runs and leaves
@@ -497,6 +565,38 @@ def _ends_dollar_body_opener(body: str, j: int) -> bool:
     return k >= 0 and _dollar_tag_at(body, k) == body[k:j + 1]
 
 
+def _label_opener_before(body: str, pos: int) -> int | None:
+    """Offset of the `<<` of a complete `<<label>>` ending just before `pos`.
+
+    Round 20. A label is the one PL/pgSQL construct that can stand between a
+    statement position and the BLOCK or LOOP it owns, so `_opens_block_position()`
+    has to see through it - and `>>` alone is not it. PostgreSQL spells integer
+    and inet/box right shift `>>` as well, and `a << b >> c` is an ordinary
+    expression on 17.11.
+
+    The `>>` is located backward, but the LABEL is then proved FORWARD through
+    exactly the `_LABEL_OPEN_RE` + `_parse_identity()` + `>>` sequence
+    `_block_labels()` uses, and the parsed identity must be ONE part that ends
+    at the very `>>` that was found. So this reads the same label grammar from
+    the other side rather than inventing a second one, and an operator pair that
+    no complete label reaches proves nothing.
+
+    Whether the label itself stands anywhere legal is NOT decided here: the
+    caller keeps walking left from the returned `<<`, which is what separates
+    `; <<blk>> DECLARE` from `SELECT a << b >> declare`.
+    """
+    j = _prev_nonspace(body, pos)
+    if j < 1 or body[j] != ">" or body[j - 1] != ">":
+        return None
+    start = body.rfind("<<", 0, j - 1)
+    if start < 0:
+        return None
+    parsed, after = _parse_identity(body, body, start + 2)
+    if parsed is None or len(parsed[0]) != 1:
+        return None
+    return start if _skip_ws(body, after) == j - 1 else None
+
+
 def _owns_statement_list(body: str, word: str, word_start: int) -> bool:
     """True when the keyword at `word_start` opens a PL/pgSQL STATEMENT LIST.
 
@@ -562,12 +662,24 @@ def _opens_loop_statement(body: str, pos: int) -> bool:
         keyword `_labelled_opener()` already models - a bare LOOP, or the
         WHILE / FOR / FOREACH whose header ends at this LOOP - and a header
         contains no `;`, so one is not looked for across a statement boundary.
-        A `<<lp>>` label is enough by itself: `_block_labels()` keys the label
-        on the very offset parse_blocks() pushes the frame at, for the plain
-        and the WHILE / FOR / FOREACH forms alike.
+        A `<<lp>>` label needs no separate branch: `_opens_block_position()`
+        sees through a complete label to wherever the label itself stands, for
+        the plain and the WHILE / FOR / FOREACH forms alike.
 
     The second test is what the stolen END LOOP above cannot fake: the word
     before that `loop` is `SELECT`, which opens no statement.
+
+    Round 20: that label branch USED to be a separate `pos in _block_labels()`
+    shortcut, and it bypassed the head test completely. `_block_labels()` took
+    any `>>` that a complete `<<ident>>` reached, so the ordinary shift
+    expression `SELECT a << b >> loop declare INTO v_x FROM public.t` - valid
+    on 17.11, with `loop` an unreserved column name and `declare` its alias -
+    labelled the fake LOOP frame the identifier pushes. Placed inside a real
+    loop the fake frame also STEALS that loop's END LOOP and so comes back
+    closed, which is the exact case the head test was added to stop; the
+    manufactured label handed it a way around. The shortcut is gone and the
+    head test is now the only route, with the label read through
+    `_opens_block_position()` where an operand before the `<<` disqualifies it.
 
     Bounded residue, fail-closed: a loop whose head reaches `pos` only through
     text this does not model keeps its DECLARE section unrecognized, which
@@ -577,8 +689,6 @@ def _opens_loop_statement(body: str, pos: int) -> bool:
         fr.kind == "LOOP" and fr.start == pos for fr in _block_frames(body)
     ):
         return False
-    if pos in _block_labels(body):
-        return True
     for m in _LOOP_HEAD_RE.finditer(body, 0, pos + 1):
         head = m.start()
         if ";" in body[head:pos]:
@@ -609,6 +719,15 @@ def _opens_block_position(body: str, pos: int) -> bool:
     working at the body opener, after a `;`, and after a THEN, an ELSE or a LOOP
     that `_owns_statement_list()` accepts. The walk is iterative and each step
     moves strictly left, so no chain of BEGINs can recurse without bound.
+
+    Round 20: a complete `<<label>>` is stepped over the same way, because a
+    label OWNS the block or loop after it - so `<<blk>> DECLARE ... BEGIN` and
+    `<<lp>> WHILE ... LOOP` are block positions exactly when the label is one.
+    That is the whole of the label rule: `_label_opener_before()` proves the
+    construct is a real label, and this walk then asks where the label stands,
+    so `SELECT a << b >> declare` and `SELECT a << b >> loop` - both ordinary
+    shift expressions on 17.11 - reach the operand `a` and are refused. Every
+    step still moves strictly left, the label step included.
     """
     while True:
         j = _prev_nonspace(body, pos)
@@ -618,6 +737,10 @@ def _opens_block_position(body: str, pos: int) -> bool:
             return True
         if body[j] == "$" and _ends_dollar_body_opener(body, j):
             return True
+        label = _label_opener_before(body, pos)
+        if label is not None:
+            pos = label
+            continue
         word, word_start = _previous_word(body, pos)
         if word != "begin":
             return _owns_statement_list(body, word, word_start)
@@ -959,8 +1082,8 @@ _P0001_CATCHING_NAMES = frozenset({"others", "raise_exception", "plpgsql_error"}
 
 # Handler headers inside an EXCEPTION section, on MASKED text so that a WHEN in
 # a comment or a literal cannot invent one. Conditions are then split on OR.
-_HANDLER_WHEN_RE = re.compile(r"\bWHEN\b", re.IGNORECASE)
-_HANDLER_THEN_RE = re.compile(r"\bTHEN\b", re.IGNORECASE)
+_HANDLER_WHEN_RE = re.compile(_pg_kw("WHEN"), re.IGNORECASE)
+_HANDLER_THEN_RE = re.compile(_pg_kw("THEN"), re.IGNORECASE)
 _CONDITION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # A condition name may also be written as a QUOTED identifier - PostgreSQL's
 # lexer accepts `WHEN "raise_exception" THEN` and resolves it to the very same
@@ -986,7 +1109,7 @@ _QUOTED_CONDITION_RE = re.compile(
 # the quotes on MASKED text is also what makes `WHEN SQLSTATE /* why */ 'P0001'`
 # resolve: the comment is whitespace by then, so no separator regex has to
 # anticipate it.
-_SQLSTATE_KEYWORD_RE = re.compile(r"\bSQLSTATE\b", re.IGNORECASE)
+_SQLSTATE_KEYWORD_RE = re.compile(_pg_kw("SQLSTATE"), re.IGNORECASE)
 
 # PostgreSQL's lexer is BYTE based (src/backend/parser/scan.l):
 #
@@ -1018,26 +1141,11 @@ _PG_WS = r" \t\n\r\f\v"
 _DOLQ_START = "A-Za-z_\x80-\U0010FFFF"
 _DOLQ_CONT = "A-Za-z0-9_\x80-\U0010FFFF"
 _DOLLAR_TAG_RE = re.compile(f"\\$(?:[{_DOLQ_START}][{_DOLQ_CONT}]*)?\\$")
-# ONE unquoted-identifier alphabet, matching PostgreSQL's ident_start /
-# ident_cont: an ASCII letter or underscore, or ANY non-ASCII character, then
-# the same plus digits and `$`. PostgreSQL's scanner accepts every high-bit
-# byte, so the range runs to U+10FFFF - it previously stopped at U+FFFF, which
-# made an identifier containing a 4-byte UTF-8 character unparseable and, for a
-# block label, invisible: no label was recorded and the labelled-EXIT bypass
-# reopened.
-#
-# Round 19: these two strings are the file's ONLY spelling of that alphabet.
-# `_IDENT_CONT_RE` - one character of the continuation class, used by
-# _dollar_tag_at() to refuse a tag that would start inside an identifier, and
-# by the statement model to walk an identifier - is now DERIVED from
-# `_IDENT_CONT` rather than transcribed beside it, so the tag reader and the
-# statement model cannot drift the way `str.isalnum() + "_"` had drifted from
-# both. `$` is deliberately in the continuation class: it continues an
-# identifier (`a$$$` is identifier `a$$` plus a stray `$`), which is exactly
-# why a dollar tag may not begin there.
-_IDENT_START = "A-Za-z_\x80-\U0010FFFF"
-_IDENT_CONT = "A-Za-z0-9_$\x80-\U0010FFFF"
-_IDENT_CONT_RE = re.compile(f"[{_IDENT_CONT}]")
+# The unquoted-identifier alphabet and the keyword-boundary rule derived
+# from it now live beside the structural block model above, because the
+# PL/pgSQL keyword lexers there are their first consumer. Nothing is
+# respelled here: `_DOLQ_*` above is dollar-tag grammar, which differs from
+# ident_cont in excluding `$`.
 _SIMPLE_ESCAPES = {
     "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t",
     "\\": "\\", "'": "'", '"': '"',
@@ -1166,7 +1274,9 @@ _UAMP_PREFIX_RE = re.compile(r'U&(?=")', re.IGNORECASE)
 _UESCAPE_CLAUSE_RE = re.compile(
     f"[{_PG_WS}]*UESCAPE[{_PG_WS}]*(?P<e>[Ee])?'(?P<val>[^']*)'", re.IGNORECASE
 )
-_UESCAPE_KEYWORD_RE = re.compile(f"[{_PG_WS}]*UESCAPE\\b", re.IGNORECASE)
+_UESCAPE_KEYWORD_RE = re.compile(
+    f"[{_PG_WS}]*" + _pg_kw("UESCAPE"), re.IGNORECASE
+)
 _UHEX4_RE = re.compile(r"[0-9A-Fa-f]{4}")
 _UHEX6_RE = re.compile(r"\+([0-9A-Fa-f]{6})")
 _BAD_UESCAPE_CHARS = frozenset('+\'"0123456789abcdefABCDEF')
@@ -1432,10 +1542,10 @@ def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: i
 # folding rules are honoured: an unquoted label folds to lower case, a quoted one
 # keeps its case, and `<<"Auth_Block">>` is therefore NOT `EXIT auth_block`.
 _LABEL_OPEN_RE = re.compile(r"<<")
-_DECLARE_KW_RE = re.compile(r"DECLARE\b", re.IGNORECASE)
-_BEGIN_KW_RE = re.compile(r"BEGIN\b", re.IGNORECASE)
-_LOOP_KW_RE = re.compile(r"LOOP\b", re.IGNORECASE)
-_LOOP_HEAD_RE = re.compile(r"(?:LOOP|WHILE|FOR|FOREACH)\b", re.IGNORECASE)
+_DECLARE_KW_RE = re.compile(_pg_kw("DECLARE"), re.IGNORECASE)
+_BEGIN_KW_RE = re.compile(_pg_kw("BEGIN"), re.IGNORECASE)
+_LOOP_KW_RE = re.compile(_pg_kw("LOOP"), re.IGNORECASE)
+_LOOP_HEAD_RE = re.compile(_pg_kw("LOOP|WHILE|FOR|FOREACH"), re.IGNORECASE)
 
 
 def _labelled_opener(body: str, pos: int) -> int | None:
@@ -1460,8 +1570,16 @@ def _labelled_opener(body: str, pos: int) -> int | None:
     if _LOOP_HEAD_RE.match(body, i):
         # WHILE/FOR/FOREACH open their frame at the LOOP keyword that ends the
         # loop header, which is where parse_blocks() pushes the frame.
+        #
+        # Round 20: bounded by the first `;`, because a loop HEADER contains
+        # none - the same bound `_opens_loop_statement()` already applies when
+        # it walks a head. Unbounded, this search adopted the next LOOP
+        # anywhere later in the body, so a label could be attached to a real
+        # loop it does not introduce and across any number of statements.
         opener = _LOOP_KW_RE.search(body, i)
-        return opener.start() if opener else None
+        if opener is None or ";" in body[i:opener.start()]:
+            return None
+        return opener.start()
     return None
 
 
@@ -1542,11 +1660,28 @@ def _block_labels(body: str, raw_body: str | None = None) -> dict[int, str]:
     The unmasked default is resolved here rather than in parse_blocks(), which
     CodeFactor already flags for complexity (#244); this keeps that method's
     branch count exactly where it was.
+
+    Round 20: the `<<` must stand where a PL/pgSQL construct may BEGIN, the same
+    proof `_labelled_declare_offsets()` already required of it. Without that,
+    the only test was that a complete `<<ident>>` reached a `>>` - and
+    PostgreSQL spells right shift `>>` too, so the ordinary expression
+    `SELECT a << b >> loop declare INTO v_x FROM public.t` labelled a frame that
+    an identifier had pushed, and `SELECT a << b >> begin$x ...` did the same
+    through a keyword-shaped identifier suffix. A label on a frame is not inert:
+    `_opens_loop_statement()` used to accept a labelled LOOP frame without any
+    further proof, and `labelled_exit_before()` matches an EXIT target against
+    it. Asking where the `<<` stands is what an operand before it fails.
+
+    No recursion: `_opens_block_position()` reaches `_block_frames()`, which
+    walks the structure with NO labels, and its own label step is the backward
+    reader rather than this map.
     """
     if raw_body is None:
         raw_body = body
     labels: dict[int, str] = {}
     for m in _LABEL_OPEN_RE.finditer(body):
+        if not _opens_block_position(body, m.start()):
+            continue
         parsed, after = _parse_identity(raw_body, body, m.end())
         if parsed is None:
             continue
@@ -1734,7 +1869,10 @@ def is_outer_statement_level(frames, pos: int) -> bool:
 # assertion after it is dead code even at the outer statement level. RETURN NEXT
 # and RETURN QUERY do NOT terminate a set-returning function, so they are not
 # treated as exits. `RETURNS` in the function header is not a word match.
-_TERMINATING_RETURN_RE = re.compile(r"\bRETURN\b(?!\s+(?:NEXT|QUERY)\b)", re.IGNORECASE)
+_TERMINATING_RETURN_RE = re.compile(
+    _pg_kw("RETURN") + r"(?!\s+(?:NEXT|QUERY)" + _KW_RIGHT + r")",
+    re.IGNORECASE,
+)
 
 
 def terminating_return_before(body: str, pos: int) -> bool:
@@ -1765,7 +1903,9 @@ def terminating_return_before(body: str, pos: int) -> bool:
 # excluded; a bare re-`RAISE;` inside a handler is not outer level by
 # construction.
 _ABORTING_RAISE_RE = re.compile(
-    r"\bRAISE\b(?!\s+(?:NOTICE|WARNING|INFO|LOG|DEBUG)\b)", re.IGNORECASE
+    _pg_kw("RAISE")
+    + r"(?!\s+(?:NOTICE|WARNING|INFO|LOG|DEBUG)" + _KW_RIGHT + r")",
+    re.IGNORECASE,
 )
 
 
@@ -1815,8 +1955,8 @@ def unconditional_abort_before(body: str, frames, pos: int) -> bool:
 # through _parse_identity() also picks up the high-range identifier characters
 # _UNQUOTED_IDENT_RE already models, so a non-ASCII label is not a way out
 # either.
-_EXIT_KW_RE = re.compile(r"\bEXIT\b", re.IGNORECASE)
-_WHEN_KW_RE = re.compile(r"WHEN\b", re.IGNORECASE)
+_EXIT_KW_RE = re.compile(_pg_kw("EXIT"), re.IGNORECASE)
+_WHEN_KW_RE = re.compile(_pg_kw("WHEN"), re.IGNORECASE)
 
 # A target that is label-SHAPED but that this scanner cannot resolve to one
 # identifier. It matches any block containing both the EXIT and the candidate,
@@ -1887,7 +2027,7 @@ def is_unreachable_at(
 # rows - and `SELECT guard(x) WHERE false;` is the same trick. Migration 191
 # uses the standalone PERFORM form exclusively (9 occurrences, no other shape),
 # so this costs nothing today and keeps the authorization boundary provable.
-_PERFORM_HEAD_RE = re.compile(r"\bPERFORM\s*$", re.IGNORECASE)
+_PERFORM_HEAD_RE = re.compile(_KW_LEFT + r"PERFORM\s*$", re.IGNORECASE)
 
 
 def is_standalone_perform_assertion(body: str, match) -> bool:
@@ -2224,7 +2364,9 @@ def _statement_starts_with_do(text, i: int) -> bool:
     """True when the current top-level statement prefix starts with DO."""
     prefix = "".join(text[:i])
     start = prefix.rfind(";") + 1
-    return re.match(r"\s*DO\b", prefix[start:], re.IGNORECASE) is not None
+    return re.match(
+        r"\s*DO" + _KW_RIGHT, prefix[start:], re.IGNORECASE
+    ) is not None
 
 
 def mask_sql_checked(sql: str) -> tuple[str, list[str]]:
@@ -3192,13 +3334,14 @@ def _scan_statement(masked: str, i: int):
 
 
 _CREATE_ROUTINE_RE = re.compile(
-    r"\bCREATE\s+(?P<or_replace>OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+",
+    _KW_LEFT + r"CREATE\s+(?P<or_replace>OR\s+REPLACE\s+)?"
+    r"(?:FUNCTION|PROCEDURE)\s+",
     re.IGNORECASE,
 )
 _ALTER_ROUTINE_RE = re.compile(
-    r"\bALTER\s+(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE
+    _KW_LEFT + r"ALTER\s+(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE
 )
-_SECURITY_DEFINER_RE = re.compile(r"\bSECURITY\s+DEFINER\b", re.IGNORECASE)
+_SECURITY_DEFINER_RE = re.compile(_pg_kw(r"SECURITY\s+DEFINER"), re.IGNORECASE)
 # `REVOKE GRANT OPTION FOR EXECUTE ... FROM authenticated` withdraws only the
 # right to RE-GRANT execute. The role keeps EXECUTE itself and can still call the
 # function. The optional clause was already matched here - so the statement
@@ -3216,10 +3359,11 @@ _SECURITY_DEFINER_RE = re.compile(r"\bSECURITY\s+DEFINER\b", re.IGNORECASE)
 # nothing else, so it cannot reach past a `;` into another statement, and
 # comments are already whitespace in the masked text it runs on.
 _REVOKE_HEAD_RE = re.compile(
-    r"\bREVOKE[" + _PG_WS + r"]+"
+    _KW_LEFT + r"REVOKE[" + _PG_WS + r"]+"
     r"(?P<grant_option>GRANT[" + _PG_WS + r"]+OPTION[" + _PG_WS + r"]+FOR["
     + _PG_WS + r"]+)?"
-    r"(?P<privs>[A-Za-z," + _PG_WS + r"]*?)[" + _PG_WS + r"]*\bON[" + _PG_WS + r"]+",
+    r"(?P<privs>[A-Za-z," + _PG_WS + r"]*?)[" + _PG_WS + r"]*" + _KW_LEFT
+    + r"ON[" + _PG_WS + r"]+",
     re.IGNORECASE,
 )
 # `GRANT OPTION FOR` never begins a GRANT statement - it is the clause above,
@@ -3229,14 +3373,23 @@ _REVOKE_HEAD_RE = re.compile(
 # phantom's grantee list came out empty, but it put a statement in the ledger
 # that the file never contained.
 _GRANT_HEAD_RE = re.compile(
-    r"\bGRANT[" + _PG_WS + r"]+(?!OPTION[" + _PG_WS + r"]+FOR\b)"
-    r"(?P<privs>[A-Za-z," + _PG_WS + r"]*?)[" + _PG_WS + r"]*\bON[" + _PG_WS + r"]+",
+    _KW_LEFT + r"GRANT[" + _PG_WS + r"]+(?!OPTION[" + _PG_WS + r"]+FOR"
+    + _KW_RIGHT + r")"
+    r"(?P<privs>[A-Za-z," + _PG_WS + r"]*?)[" + _PG_WS + r"]*" + _KW_LEFT
+    + r"ON[" + _PG_WS + r"]+",
     re.IGNORECASE,
 )
+# Round 20, Category A - the one keyword matcher in this file that keeps
+# Python's `\b`, because its INPUT cannot contain an identifier-continuation
+# character. It is only ever run over the `privs` capture group of the two
+# heads above, whose class is `[A-Za-z,` + PostgreSQL whitespace and nothing
+# else: no `$`, no digit, no non-ASCII code point can reach it, so `\b` and
+# the PostgreSQL boundary agree on every string it can see.
 _EXECUTE_PRIV_RE = re.compile(r"\b(EXECUTE|ALL)\b", re.IGNORECASE)
 _ON_ROUTINE_RE = re.compile(r"\A(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE)
 _ON_ALL_ROUTINES_RE = re.compile(
-    r"\AALL\s+(?:FUNCTIONS|PROCEDURES|ROUTINES)\s+IN\s+SCHEMA\b", re.IGNORECASE
+    r"\AALL\s+(?:FUNCTIONS|PROCEDURES|ROUTINES)\s+IN\s+SCHEMA" + _KW_RIGHT,
+    re.IGNORECASE,
 )
 
 
@@ -3285,7 +3438,7 @@ def parse_definitions(raw: str, masked: str) -> list[Definition]:
     return out
 
 
-_SECURITY_INVOKER_RE = re.compile(r"\bSECURITY\s+INVOKER\b", re.IGNORECASE)
+_SECURITY_INVOKER_RE = re.compile(_pg_kw(r"SECURITY\s+INVOKER"), re.IGNORECASE)
 
 
 class AlterSecurity:
@@ -3604,12 +3757,12 @@ def routine_body_spans(masked: str) -> list[tuple[int, int]]:
 # The scanner does not become that interpreter. A DO that might change routine
 # EXECUTE is a PROCEDURAL_ACL_UNKNOWN event. UNKNOWN is not closure. A later
 # provably exact top-level privilege statement can restore proof.
-_DO_KW_RE = re.compile(r"\bDO\b", re.IGNORECASE)
-_LANGUAGE_KW_RE = re.compile(r"LANGUAGE\b", re.IGNORECASE)
-_ON_WORD_RE = re.compile(r"\bON\b", re.IGNORECASE)
-_EXECUTE_WORD_RE = re.compile(r"\bEXECUTE\b", re.IGNORECASE)
+_DO_KW_RE = re.compile(_pg_kw("DO"), re.IGNORECASE)
+_LANGUAGE_KW_RE = re.compile(_pg_kw("LANGUAGE"), re.IGNORECASE)
+_ON_WORD_RE = re.compile(_pg_kw("ON"), re.IGNORECASE)
+_EXECUTE_WORD_RE = re.compile(_pg_kw("EXECUTE"), re.IGNORECASE)
 _PROCEDURAL_CALL_RE = re.compile(
-    r"\b(?:PERFORM|CALL)\b[^;]*\(", re.IGNORECASE | re.DOTALL
+    _pg_kw("PERFORM|CALL") + r"[^;]*\(", re.IGNORECASE | re.DOTALL
 )
 # Round 13 (Fable, F4): keying migration-time execution to three keyword
 # spellings was too narrow. PostgreSQL 17.11 runs a same-file function - and
@@ -3619,7 +3772,7 @@ _PROCEDURAL_CALL_RE = re.compile(
 # the region is flagged is decided by _region_calls_defined_routine(), so
 # `ON UPDATE CASCADE` and a `DELETE` that calls nothing are not affected.
 _TOP_LEVEL_RUNTIME_KW_RE = re.compile(
-    r"\b(?:CALL|SELECT|WITH|INSERT|UPDATE|DELETE|MERGE|VALUES)\b",
+    _pg_kw("CALL|SELECT|WITH|INSERT|UPDATE|DELETE|MERGE|VALUES"),
     re.IGNORECASE,
 )
 
@@ -3641,10 +3794,11 @@ _TOP_LEVEL_RUNTIME_KW_RE = re.compile(
 # 171 and 191, whose DO blocks only VERIFY the ACL they were given, were
 # reported as changing it.
 _DO_ACL_KEYWORD_RE = re.compile(
-    r"(?:\bGRANT\b|\bREVOKE\b"
-    r"|\bALTER[" + _PG_WS + r"]+DEFAULT[" + _PG_WS + r"]+PRIVILEGES\b"
-    r"|\bALTER[" + _PG_WS + r"]+(?:ROLE|GROUP|USER)\b"
-    r")",
+    _pg_kw(
+        r"GRANT|REVOKE"
+        r"|ALTER[" + _PG_WS + r"]+DEFAULT[" + _PG_WS + r"]+PRIVILEGES"
+        r"|ALTER[" + _PG_WS + r"]+(?:ROLE|GROUP|USER)"
+    ),
     re.IGNORECASE,
 )
 
@@ -4015,7 +4169,7 @@ def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement
                 if not targets:
                     continue
             keyword = "FROM" if is_revoke else "TO"
-            km = re.compile(r"\b" + keyword + r"\b", re.IGNORECASE).search(
+            km = re.compile(_pg_kw(keyword), re.IGNORECASE).search(
                 masked, m.end(), end
             )
             grantees = _grantee_names(raw[km.end(): end]) if km else set()
@@ -4029,14 +4183,14 @@ def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement
 
 
 _DEFAULT_PRIVILEGES_RE = re.compile(
-    r"\bALTER\s+DEFAULT\s+PRIVILEGES\b", re.IGNORECASE
+    _pg_kw(r"ALTER\s+DEFAULT\s+PRIVILEGES"), re.IGNORECASE
 )
 _ON_DEFAULT_ROUTINES_RE = re.compile(
-    r"\A(?:FUNCTIONS|ROUTINES)\b", re.IGNORECASE
+    r"\A(?:FUNCTIONS|ROUTINES)" + _KW_RIGHT, re.IGNORECASE
 )
-_GRANT_WORD_RE = re.compile(r"\bGRANT\b", re.IGNORECASE)
-_TO_WORD_RE = re.compile(r"\bTO\b", re.IGNORECASE)
-_ON_ANY_WORD_RE = re.compile(r"\bON\b", re.IGNORECASE)
+_GRANT_WORD_RE = re.compile(_pg_kw("GRANT"), re.IGNORECASE)
+_TO_WORD_RE = re.compile(_pg_kw("TO"), re.IGNORECASE)
+_ON_ANY_WORD_RE = re.compile(_pg_kw("ON"), re.IGNORECASE)
 
 
 def parse_default_privilege_unknowns(raw: str, masked: str):
@@ -4094,15 +4248,16 @@ def parse_default_privilege_unknowns(raw: str, masked: str):
 # it changes whether the role's existing memberships confer their privileges
 # automatically, which moves the same effective execution right.
 _ALTER_GROUP_MEMBER_RE = re.compile(
-    r"\bALTER[" + _PG_WS + r"]+GROUP\b", re.IGNORECASE
+    _pg_kw(r"ALTER[" + _PG_WS + r"]+GROUP"), re.IGNORECASE
 )
 _GROUP_MEMBER_VERB_RE = re.compile(
-    r"\b(?:ADD|DROP)[" + _PG_WS + r"]+USER[" + _PG_WS + r"]+", re.IGNORECASE
+    _KW_LEFT + r"(?:ADD|DROP)[" + _PG_WS + r"]+USER[" + _PG_WS + r"]+",
+    re.IGNORECASE,
 )
 _ALTER_ROLE_INHERIT_RE = re.compile(
-    r"\bALTER[" + _PG_WS + r"]+(?:ROLE|USER)\b", re.IGNORECASE
+    _pg_kw(r"ALTER[" + _PG_WS + r"]+(?:ROLE|USER)"), re.IGNORECASE
 )
-_INHERIT_OPTION_RE = re.compile(r"\b(?:NOINHERIT|INHERIT)\b", re.IGNORECASE)
+_INHERIT_OPTION_RE = re.compile(_pg_kw("NOINHERIT|INHERIT"), re.IGNORECASE)
 
 
 def parse_role_membership_unknown_roles(raw: str, masked: str) -> set[str]:

@@ -10122,5 +10122,791 @@ class Round19RegressionBatteryTests(_Round19Base):
         )
 
 
+# ---------------------------------------------------------------------------
+# Round 20
+# ---------------------------------------------------------------------------
+# Two root causes, both confirmed by independent review and both reproduced on
+# PostgreSQL 17.11 before being closed.
+#
+# A - POSTGRESQL IDENTIFIER BOUNDARIES ARE NOT PYTHON `\b`. Round 19 corrected
+#   the two hand-written identifier WALKS (_previous_word() and
+#   _is_assignment_target()) to use the file's ident_cont class. It did not
+#   correct the forward keyword RECOGNIZERS, which still used `\b` - and `\b`
+#   is defined against `\w`, a Unicode CATEGORY test that excludes `$` and
+#   every non-ASCII code point outside the letter/digit categories. PostgreSQL
+#   accepts all of them as identifier CONTINUATION, so Python saw a word
+#   boundary in the middle of one identifier.
+#
+#   All 98 containment forms exercised below - `col$end`, `end$x`, `x$end$y`
+#   and `col<non-ASCII>end` for fourteen keywords - were created as columns on
+#   PostgreSQL 17.11 and read back from `pg_attribute` unchanged, so each is
+#   provably ONE unquoted identifier. Python's `\bEND\b` matches inside every
+#   one of them.
+#
+#   `_BLOCK_TOKEN_RE` is the worst case because it consults no walk at all: it
+#   builds the control-frame stack straight from its own matches. Codex's P1
+#   chain ran end to end - a fake END popped the SQL CASE frame, which handed
+#   ownership of the following SQL `ELSE` to the enclosing PL/pgSQL IF, which
+#   made an ordinary `declare` identifier open a declaration section, which
+#   swallowed the real outer-level `RAISE EXCEPTION 'NOT_IMPLEMENTED'`, which
+#   left the DEAD `PERFORM public.wardah_assert_org_member(...)` after that
+#   abort looking like the routine's authorization boundary.
+#
+# B - LABEL OWNERSHIP WAS NOT STRUCTURAL. `_block_labels()` recorded a label
+#   whenever a complete `<<ident>>` reached a `>>`, and PostgreSQL spells right
+#   shift `>>` too. `SELECT a << b >> loop declare INTO v_x FROM public.t2`
+#   compiles on 17.11 (`loop` is an unreserved column name, `declare` its
+#   alias) and labelled the fake LOOP frame the identifier pushes. Placed
+#   inside a real loop that fake frame also STEALS the real `END LOOP` and so
+#   comes back closed - the exact case Round 19's head test was added to stop -
+#   and the manufactured label let `_opens_loop_statement()` skip that head
+#   test through its `pos in _block_labels()` shortcut.
+#
+# Every routine below was compiled on PostgreSQL 17.11 as a SECURITY DEFINER
+# routine and EXECUTED, against a `public.bins` row seeded at 55, with
+# `public.wardah_is_org_member()` / `public.wardah_assert_org_member()`
+# behaving as this repository's helpers do. Every one came back
+# `prosecdef = true` and executable by PUBLIC and by the client role, so the
+# verdicts asserted here are verdicts about live authorization behaviour.
+
+
+class _Round20Base(unittest.TestCase):
+    """Fixtures for Round 20."""
+
+    # Four non-ASCII continuation code points, one per Unicode category that
+    # Python's `\w` - and therefore `\b` - gets wrong: Mn, Po, Cf and So.
+    NON_ASCII_CONT = ("́", "·", "​", "\U0001F600")
+
+    # The keywords whose suffix can reach a security-bearing recognizer.
+    STRUCTURAL_KEYWORDS = (
+        "end", "if", "then", "else", "elsif", "begin", "loop", "case",
+        "raise", "declare", "exception", "exit", "when", "return",
+    )
+
+    PRIVILEGED_WRITE = (
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+    )
+    GUARD = "  PERFORM public.wardah_assert_org_member(p_org);\n"
+    ABORT = "  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n"
+    DENY = (
+        "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+        "    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';\n"
+        "  END IF;\n"
+    )
+    DECL = "DECLARE\n  v_x integer;\n"
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._dir.name)
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def verdict(self, name: str, sql: str) -> list[str]:
+        path = self.root / f"999_round20_{name}.sql"
+        path.write_text(sql, encoding="utf-8")
+        return guards.check_file(path)
+
+    @staticmethod
+    def routine(body: str) -> str:
+        return (
+            "CREATE FUNCTION public.probe_fn(p_org uuid)\n"
+            "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $body$\n"
+            f"{body}"
+            "END;\n"
+            "$body$;\n"
+        )
+
+    @classmethod
+    def containments(cls, keyword: str) -> tuple[str, ...]:
+        """Every form in which `keyword` hides inside ONE PostgreSQL identifier.
+
+        Each was created as a column on 17.11 and read back from `pg_attribute`
+        unchanged, so the containment is the oracle's, not this file's.
+        """
+        return (
+            f"col${keyword}", f"{keyword}$x", f"x${keyword}$y",
+            *(f"col{ch}{keyword}" for ch in cls.NON_ASCII_CONT),
+        )
+
+    @staticmethod
+    def slug(ident: str) -> str:
+        return "".join(
+            ch if ch.isalnum() or ch == "_" else f"u{ord(ch):x}" for ch in ident
+        )
+
+
+class Round20KeywordBoundaryTests(_Round20Base):
+    """ONE PostgreSQL keyword boundary, in every security-bearing lexer."""
+
+    def test_the_file_spells_the_boundary_once(self) -> None:
+        """PARSER-INTERNAL. Both boundary constants are DERIVED from
+        `_IDENT_CONT`, so a keyword lexer cannot drift from the identifier
+        alphabet the way `\\b` had drifted from it."""
+        self.assertEqual(guards._KW_LEFT, f"(?<![{guards._IDENT_CONT}])")
+        self.assertEqual(guards._KW_RIGHT, f"(?![{guards._IDENT_CONT}])")
+        self.assertEqual(
+            guards._pg_kw("END"),
+            f"{guards._KW_LEFT}(?:END){guards._KW_RIGHT}",
+        )
+
+    def test_python_word_boundary_is_not_the_postgresql_one(self) -> None:
+        """PARSER-INTERNAL, and the whole reason this round exists: `\\b` fires
+        inside a single PostgreSQL identifier for every keyword and every
+        containment form, while the shared boundary does not."""
+        shared = re.compile(guards._pg_kw("END"), re.IGNORECASE)
+        for keyword in self.STRUCTURAL_KEYWORDS:
+            legacy = re.compile(rf"\b{keyword}\b", re.IGNORECASE)
+            for form in self.containments(keyword):
+                with self.subTest(keyword=keyword, form=form):
+                    self.assertIsNotNone(
+                        guards._PLAIN_IDENT_RE.match(form),
+                        f"{form!r} is ONE identifier on 17.11",
+                    )
+                    self.assertIsNotNone(
+                        legacy.search(form),
+                        f"Python \\b no longer splits {form!r}",
+                    )
+        for form in self.containments("end"):
+            with self.subTest(form=form):
+                self.assertIsNone(
+                    shared.search(form),
+                    f"the shared boundary still splits {form!r}",
+                )
+
+    def test_every_structural_lexer_uses_the_shared_boundary(self) -> None:
+        """PARSER-INTERNAL. The audit, pinned: none of the security-bearing
+        keyword matchers may go back to `\\b`, and each must refuse the keyword
+        when it is glued to an identifier-continuation character."""
+        for name, probe in (
+            ("_BLOCK_TOKEN_RE", "v := col$end;"),
+            ("_NON_ABORTING_RAISE_RE", "col$raise notice 'x'"),
+            ("_RAISE_BEFORE_RE", "col$raise "),
+            ("_DECLARE_TOKEN_RE", "col$declare"),
+            ("_SECTION_BEGIN_RE", "col$begin"),
+            ("_HANDLER_WHEN_RE", "col$when"),
+            ("_HANDLER_THEN_RE", "col$then"),
+            ("_SQLSTATE_KEYWORD_RE", "col$sqlstate"),
+            ("_DECLARE_KW_RE", "col$declare"),
+            ("_BEGIN_KW_RE", "col$begin"),
+            ("_LOOP_KW_RE", "col$loop"),
+            ("_LOOP_HEAD_RE", "col$loop"),
+            ("_TERMINATING_RETURN_RE", "col$return"),
+            ("_ABORTING_RAISE_RE", "col$raise"),
+            ("_EXIT_KW_RE", "col$exit"),
+            ("_WHEN_KW_RE", "col$when"),
+            ("_PERFORM_HEAD_RE", "col$perform"),
+            ("_TOP_LEVEL_OR_RE", "col$or"),
+        ):
+            with self.subTest(matcher=name):
+                pattern = getattr(guards, name)
+                self.assertNotIn(
+                    "\\b", pattern.pattern,
+                    f"{name} went back to a Python word boundary",
+                )
+                self.assertIsNone(
+                    pattern.search(probe),
+                    f"{name} still reads a keyword out of {probe!r}",
+                )
+
+    def test_a_contained_keyword_opens_no_frame(self) -> None:
+        """PARSER-INTERNAL. `_BLOCK_TOKEN_RE` feeds the control-frame stack
+        directly, so a suffix it mistakes for a keyword is a frame nothing else
+        can veto."""
+        for keyword in ("end", "if", "then", "else", "begin", "loop", "case",
+                        "raise", "exception"):
+            for form in self.containments(keyword):
+                with self.subTest(form=form):
+                    self.assertEqual(
+                        [m.group(1) for m in
+                         guards._BLOCK_TOKEN_RE.finditer(f"v_x := t.{form};")],
+                        [],
+                        f"{form!r} still produces a structural token",
+                    )
+
+
+class Round20CodexBlockTokenTests(_Round20Base):
+    """Codex's Round-19 P1, pinned end to end through real check_file()."""
+
+    def _codex_chain(self, ident: str) -> str:
+        """PL/pgSQL IF > embedded SQL CASE > keyword-suffixed identifier >
+        SQL ELSE > DECLARE-shaped identifier > real outer abort > dead guard."""
+        return self.routine(
+            self.DECL + "BEGIN\n"
+            "  IF p_org IS NOT NULL THEN\n"
+            f"    SELECT CASE WHEN true THEN t.{ident} ELSE declare END"
+            " INTO v_x FROM public.t;\n"
+            "  END IF;\n"
+            + self.ABORT + self.GUARD + self.PRIVILEGED_WRITE
+        )
+
+    def test_a_fake_end_cannot_credit_a_dead_guard(self) -> None:
+        """Oracle: every one of these compiles, is `prosecdef = true` and
+        executable by PUBLIC and the client role, and ABORTS at
+        `NOT_IMPLEMENTED` (P0001) for member and non-member alike -
+        `bins.actual_qty` stays 55. The PERFORM after that abort is dead code
+        that can never authorize anything. check_file() returned []."""
+        for ident in self.containments("end"):
+            with self.subTest(identifier=ident):
+                self.assertTrue(
+                    self.verdict(f"codex_{self.slug(ident)}",
+                                 self._codex_chain(ident)),
+                    f"{ident!r} still closes a frame, hides the real abort and"
+                    " credits the dead guard",
+                )
+
+    def test_the_chain_breaks_at_every_link(self) -> None:
+        """PARSER-INTERNAL, so a future regression names WHICH link failed."""
+        sql = self._codex_chain("col$end")
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        definition = guards.parse_definitions(sql, masked)[0]
+        body = masked[definition.start: definition.body_span[1]]
+
+        self.assertNotIn(
+            "END", [" ".join(m.group(1).upper().split())
+                    for m in guards._BLOCK_TOKEN_RE.finditer(body)][:4],
+            "the identifier suffix still reads as a bare structural END",
+        )
+        # The SQL ELSE belongs to the CASE, which is still on the stack.
+        else_pos = body.index("ELSE declare")
+        self.assertFalse(
+            guards._owns_statement_list(body, "else", else_pos),
+            "a SQL CASE arm still owns a PL/pgSQL statement list",
+        )
+        declare_pos = body.index("declare", else_pos)
+        self.assertFalse(
+            guards._opens_declaration_section(body, declare_pos),
+            "an ordinary `declare` identifier still opens a section",
+        )
+        self.assertEqual(
+            [span for span in guards._declaration_spans(body)
+             if span[0] > else_pos],
+            [],
+            "a declaration span is still manufactured after the CASE",
+        )
+        raise_pos = body.index("RAISE EXCEPTION")
+        self.assertTrue(
+            guards._is_statement_start(body, raise_pos),
+            "the real outer-level RAISE is still suppressed",
+        )
+
+    def test_a_fake_end_cannot_unpin_a_swallowing_handler(self) -> None:
+        """A bare END pops the innermost BEGIN, and with that BEGIN gone the
+        EXCEPTION section attached to nothing, so `is_swallowed()` saw no
+        handler. Oracle: the non-member call RETURNS NORMALLY - the guard
+        raised and `WHEN OTHERS THEN NULL` swallowed the denial, so the caller
+        cannot tell it was denied. check_file() returned []."""
+        for ident in self.containments("end"):
+            with self.subTest(identifier=ident):
+                self.assertTrue(
+                    self.verdict(
+                        f"swallow_{self.slug(ident)}",
+                        self.routine(
+                            self.DECL + "BEGIN\n"
+                            f"  SELECT t.{ident} INTO v_x FROM public.t;\n"
+                            + self.GUARD + self.PRIVILEGED_WRITE
+                            + "EXCEPTION WHEN OTHERS THEN\n  NULL;\n"
+                        ),
+                    ),
+                    f"{ident!r} still detaches the swallowing handler",
+                )
+
+    def test_a_fake_end_cannot_flatten_a_nested_block(self) -> None:
+        """The same pop also removed the enclosing BEGIN from the guard's frame
+        set, so a guard inside a NESTED block read as outer-level and passed the
+        strict-cutoff reachability contract. Oracle: the routine does deny
+        (TENANT_MEMBERSHIP_REQUIRED, bins stays 55), but the guard is not in the
+        shape migrations at or after the cutoff are required to use."""
+        for ident in self.containments("end"):
+            with self.subTest(identifier=ident):
+                self.assertTrue(
+                    self.verdict(
+                        f"nested_{self.slug(ident)}",
+                        self.routine(
+                            self.DECL + "BEGIN\n"
+                            f"  SELECT t.{ident} INTO v_x FROM public.t;\n"
+                            "  BEGIN\n  " + self.GUARD + "  END;\n"
+                            + self.PRIVILEGED_WRITE
+                        ),
+                    ),
+                    f"{ident!r} still flattens the nested block",
+                )
+
+    def test_a_contained_keyword_does_not_reject_a_real_guard(self) -> None:
+        """The other direction, and the reason this is a boundary correction
+        rather than a broader clamp: an ordinary column whose name merely ENDS
+        in a keyword must not cost a correctly guarded routine its verdict.
+        Oracle: each denies a non-member with TENANT_MEMBERSHIP_REQUIRED and
+        leaves bins at 55."""
+        for keyword in self.STRUCTURAL_KEYWORDS:
+            for ident in self.containments(keyword):
+                with self.subTest(identifier=ident):
+                    self.assertEqual(
+                        self.verdict(
+                            f"ok_{self.slug(ident)}",
+                            self.routine(
+                                self.DECL + "BEGIN\n"
+                                f"  SELECT t.{ident} INTO v_x FROM public.t;\n"
+                                + self.GUARD + self.PRIVILEGED_WRITE
+                            ),
+                        ),
+                        [],
+                        f"{ident!r} still costs a real guard its verdict",
+                    )
+
+
+class Round20LabelOwnershipTests(_Round20Base):
+    """A label owns a real BLOCK or LOOP; a shift operator owns nothing."""
+
+    SHIFTS = (
+        "SELECT a << b >> begin INTO v_x FROM public.t2;",
+        "SELECT a << b >> loop INTO v_x FROM public.t2;",
+        "SELECT a << b >> declare INTO v_x FROM public.t2;",
+        "SELECT a << b >> begin$x INTO v_x FROM public.t2;",
+        "SELECT a << b >> loop$x INTO v_x FROM public.t2;",
+        "SELECT a << b >> while$x INTO v_x FROM public.t2; LOOP NULL; END LOOP;",
+        "SELECT a << b >> for$x INTO v_x FROM public.t2; LOOP NULL; END LOOP;",
+        "SELECT a << b >> foreach$x INTO v_x FROM public.t2; LOOP NULL; END LOOP;",
+        "SELECT a << b >> c INTO v_x FROM public.t2;",
+    )
+
+    def test_shift_expressions_manufacture_no_label(self) -> None:
+        """PARSER-INTERNAL. Every one of these is an ordinary expression on
+        17.11, and a raw `>>` is never evidence of a label."""
+        for text in self.SHIFTS:
+            with self.subTest(expression=text):
+                self.assertEqual(
+                    guards._block_labels(text), {},
+                    "a shift expression still owns a label",
+                )
+
+    def test_a_label_is_proved_forward_from_a_block_position(self) -> None:
+        """PARSER-INTERNAL. `_label_opener_before()` is the one backward reader,
+        and it validates the label FORWARD with the same grammar
+        `_block_labels()` uses - so a `>>` that no complete label reaches, and a
+        label that follows an operand, are both refused."""
+        body = "SELECT a << b >> declare INTO v_x FROM public.t2;"
+        opener = guards._label_opener_before(body, body.index("declare"))
+        self.assertEqual(opener, body.index("<<"),
+                         "the backward reader no longer finds the construct")
+        self.assertFalse(
+            guards._opens_block_position(body, body.index("declare")),
+            "a label that follows an operand still opens a block position",
+        )
+        real = "; <<blk>> DECLARE v integer; BEGIN NULL; END blk;"
+        self.assertTrue(
+            guards._opens_block_position(real, real.index("DECLARE")),
+            "a real labelled DECLARE stopped being a block position",
+        )
+        self.assertIsNone(
+            guards._label_opener_before("v_x := 8 >> 2;", len("v_x := 8 >> ")),
+            "a bare `>>` still reads as a label",
+        )
+
+    def test_a_manufactured_label_cannot_open_a_declaration_section(self) -> None:
+        """The Root-Cause-B P1, end to end. Oracle: this compiles, is
+        `prosecdef = true` and client-executable, and ABORTS at
+        `NOT_IMPLEMENTED` - so the PERFORM after it is dead code. The fake LOOP
+        frame the identifier `loop` pushes steals the real `END LOOP` and comes
+        back closed, and the label manufactured by `a << b >>` used to let
+        `_opens_loop_statement()` skip the head test entirely. check_file()
+        returned []."""
+        self.assertTrue(
+            self.verdict(
+                "shift_label_loop_declare",
+                self.routine(
+                    self.DECL + "BEGIN\n  LOOP\n"
+                    "    SELECT a << b >> loop declare INTO v_x"
+                    " FROM public.t2;\n"
+                    "    EXIT;\n  END LOOP;\n"
+                    + self.ABORT + self.GUARD + self.PRIVILEGED_WRITE
+                ),
+            ),
+            "a manufactured label still opens a declaration section",
+        )
+
+    def test_real_labelled_constructs_still_own_their_blocks(self) -> None:
+        """Every real labelled shape below compiles on 17.11. A label that
+        stops being recognized is not a safe failure: `labelled_exit_before()`
+        matches an EXIT target against it, and `_opens_declaration_section()`
+        needs it for `<<blk>> DECLARE`."""
+        for name, body, accepted in (
+            ("label_declare",
+             "<<blk>>\nDECLARE\n  v integer;\nBEGIN\n"
+             + self.GUARD + self.PRIVILEGED_WRITE, True),
+            ("label_declare_tight",
+             "<<blk>>DECLARE\n  v integer;\nBEGIN\n"
+             + self.GUARD + self.PRIVILEGED_WRITE, True),
+            ("quoted_label_declare",
+             '<<"Blk">>\nDECLARE\n  v integer;\nBEGIN\n'
+             + self.GUARD + self.PRIVILEGED_WRITE, True),
+            ("unicode_label_declare",
+             "<<blä>>\nDECLARE\n  v integer;\nBEGIN\n"
+             + self.GUARD + self.PRIVILEGED_WRITE, True),
+            ("astral_label_declare",
+             "<<bl\U0001F600k>>\nDECLARE\n  v integer;\nBEGIN\n"
+             + self.GUARD + self.PRIVILEGED_WRITE, True),
+            ("labelled_while",
+             "BEGIN\n  <<lp>>\n  WHILE false LOOP\n    EXIT lp;\n"
+             "  END LOOP lp;\n" + self.GUARD + self.PRIVILEGED_WRITE, True),
+            ("labelled_for",
+             "BEGIN\n  <<lp>>\n  FOR i IN 1..2 LOOP\n    EXIT lp;\n"
+             "  END LOOP lp;\n" + self.GUARD + self.PRIVILEGED_WRITE, True),
+            ("labelled_exit_over_guard",
+             "BEGIN\n  <<auth_block>>\n  BEGIN\n    EXIT auth_block;\n  "
+             + self.GUARD + "  END;\n" + self.PRIVILEGED_WRITE, False),
+            ("quoted_labelled_exit_over_guard",
+             'BEGIN\n  <<"Auth">>\n  BEGIN\n    EXIT "Auth";\n  '
+             + self.GUARD + "  END;\n" + self.PRIVILEGED_WRITE, False),
+            ("labelled_declare_suppresses_raise",
+             "BEGIN\n  <<blk>>\n  DECLARE\n    raise integer;\n  BEGIN\n"
+             "    IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "      raise := 2;\n    END IF;\n  END blk;\n"
+             + self.PRIVILEGED_WRITE, False),
+        ):
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.verdict(f"real_{name}", self.routine(body)) == [],
+                    accepted,
+                    f"`{name}` changed verdict",
+                )
+
+
+class Round20ComposedMutantTests(_Round20Base):
+    """Fresh composed mutants, each compiled AND executed on 17.11."""
+
+    def test_composed_mutants_hold(self) -> None:
+        deny, guard, write = self.DENY, self.GUARD, self.PRIVILEGED_WRITE
+        abort, decl = self.ABORT, self.DECL
+        for name, body, accepted in (
+            # 1. `$` identifier + SQL CASE + dead recognized guard.
+            ("m01_dollar_case_dead_guard",
+             decl + "BEGIN\n"
+             "  SELECT CASE WHEN true THEN t.col$end ELSE t.x END"
+             " INTO v_x FROM public.t;\n" + abort + guard + write, False),
+            # 2. non-ASCII continuation + a real deny branch.
+            ("m02_nonascii_real_deny",
+             decl + "BEGIN\n  SELECT t.coĺend INTO v_x FROM public.t;\n"
+             + deny + write, True),
+            # 3. col$end + NESTED SQL CASE inside a PL/pgSQL IF.
+            ("m03_dollar_end_nested_case_if",
+             decl + "BEGIN\n  IF p_org IS NOT NULL THEN\n"
+             "    SELECT CASE WHEN true THEN"
+             " CASE WHEN true THEN t.col$end ELSE t.x END\n"
+             "                ELSE declare END INTO v_x FROM public.t;\n"
+             "  END IF;\n" + abort + guard + write, False),
+            # 4. col$then / col$else + a DECLARE-shaped ordinary identifier.
+            ("m04_dollar_else_then_declare",
+             decl + "BEGIN\n"
+             "  SELECT CASE WHEN true THEN t.col$then ELSE t.col$else END"
+             " INTO v_x FROM public.t;\n"
+             "  SELECT t.col$begin declare INTO v_x FROM public.t;\n"
+             + abort + guard + write, False),
+            # 5. identifier `loop` + shift operators + DECLARE-shaped alias.
+            ("m05_shift_label_loop_declare",
+             decl + "BEGIN\n  LOOP\n"
+             "    SELECT a << b >> loop declare INTO v_x FROM public.t2;\n"
+             "    EXIT;\n  END LOOP;\n" + abort + guard + write, False),
+            # 6. identifier `begin` + a real RAISE after it.
+            ("m06_identifier_begin_real_raise",
+             decl + "BEGIN\n"
+             "  SELECT a << b >> begin INTO v_x FROM public.t2;\n"
+             + deny + write, True),
+            # 7. real labelled DECLARE + qualified `raise.field :=`.
+            ("m07_labelled_declare_raise_field",
+             "<<blk>>\nDECLARE\n  raise public.bins%ROWTYPE;\nBEGIN\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    raise.actual_qty := 2;\n  END IF;\n" + write, False),
+            # 8. real labelled loop + END LOOP label named `raise`.
+            ("m08_labelled_loop_end_label_raise",
+             "BEGIN\n  <<raise>>\n  WHILE false LOOP\n    NULL;\n"
+             "  END LOOP raise;\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    NULL;\n  END IF;\n" + write, False),
+            # 9. right shift `8 >> raise` inside an embedded SQL CASE.
+            ("m09_right_shift_raise_case",
+             decl + "BEGIN\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    SELECT CASE WHEN true THEN 8 >> raise ELSE 0 END"
+             " INTO v_x FROM public.t2;\n"
+             "  END IF;\n" + write, False),
+            # 10. `a << b >> c` beside a REAL labelled block whose EXIT bites.
+            ("m10_shift_plus_real_labelled_block",
+             decl + "BEGIN\n  SELECT a << b >> x INTO v_x FROM public.t2;\n"
+             "  <<auth_block>>\n  BEGIN\n    EXIT auth_block;\n  "
+             + guard + "  END;\n" + write, False),
+            # 11. exception handler + keyword-containing identifiers.
+            ("m11_handler_keyword_identifiers",
+             decl + "BEGIN\n  SELECT t.col$when INTO v_x FROM public.t;\n"
+             + guard + write
+             + "EXCEPTION WHEN OTHERS THEN\n"
+             "  SELECT t.col$then INTO v_x FROM public.t;\n", False),
+            # 12. nested block + SQL CASE + a real standalone PERFORM.
+            ("m12_nested_block_case_real_perform",
+             decl + "BEGIN\n"
+             "  SELECT CASE WHEN true THEN t.col$case ELSE t.col$loop END"
+             " INTO v_x FROM public.t;\n"
+             "  BEGIN\n    v_x := 1;\n  END;\n" + guard + write, True),
+        ):
+            with self.subTest(mutant=name):
+                self.assertEqual(
+                    self.verdict(name, self.routine(body)) == [],
+                    accepted,
+                    f"`{name}` changed verdict",
+                )
+
+
+class Round20RegressionBatteryTests(_Round20Base):
+    """Rounds 13-19, re-proved through the Round-20 lexer."""
+
+    def test_identifier_named_raise_families_still_hold(self) -> None:
+        for name, body, accepted in (
+            ("r13_alias_named_raise",
+             "DECLARE\n  v_x integer;\nBEGIN\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    SELECT 1 AS raise INTO v_x;\n  END IF;\n", False),
+            ("r14_right_shift_raise",
+             "DECLARE\n  v_x integer;\nBEGIN\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    SELECT 8 >> raise INTO v_x FROM public.t2;\n"
+             "  END IF;\n", False),
+            ("r14_right_shift_raise_tight",
+             "DECLARE\n  v_x integer;\nBEGIN\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    SELECT 8>>raise INTO v_x FROM public.t2;\n"
+             "  END IF;\n", False),
+            ("r15_end_loop_label_named_raise",
+             "BEGIN\n  <<raise>>\n  LOOP\n    EXIT raise;\n  END LOOP raise;\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    NULL;\n  END IF;\n", False),
+            ("r16_first_declaration_named_raise",
+             "DECLARE\n  raise integer;\nBEGIN\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    raise := 2;\n  END IF;\n", False),
+            ("r17_second_declaration_named_raise",
+             "DECLARE\n  x integer := 1;\n  raise integer := 2;\nBEGIN\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    NULL;\n  END IF;\n", False),
+            ("r17_assignment_after_begin",
+             "DECLARE\n  raise integer := 1;\nBEGIN\n  raise := 2;\n"
+             + self.GUARD, True),
+            ("r17_bare_equals_assignment",
+             "DECLARE\n  raise integer := 1;\nBEGIN\n  raise = 2;\n"
+             + self.GUARD, True),
+            ("r18_shift_declare",
+             "DECLARE\n  v_x integer;\nBEGIN\n"
+             "  SELECT 8 >> declare INTO v_x FROM public.t2;\n"
+             + self.ABORT + self.GUARD, False),
+            ("r18_col_dollar_declare",
+             "DECLARE\n  v_x integer;\nBEGIN\n"
+             "  SELECT t.col$declare INTO v_x FROM public.t;\n"
+             + self.ABORT + self.GUARD, False),
+            ("r18_composed_shift_declare",
+             "DECLARE\n  v_x integer;\nBEGIN\n"
+             "  SELECT a << b >> declare INTO v_x FROM public.t2;\n"
+             + self.ABORT + self.GUARD, False),
+            ("r18_raise_field_target",
+             "DECLARE\n  raise public.bins%ROWTYPE;\nBEGIN\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    raise.actual_qty := 2;\n  END IF;\n", False),
+            ("r18_raise_subscript_target",
+             "DECLARE\n  raise integer[];\nBEGIN\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    raise[1] := 2;\n  END IF;\n", False),
+            ("r19_dollar_suffix_target",
+             "DECLARE\n  raise$x integer;\nBEGIN\n"
+             "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+             "    raise$x := 2;\n  END IF;\n", False),
+            ("r19_case_then_declare",
+             "DECLARE\n  v_x integer;\nBEGIN\n"
+             "  SELECT CASE WHEN true THEN declare ELSE 0 END"
+             " INTO v_x FROM public.t;\n" + self.ABORT + self.GUARD, False),
+            ("r19_case_else_declare",
+             "DECLARE\n  v_x integer;\nBEGIN\n"
+             "  SELECT CASE WHEN false THEN 0 ELSE declare END"
+             " INTO v_x FROM public.t;\n" + self.ABORT + self.GUARD, False),
+            ("r19_identifier_loop_declare",
+             "DECLARE\n  v_x integer;\nBEGIN\n"
+             "  SELECT loop declare INTO v_x FROM public.t2;\n"
+             + self.ABORT + self.GUARD, False),
+            ("r19_identifier_begin_declare",
+             "DECLARE\n  v_x integer;\nBEGIN\n"
+             "  SELECT begin declare INTO v_x FROM public.t2;\n"
+             + self.ABORT + self.GUARD, False),
+            ("r19_stolen_end_loop",
+             "DECLARE\n  v_x integer;\nBEGIN\n  LOOP\n"
+             "    SELECT loop declare INTO v_x FROM public.t2;\n"
+             "    EXIT;\n  END LOOP;\n" + self.ABORT + self.GUARD, False),
+        ):
+            with self.subTest(case=name):
+                sql = self.routine(body + self.PRIVILEGED_WRITE)
+                self.assertEqual(
+                    self.verdict(f"bat_{name}", sql) == [], accepted,
+                    f"`{name}` changed verdict",
+                )
+
+    def test_non_ascii_identifier_continuation_still_holds(self) -> None:
+        """Round 19's alphabet, re-proved: `raise` plus any non-ASCII code point
+        is ONE identifier that 17.11 declares and assigns to."""
+        for ch in self.NON_ASCII_CONT:
+            with self.subTest(codepoint=f"U+{ord(ch):04X}"):
+                self.assertTrue(
+                    self.verdict(
+                        f"na_{ord(ch):x}",
+                        self.routine(
+                            f"DECLARE\n  raise{ch} integer;\nBEGIN\n"
+                            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                            f"    raise{ch} := 2;\n  END IF;\n"
+                            + self.PRIVILEGED_WRITE
+                        ),
+                    ),
+                    f"U+{ord(ch):04X} stopped continuing an identifier",
+                )
+
+    def test_reachability_and_handler_classes_still_hold(self) -> None:
+        for name, body, accepted in (
+            ("standalone_perform", "BEGIN\n" + self.GUARD, True),
+            ("return_before_guard", "BEGIN\n  RETURN;\n" + self.GUARD, False),
+            ("return_next_is_not_an_exit",
+             "BEGIN\n" + self.GUARD, True),
+            ("outer_abort_before_guard",
+             "BEGIN\n" + self.ABORT + self.GUARD, False),
+            ("labelled_exit_before_guard",
+             "BEGIN\n  <<auth_block>>\n  BEGIN\n    EXIT auth_block;\n  "
+             + self.GUARD + "  END;\n", False),
+            ("exit_when_before_guard",
+             "BEGIN\n  <<auth_block>>\n  BEGIN\n    EXIT auth_block WHEN true;\n  "
+             + self.GUARD + "  END;\n", False),
+            ("non_standalone_perform",
+             "BEGIN\n  PERFORM public.wardah_assert_org_member(p_org)"
+             " WHERE false;\n", False),
+        ):
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.verdict(f"reach_{name}",
+                                 self.routine(body + self.PRIVILEGED_WRITE)) == [],
+                    accepted,
+                    f"`{name}` changed verdict",
+                )
+        for handler, swallows in (
+            ("WHEN OTHERS", True),
+            ("WHEN raise_exception", True),
+            ("WHEN plpgsql_error", True),
+            ("WHEN SQLSTATE 'P0001'", True),
+            ("WHEN SQLSTATE 'P0000'", True),
+            ('WHEN "others"', True),
+            ("WHEN unique_violation", False),
+        ):
+            with self.subTest(handler=handler):
+                self.assertEqual(
+                    self.verdict(
+                        f"hand_{abs(hash(handler)) % 10 ** 6}",
+                        self.routine(
+                            "BEGIN\n" + self.GUARD + self.PRIVILEGED_WRITE
+                            + f"EXCEPTION {handler} THEN\n  NULL;\n"
+                        ),
+                    ) == [],
+                    not swallows,
+                    f"`{handler}` changed swallowing behaviour",
+                )
+
+    def test_non_aborting_raise_levels_are_still_not_denials(self) -> None:
+        for level in ("NOTICE", "WARNING", "INFO", "LOG", "DEBUG"):
+            with self.subTest(level=level):
+                self.assertTrue(
+                    self.verdict(
+                        f"lvl_{level}",
+                        self.routine(
+                            "BEGIN\n"
+                            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                            f"    RAISE {level} 'not a denial';\n  END IF;\n"
+                            + self.PRIVILEGED_WRITE
+                        ),
+                    ),
+                    f"RAISE {level} still reads as a denial",
+                )
+                self.assertEqual(
+                    self.verdict(
+                        f"lvlok_{level}",
+                        self.routine(
+                            f"BEGIN\n  RAISE {level} 'hello';\n"
+                            + self.GUARD + self.PRIVILEGED_WRITE
+                        ),
+                    ),
+                    [],
+                    f"RAISE {level} still ends the invocation",
+                )
+
+    def test_real_control_shapes_are_still_recognized(self) -> None:
+        """A guard nested in any real control construct is still not at the
+        function's outer statement level, so the strict contract still rejects
+        it - the boundary correction narrowed no real keyword."""
+        for name, body in (
+            ("if_then", "BEGIN\n  IF p_org IS NOT NULL THEN\n  "
+             + self.GUARD + "  END IF;\n"),
+            ("elsif", "BEGIN\n  IF false THEN NULL;\n  ELSIF true THEN\n  "
+             + self.GUARD + "  END IF;\n"),
+            ("else", "BEGIN\n  IF false THEN NULL;\n  ELSE\n  "
+             + self.GUARD + "  END IF;\n"),
+            ("loop", "BEGIN\n  LOOP\n  " + self.GUARD + "    EXIT;\n  END LOOP;\n"),
+            ("while", "BEGIN\n  WHILE false LOOP\n  " + self.GUARD + "  END LOOP;\n"),
+            ("for", "BEGIN\n  FOR i IN 1..2 LOOP\n  " + self.GUARD + "  END LOOP;\n"),
+            ("foreach", "DECLARE\n  arr int[] := '{1}';\n  i integer;\nBEGIN\n"
+             "  FOREACH i IN ARRAY arr LOOP\n  " + self.GUARD + "  END LOOP;\n"),
+            ("case", "BEGIN\n  CASE WHEN true THEN\n  " + self.GUARD
+             + "  ELSE NULL;\n  END CASE;\n"),
+            ("nested_begin", "BEGIN\n  BEGIN\n  " + self.GUARD + "  END;\n"),
+            ("handler", "BEGIN\n  NULL;\nEXCEPTION WHEN unique_violation THEN\n"
+             + self.GUARD),
+        ):
+            with self.subTest(construct=name):
+                self.assertTrue(
+                    self.verdict(f"ctl_{name}",
+                                 self.routine(body + self.PRIVILEGED_WRITE)),
+                    f"a guard inside `{name}` stopped being rejected",
+                )
+
+    def test_every_real_raise_spelling_still_denies(self) -> None:
+        for i, raise_stmt in enumerate((
+            "RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED'",
+            "RAISE EXCEPTION SQLSTATE 'P0001'",
+            "RAISE EXCEPTION 'x' USING ERRCODE = 'P0001'",
+            "RAISE insufficient_privilege",
+            "RAISE EXCEPTION '%', 'denied'",
+        )):
+            with self.subTest(spelling=raise_stmt):
+                self.assertEqual(
+                    self.verdict(
+                        f"deny_{i}",
+                        self.routine(
+                            "BEGIN\n"
+                            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                            f"    {raise_stmt};\n  END IF;\n"
+                            + self.PRIVILEGED_WRITE
+                        ),
+                    ),
+                    [],
+                    f"`{raise_stmt}` stopped denying",
+                )
+
+
+class Round20CorpusTests(_Round20Base):
+    """The reviewed corpus, through the Round-20 lexer."""
+
+    def test_numbered_migrations_122_to_191_stay_clean(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[2] / "sql" / "migrations"
+        files = sorted(
+            p for p in root.glob("*.sql")
+            if p.name[:3].isdigit() and 122 <= int(p.name[:3]) <= 191
+        )
+        self.assertEqual(len(files), 61, "the reviewed sweep changed size")
+        findings = {p.name: guards.check_file(p) for p in files}
+        self.assertEqual(
+            {name: out for name, out in findings.items() if out}, {},
+            "the 122-191 sweep stopped being clean",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
