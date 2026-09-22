@@ -101,9 +101,55 @@ function watchPage(page: Page) {
   page.on('console', msg => {
     if (msg.type() === 'error') evidence.consoleErrors.push(msg.text());
   });
+
   page.on('requestfailed', req => {
-    evidence.failedRequests.push(`${req.method()} ${req.url()} — ${req.failure()?.errorText ?? ''}`);
+    const url = req.url();
+    const errorText = req.failure()?.errorText ?? '';
+
+    // Playwright reports client-cancelled requests as requestfailed when a
+    // goto/reload replaces the current document. Those are not backend
+    // failures and were the only remaining false-red in run #72.
+    if (errorText === 'net::ERR_ABORTED') return;
+
+    // Preview-only/third-party assets are not part of the RBAC contract. Font
+    // CDN reachability and Vercel feedback plumbing must not decide whether a
+    // permission mutation succeeded.
+    let parsed: URL | undefined;
+    try {
+      parsed = new URL(url);
+    } catch {
+      parsed = undefined;
+    }
+    if (parsed?.hostname === 'fonts.gstatic.com') return;
+    if (parsed?.hostname === 'vercel.live') return;
+    if (parsed?.pathname === '/.well-known/vercel/jwe') return;
+
+    evidence.failedRequests.push(`${req.method()} ${url} — ${errorText}`);
   });
+
+  // HTTP 4xx/5xx responses do not fire requestfailed. Record real Supabase
+  // backend failures explicitly so ignoring client abort noise cannot create a
+  // false-green for the RPC/REST boundary this smoke is intended to prove.
+  page.on('response', response => {
+    if (response.status() < 400) return;
+
+    const url = response.url();
+    let parsed: URL | undefined;
+    try {
+      parsed = new URL(url);
+    } catch {
+      parsed = undefined;
+    }
+
+    const isSupabase = parsed?.hostname.endsWith('.supabase.co') ?? false;
+    const isRpc = parsed?.pathname.includes('/rest/v1/rpc/') ?? false;
+    if (!isSupabase && !isRpc) return;
+
+    evidence.failedRequests.push(
+      `${response.request().method()} ${url} — HTTP ${response.status()}`
+    );
+  });
+
   page.on('request', req => {
     const url = req.url();
     if (url.includes('/rest/v1/rpc/')) {
