@@ -374,7 +374,7 @@ MIGRATION_STRICT_CUTOFF = 191
 
 _BLOCK_TOKEN_RE = re.compile(
     _KW_LEFT
-    + f"(END{_WS1}IF|END{_WS1}LOOP|END{_WS1}CASE|ELSIF|ELSE|EXCEPTION|BEGIN|IF"
+    + f"(END{_WS1}IF|END{_WS1}LOOP|END{_WS1}CASE|ELSIF|ELSEIF|ELSE|EXCEPTION|BEGIN|IF"
       f"|THEN|LOOP|CASE|END|RAISE)"
     + _KW_RIGHT,
     re.IGNORECASE,
@@ -452,6 +452,12 @@ _RAISE_BEFORE_RE = re.compile(_KW_LEFT + f"RAISE{_WS0}$", re.IGNORECASE)
 #     raised TENANT_MEMBERSHIP_REQUIRED and the UPDATE did not run).
 #
 # Removing the keyword fixes both at once, in the one shared definition.
+#
+# Round 25: RAISE classification no longer reads this set - `_is_statement_start()`
+# asks the forward statement walk. It remains the frame walk's lexical fallback
+# (`_owns_statement_list_lexically()`) for text the statement walk has not
+# classified; the frame walk drops every token the statement walk calls INERT
+# before that fallback is consulted.
 _STATEMENT_OPENER_KEYWORDS = frozenset(
     {"then", "else", "begin", "loop"}
 )
@@ -670,7 +676,7 @@ def _label_opener_before(body: str, pos: int) -> int | None:
 def _owns_statement_list(body: str, word: str, word_start: int) -> bool:
     """True when the keyword at `word_start` opens a PL/pgSQL STATEMENT LIST.
 
-    `_opens_statement_position()` asks only WHICH WORD precedes, and three of
+    The old previous-word test asked only WHICH WORD precedes, and three of
     the four words in its opener set also occur inside ordinary SQL, where they
     open an expression arm rather than a statement list. PostgreSQL 17.11
     accepts all three, and each one manufactured a declaration section:
@@ -763,12 +769,7 @@ def _opens_loop_statement(body: str, pos: int) -> bool:
         head = m.start()
         if ";" in body[head:pos]:
             continue
-        keyword = _LOOP_KW_RE.search(body, head)
-        if (
-            keyword is not None
-            and keyword.start() == pos
-            and _opens_block_position(body, head)
-        ):
+        if _loop_keyword_of(body, m) == pos and _opens_block_position(body, head):
             return True
     return False
 
@@ -906,6 +907,11 @@ def _opens_block_position(body: str, pos: int, owns=None) -> bool:
     EXCEPTION handler on that block became invisible. Every DECLARE in a chain
     owns the SAME BEGIN, so each one is checked against that BEGIN.
     """
+    if owns is None:
+        # Round 25: outside the frame walk, where a block may begin is what the
+        # forward statement walk proved - labels, DECLARE chains and CASE /
+        # handler arms included - rather than a reading of the words before it.
+        return pos in _statement_map(body).positions
     target = pos
     while True:
         j = _prev_nonspace(body, pos)
@@ -977,12 +983,7 @@ def _closes_loop_header(
         head = m.start()
         if ";" in body[head:pos]:
             continue
-        keyword = _LOOP_KW_RE.search(body, head)
-        if (
-            keyword is not None
-            and keyword.start() == pos
-            and _opens_frame_position(body, head, owns)
-        ):
+        if _loop_keyword_of(body, m) == pos and _opens_frame_position(body, head, owns):
             return True
     return False
 
@@ -1015,7 +1016,18 @@ def _owns_control_frame(
     Proving rather than guessing is what keeps this fail-closed: a token that
     cannot be shown to open a construct opens none, and no frame is manufactured
     that could erase a real guard's evidence.
+
+    Round 25: a token the forward statement walk PROVED is structure opens its
+    construct, full stop - the walk read the whole grammar up to it, which is
+    strictly more than the words these tests look back at. The tests below
+    remain the answer only for text the walk does not account for, and the
+    frame walk never reaches them with such a token: it drops INERT tokens
+    first. Before this, the two could disagree on a real construct - a WHILE
+    header holding a `loop` column hid its real LOOP from the head test - and
+    a dropped real frame is the fail-OPEN direction.
     """
+    if pos in _statement_map(body).structural:
+        return True
     if token == "CASE":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
         return True
     if token == "LOOP":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
@@ -1378,74 +1390,612 @@ def _previous_word(body: str, pos: int) -> tuple[str, int]:
     return body[start:end].lower(), start
 
 
-def _opens_statement_position(body: str, pos: int) -> bool:
-    """The PREVIOUS-TOKEN half of the statement-start test.
+# ---------------------------------------------------------------------------
+# Round 25: statement ownership - ONE forward walk decides what is PL/pgSQL
+# ---------------------------------------------------------------------------
+# Every round from 13 to 24 answered the same question from the side: does this
+# keyword-shaped token OWN PL/pgSQL structure, or is it text inside a SQL
+# statement? Each answer looked BACKWARD from the token at a word or two of
+# context, and each new spelling of that context found a sibling. Round 25
+# found three more on a9fca633, all live on PostgreSQL 17.11 - prosecdef = true,
+# client-executable, and a non-member drove the privileged UPDATE
+# (bins.actual_qty 55 -> 0) while check_file() returned []:
+#
+#   * `SELECT a, begin raise INTO v_x, v_y FROM t` in a deny branch. `begin`
+#     and `loop` are unreserved column names and `raise` is their bare column
+#     LABEL, so the statement raises nothing - but the previous-word test saw
+#     `begin` (or `loop`) before `raise` and credited a RAISE statement.
+#   * `SELECT 1 end INTO v_x;` - PostgreSQL 14+ accepts almost every keyword,
+#     RESERVED ones included, as a bare column label (`SELECT 1 end`, `SELECT 1
+#     case`, `SELECT 1 then` all run), and PL/pgSQL hands the whole statement
+#     to the SQL parser up to its `;`. The frame walk read that label as a POP,
+#     closed the nested BEGIN early, and the handler that really swallows the
+#     guard's P0001 attached to nothing.
+#   * `SELECT loop begin INTO v_x FROM t;` - the frame walk's lexical test
+#     accepted the bare word `loop` as a statement-list opener, so the label
+#     `begin` after it PUSHED a BEGIN frame that stole the real block's handler.
+#
+# and a fourth that is the same question at the IF level:
+#
+#   * `ELSEIF` is PL/pgSQL's accepted spelling of ELSIF (pl_unreserved_kwlist.h
+#     maps both to K_ELSIF). The frame walk knew only ELSIF, so a RAISE in an
+#     ELSEIF branch was credited to the IF's deny branch.
+#
+# The backward tests cannot be patched into correctness: a column label can
+# follow ANY expression, so no finite list of previous words separates it from
+# structure. PostgreSQL does not decide it that way either. pl_gram.y segments a
+# body FORWARD, at statement level, and that grammar is small and exact:
+#
+#   * at a statement position the first token decides the statement. A
+#     `<<label>>`, DECLARE, BEGIN, IF, CASE, LOOP, WHILE, FOR, FOREACH, or -
+#     where the enclosing construct admits it - ELSIF/ELSEIF, ELSE, WHEN,
+#     EXCEPTION or END is structure. Anything else (SELECT, PERFORM, RETURN,
+#     RAISE, EXIT, an assignment, ...) is a statement that runs to its `;`.
+#   * a control HEADER - IF/ELSIF ... THEN, WHILE/FOR/FOREACH ... LOOP,
+#     CASE ... WHEN, WHEN ... THEN - ends at the FIRST terminator keyword at
+#     parenthesis depth 0 (read_sql_construct(); brackets count as parens).
+#     Measured on 17.11: `IF CASE WHEN true THEN true END THEN` and
+#     `FOR r IN SELECT loop FROM t LOOP` are syntax errors for exactly that
+#     reason, and so are the qualified `r.then` / `r.loop` in a header.
+#   * everything inside a statement or a header is SQL. The only structure SQL
+#     has that the frame model tracks is the CASE expression, whose CASE / WHEN
+#     / THEN / ELSE / END are kept as SQL-CASE tokens. Every other structural-
+#     looking token inside SQL - a column, an alias, a bare label, a MERGE
+#     `WHEN MATCHED THEN` - is INERT.
+#
+# `_statement_map()` is that walk, run once per body. It is the one answer to
+# "is this PL/pgSQL structure", and every consumer that used to ask a
+# previous-word question now asks it instead:
+#
+#   * `_is_statement_start()` - both RAISE consumers - is a lookup in it; the
+#     previous-word test `_opens_statement_position()` is gone.
+#   * `_control_frames()` skips every token the map calls INERT before any of
+#     its own tests run, so no frame is pushed, annotated or popped from inside
+#     a SQL statement - whichever spelling put the token there.
+#   * `_opens_block_position()` without a walk-time ownership test - the
+#     default the DECLARE, label and loop-head models use - is a lookup in it.
+#
+# Ambiguity is fail-closed at the VERDICT: text this grammar cannot account for
+# (a stray `;`, an owner-less ELSE, a header with no terminator, an unclosed
+# frame, a SQL CASE with no END) records a violation, and under the strict
+# contract a body with a violation has no recognized guard. PostgreSQL rejects
+# every such text itself, so on a routine that can exist the only cost is a
+# grammar gap in this walk, which then reports instead of guessing. On a
+# fragment (the parser-internal tests pass bare `THEN RAISE ...` text) the walk
+# stays lenient - an owner-less THEN still opens the position after it - so
+# the helper answers the positional question it always answered.
 
-    Split out of _is_statement_start() so that the DECLARE-section model can
-    reuse the very same positional rule without calling back into the structural
-    tests that themselves depend on it. Rounds 13-16 live here unchanged.
+# The SQL CASE-expression keywords.
+_SQL_CASE_WORDS = frozenset({"case", "when", "then", "else", "end"})
+
+# What may directly follow a bare column label `case`. Each is punctuation or a
+# RESERVED keyword, so none can begin the operand of a CASE expression - which
+# is what makes `SELECT 1 case FROM t` (a label) and `SELECT CASE x WHEN ...`
+# (an expression) separable by the next token alone. The end of the enclosing
+# span counts too: in `IF v_x case THEN` (valid on 17.11) the THEN is the
+# header's terminator, outside the span.
+_CASE_LABEL_FOLLOWERS = frozenset({
+    "from", "into", "where", "group", "having", "window", "order", "limit",
+    "offset", "fetch", "for", "union", "intersect", "except", "returning", "on",
+})
+
+# One token of SQL text at the granularity this walk needs: grouping
+# punctuation, the statement terminator, or one whole unquoted identifier.
+# Masked literals and quoted identifiers carry no words at all.
+_SQL_SPAN_TOKEN_RE = re.compile(f"[()\\[\\];]|[{_IDENT_START}][{_IDENT_CONT}]*")
+
+
+
+def _word_at(body: str, i: int):
+    """The whole unquoted identifier starting at `i`, or None.
+
+    Read through `_SQL_SPAN_TOKEN_RE`, the walk's own token reader, so the walk
+    has exactly one tokenizer - spelled from `_IDENT_START` / `_IDENT_CONT`, the
+    file's one identifier alphabet.
     """
-    j = pos - 1
-    while j >= 0 and body[j] in _PLPGSQL_WS:
-        j -= 1
-    if j < 0:
-        return True
-    if body[j] == ";":
-        return True
-    word, word_start = _previous_word(body, pos)
-    if word not in _STATEMENT_OPENER_KEYWORDS:
+    m = _SQL_SPAN_TOKEN_RE.match(body, i)
+    return m if m is not None and len(m.group()) and m.group()[0] not in "()[];" else None
+
+
+def _header_terminator(body: str, start: int, words):
+    """The terminator keyword ending a PL/pgSQL control header, or None.
+
+    read_sql_construct() in pl_gram.y: the FIRST keyword token in `words` at
+    parenthesis depth 0 (brackets count), with a `;` first meaning the header
+    never ended. That is the whole rule - `WHILE (SELECT loop FROM t) = 0 LOOP`
+    ends at the second `loop`, and `FOR r IN SELECT loop FROM t LOOP` is a
+    syntax error on 17.11 because it ends at the first.
+    """
+    depth = 0
+    for m in _SQL_SPAN_TOKEN_RE.finditer(body, start):
+        tok = m.group()
+        if tok in ("(", "["):
+            depth += 1
+        elif tok in (")", "]"):
+            depth = max(0, depth - 1)
+        elif tok == ";":
+            return None
+        elif depth == 0 and _names_keyword(body, m, words):
+            return m
+    return None
+
+
+def _loop_keyword_of(body: str, head) -> int | None:
+    """Offset of the LOOP keyword the loop head matched by `head` owns.
+
+    A bare LOOP is its own keyword; WHILE / FOR / FOREACH own the terminator of
+    their header. Round 25: this used to be the first textual `loop` after the
+    head, which is a COLUMN in `WHILE (SELECT CASE WHEN true THEN loop ELSE 0
+    END FROM t LIMIT 1) = 0 LOOP` - valid on 17.11. The real LOOP then owned no
+    frame, and a guard inside a loop that never iterates read as outer-level.
+    """
+    if head is None:
+        return None
+    if _LOOP_KW_RE.match(body, head.start()):
+        return head.start()
+    keyword = _header_terminator(body, head.end(), _LOOP_WORD)
+    return None if keyword is None else keyword.start()
+
+
+_LOOP_WORD = frozenset({"loop"})
+_LABEL_TARGET_WORDS = frozenset({"begin", "declare", "loop", "while", "for", "foreach"})
+_END_KINDS = {"if": "IF", "loop": "LOOP", "case": "CASE"}
+# The statement-level words PL/pgSQL RESERVES (pl_reserved_kwlist.h), so no
+# variable can be named by one and no assignment can begin with one. The
+# UNRESERVED structure words - RAISE, EXCEPTION, ELSIF / ELSEIF - can name a
+# declared variable, so at a statement position they are an assignment target
+# when an assignment operator follows (Round 17), and the keyword otherwise.
+_RESERVED_STRUCTURE_WORDS = frozenset({
+    "begin", "case", "declare", "else", "end", "for", "foreach", "if", "loop",
+    "then", "when", "while",
+})
+
+
+class _StatementMap:
+    """What `_statement_map()` proved about one body.
+
+    positions   offsets where the walk stood at a PL/pgSQL statement position
+                and found a token there - a statement head, a label, a DECLARE,
+                or a list keyword (ELSE, WHEN, EXCEPTION, END ...).
+    assignments the subset of `positions` whose statement is an assignment, so
+                the word there is a variable, never a keyword.
+    structural  offsets of tokens that ARE PL/pgSQL structure, RAISE included.
+    sql_case    offsets of the keywords of SQL CASE expressions.
+    pushes      offsets where a BEGIN / IF / LOOP / CASE construct opens - the
+                exact frame starts `_control_frames()` must build.
+    sql_case_opens  the CASE keyword of every closed SQL CASE expression.
+    handlers    offsets of every EXCEPTION keyword that opens a handler section.
+    violation   the first offset the grammar could not account for, or None.
+    """
+
+    __slots__ = ("positions", "assignments", "structural", "sql_case", "pushes",
+                 "sql_case_opens", "handlers", "violation")
+
+    def __init__(self, walk):
+        self.pushes = frozenset(walk.pushes)
+        self.sql_case_opens = frozenset(walk.sql_case_opens)
+        self.handlers = frozenset(walk.handlers)
+        self.positions = frozenset(walk.positions)
+        self.assignments = frozenset(walk.assignments)
+        self.structural = frozenset(walk.structural)
+        self.sql_case = frozenset(walk.sql_case)
+        self.violation = walk.violation
+
+    def is_inert(self, pos: int) -> bool:
+        """True when the token at `pos` is text inside a SQL statement."""
+        return pos not in self.structural and pos not in self.sql_case
+
+    def proves(self, frames) -> bool:
+        """True when the walk is clean AND `frames` are exactly its constructs.
+
+        The frame walk keeps its own ownership tests (Rounds 19-24) on top of
+        this map's INERT filter, so the two can only differ where one of them
+        is wrong - a real construct or handler section the frame walk dropped
+        or closed in the wrong place (the fail-OPEN direction for handlers and
+        loops), or one it kept that the grammar does not have. Either way the
+        structure is not proven, and the strict contract refuses to credit a
+        guard inside it.
+        """
+        if self.violation is not None:
+            return False
+        return (
+            {f.start for f in frames} == self.pushes | self.sql_case_opens
+            and {f.exc_pos for f in frames if f.exc_pos is not None} == self.handlers
+        )
+
+
+def _routine_text_start(body: str) -> int:
+    """Offset where the PL/pgSQL text of `body` begins.
+
+    Callers slice a routine from its CREATE statement, so the body starts after
+    the first dollar-quote tag that follows `AS` - the rule `_scan_statement()`
+    uses to find `body_span` in the first place - or, for text that begins
+    with the body's own dollar quote, after that tag. A fragment with neither
+    (the parser-internal tests pass bare statement text) starts at 0. The search
+    stops at the first `;`, because a CREATE header contains none before its
+    body, so a nested `AS $q$` later in a fragment is never taken for a header.
+    """
+    n, j = len(body), 0
+    first = _skip_plpgsql_ws(body, 0)
+    tag = _dollar_tag_at(body, first) if first < n else None
+    if tag is not None:
+        return first + len(tag)
+    while j < n:
+        ch = body[j]
+        if ch == ";":
+            return 0
+        if ch in "'\"":
+            k = body.find(ch, j + 1)
+            if k < 0:
+                return 0
+            j = k + 1
+            continue
+        if ch == "$":
+            tag = _dollar_tag_at(body, j)
+            if tag is not None:
+                if _preceded_by_keyword(body, j, "as"):
+                    return j + len(tag)
+                close = body.find(tag, j + len(tag))
+                if close < 0:
+                    return 0
+                j = close + len(tag)
+                continue
+        j += 1
+    return 0
+
+
+def _skip_compile_options(body: str, i: int) -> int:
+    """Step over `#variable_conflict use_column`-style options (comp_options).
+
+    They may only precede the outermost block, and each is `#` plus two words.
+    """
+    while True:
+        j = _skip_plpgsql_ws(body, i)
+        if j >= len(body) or body[j] != "#":
+            return i
+        i = j + 1
+        for _ in range(2):
+            word = _word_at(body, _skip_plpgsql_ws(body, i))
+            if word is None:
+                return i
+            i = word.end()
+
+
+def _opens_case_expression(body: str, after: int, limit: int) -> bool:
+    """True when the `case` ending at `after` opens a SQL CASE expression.
+
+    False when it is a bare column label: nothing follows it inside the span, or
+    the next token is one only a finished target-list entry can precede.
+    """
+    j = _skip_plpgsql_ws(body, after)
+    if j >= limit or body[j] in ",)];":
         return False
-    if word == "loop" and _previous_word(body, word_start)[0] == "end":
-        return False
-    return True
+    word = _word_at(body, j)
+    return word is None or _fold_unquoted(word.group()) not in _CASE_LABEL_FOLLOWERS
+
+
+def _names_keyword(body: str, match, words) -> bool:
+    """True when `match` is a whole, unqualified-or-not keyword token in `words`.
+
+    A word that begins right after an identifier character is the tail of one
+    identifier (`$then$`), never a keyword token.
+    """
+    return (
+        not _continues_identifier(body, match.start() - 1)
+        and _fold_unquoted(match.group()) in words
+    )
+
+
+class _StatementWalk:
+    """The forward walk behind `_statement_map()`. One pass, no backtracking.
+
+    `stack` holds `[kind, handler_open]` for each open construct: BEGIN, IF,
+    LOOP and CASE, exactly the kinds `_control_frames()` builds. Every handler
+    returns the offset where the walk continues, at a statement position.
+    """
+
+    def __init__(self, body: str):
+        self.body = body
+        self.n = len(body)
+        self.stack: list[list] = []
+        self.positions: set[int] = set()
+        self.assignments: set[int] = set()
+        self.structural: set[int] = set()
+        self.sql_case: set[int] = set()
+        self.pushes: set[int] = set()
+        self.sql_case_opens: set[int] = set()
+        self.handlers: set[int] = set()
+        self.violation: int | None = None
+        self.resume = self.n
+
+    # -- bookkeeping -------------------------------------------------------
+    def fail(self, at: int) -> None:
+        if self.violation is None:
+            self.violation = at
+
+    def top(self):
+        return self.stack[-1][0] if self.stack else None
+
+    def push(self, kind: str, at: int) -> None:
+        self.stack.append([kind, False])
+        self.pushes.add(at)
+
+    def run(self) -> None:
+        i = _skip_compile_options(self.body, _routine_text_start(self.body))
+        while True:
+            i = _skip_plpgsql_ws(self.body, i)
+            if i >= self.n:
+                break
+            i = self.statement(i)
+        if self.stack:
+            self.fail(self.n)
+
+    # -- statement level ---------------------------------------------------
+    def statement(self, i: int) -> int:
+        body = self.body
+        if body[i] == ";":
+            # An empty statement is a syntax error on 17.11 (`NULL;;`).
+            self.fail(i)
+            return i + 1
+        if body.startswith("<<", i):
+            return self.label(i)
+        self.positions.add(i)
+        word = _word_at(body, i)
+        if word is None:
+            # A quoted assignment target is a statement; nothing else that is
+            # not a word can begin one.
+            if body[i] != '"':
+                self.fail(i)
+            return self.simple(i)
+        kw = _fold_unquoted(word.group())
+        if kw not in _RESERVED_STRUCTURE_WORDS and _is_assignment_target(body, i):
+            self.assignments.add(i)
+            return self.simple(word.end())
+        handler = self.HANDLERS.get(kw)
+        if handler is None:
+            return self.simple(word.end())
+        return handler(self, i, word.end())
+
+    def simple(self, j: int) -> int:
+        """A statement the SQL parser receives: it runs to the next `;`."""
+        end = self.body.find(";", j)
+        stop = self.n if end < 0 else end
+        self.sql_span(j, stop)
+        if end < 0:
+            if self.stack:
+                self.fail(self.n)
+            return self.n
+        return end + 1
+
+    def label(self, i: int) -> int:
+        body = self.body
+        self.positions.add(i)
+        # Only the label's EXTENT matters here - one identifier between `<<`
+        # and `>>`. Its identity is `_block_labels()`'s business.
+        k = _skip_plpgsql_ws(body, i + 2)
+        name = _word_at(body, k) or _TARGET_QUOTED_FIELD_RE.match(body, k)
+        after = _skip_plpgsql_ws(body, name.end()) if name is not None else k
+        if name is None or not body.startswith(">>", after):
+            self.fail(i)
+            return self.simple(i + 2)
+        target = _word_at(body, _skip_plpgsql_ws(body, after + 2))
+        if target is None or _fold_unquoted(target.group()) not in _LABEL_TARGET_WORDS:
+            self.fail(i)
+        return after + 2
+
+    def header(self, j: int, terminators) -> int | None:
+        """Read a control header up to its terminator; return where it ends.
+
+        Returns None - after recording a violation - when a `;` or the end of
+        the body comes first, and then the walk resumes after that `;`.
+        """
+        keyword = _header_terminator(self.body, j, terminators)
+        if keyword is not None:
+            self.sql_span(j, keyword.start())
+            self.structural.add(keyword.start())
+            return keyword.end()
+        semicolon = self.body.find(";", j)
+        stop = self.n if semicolon < 0 else semicolon
+        self.fail(stop)
+        self.sql_span(j, stop)
+        self.resume = self.n if semicolon < 0 else semicolon + 1
+        return None
+
+    def open_header(self, i: int, j: int, kind: str | None, terminators) -> int:
+        """Structure at `i`, then a header; push `kind` once the header closes."""
+        self.structural.add(i)
+        end = self.header(j, terminators)
+        if end is None:
+            return self.resume
+        if kind is not None:
+            self.push(kind, end - 4 if kind == "LOOP" else i)
+        return end
+
+    # -- one handler per statement-level keyword ---------------------------
+    def on_begin(self, i: int, j: int) -> int:
+        self.structural.add(i)
+        self.push("BEGIN", i)
+        return j
+
+    def on_declare(self, i: int, j: int) -> int:
+        self.structural.add(i)
+        opener = _owned_section_begin(self.body, j)
+        if opener is None:
+            self.fail(i)
+            self.sql_span(j, self.n)
+            return self.n
+        self.sql_span(j, opener)
+        return opener
+
+    def on_if(self, i: int, j: int) -> int:
+        return self.open_header(i, j, "IF", {"then"})
+
+    def on_elsif(self, i: int, j: int) -> int:
+        if self.top() != "IF":
+            self.fail(i)
+        return self.open_header(i, j, None, {"then"})
+
+    def on_else(self, i: int, j: int) -> int:
+        if self.top() not in ("IF", "CASE"):
+            self.fail(i)
+        self.structural.add(i)
+        return j
+
+    def on_then(self, i: int, j: int) -> int:
+        # A THEN at a statement position has no header to end: owner-less, so
+        # a violation. Lenient for fragments - the position after it stays one.
+        self.fail(i)
+        self.structural.add(i)
+        return j
+
+    def on_case(self, i: int, j: int) -> int:
+        self.structural.add(i)
+        when = self.header(j, {"when"})
+        if when is None:
+            return self.resume
+        self.push("CASE", i)
+        return self.open_header(when - 4, when, None, {"then"})
+
+    def on_when(self, i: int, j: int) -> int:
+        top = self.stack[-1] if self.stack else None
+        owned = top is not None and (
+            top[0] == "CASE" or (top[0] == "BEGIN" and top[1])
+        )
+        if not owned:
+            self.fail(i)
+        return self.open_header(i, j, None, {"then"})
+
+    def on_exception(self, i: int, j: int) -> int:
+        top = self.stack[-1] if self.stack else None
+        if top is None or top[0] != "BEGIN" or top[1]:
+            self.fail(i)
+        else:
+            top[1] = True
+            self.handlers.add(i)
+        self.structural.add(i)
+        return j
+
+    def on_loop(self, i: int, j: int) -> int:
+        self.structural.add(i)
+        self.push("LOOP", i)
+        return j
+
+    def on_loop_head(self, i: int, j: int) -> int:
+        return self.open_header(i, j, "LOOP", {"loop"})
+
+    def on_raise(self, i: int, j: int) -> int:
+        self.structural.add(i)
+        return self.simple(j)
+
+    def on_end(self, i: int, j: int) -> int:
+        body = self.body
+        self.structural.add(i)
+        kind, after = "BEGIN", j
+        second = _word_at(body, _skip_plpgsql_ws(body, j))
+        if second is not None and second.start() > j:
+            closes = _END_KINDS.get(_fold_unquoted(second.group()))
+            if closes is not None:
+                kind, after = closes, second.end()
+        self.pop(i, kind)
+        k = _skip_plpgsql_ws(body, after)
+        label = _word_at(body, k) or _TARGET_QUOTED_FIELD_RE.match(body, k)
+        if label is not None:
+            k = _skip_plpgsql_ws(body, label.end())
+        if k >= self.n:
+            return self.n
+        if body[k] != ";":
+            self.fail(k)
+            return self.simple(k)
+        return k + 1
+
+    def pop(self, at: int, kind: str) -> None:
+        if self.top() != kind:
+            self.fail(at)
+        for index in range(len(self.stack) - 1, -1, -1):
+            if self.stack[index][0] == kind:
+                del self.stack[index]
+                return
+
+    HANDLERS = {
+        "begin": on_begin, "declare": on_declare, "if": on_if,
+        "elsif": on_elsif, "elseif": on_elsif, "else": on_else, "then": on_then,
+        "case": on_case, "when": on_when, "exception": on_exception,
+        "loop": on_loop, "while": on_loop_head, "for": on_loop_head,
+        "foreach": on_loop_head, "raise": on_raise, "end": on_end,
+    }
+
+    # -- inside SQL ----------------------------------------------------------
+    def sql_span(self, a: int, b: int) -> None:
+        """Classify the SQL text in [a, b): SQL CASE keywords, or inert.
+
+        A CASE expression's keywords belong to it exactly when they stand at its
+        own parenthesis depth. `x AS end` and a dot-qualified `t.end` are names.
+        A CASE left open at the end of the span, or by a closing parenthesis, is
+        text this walk cannot account for, and is a violation rather than a
+        frame that would steal a later END.
+        """
+        body, depth, cases = self.body, 0, []
+        for m in _SQL_SPAN_TOKEN_RE.finditer(body, a, b):
+            tok = m.group()
+            if tok in ("(", "["):
+                depth += 1
+            elif tok in (")", "]", ";"):
+                depth = -1 if tok == ";" else max(0, depth - 1)
+                while cases and cases[-1][0] > depth:
+                    self.unclosed(cases.pop())
+                depth = max(0, depth)
+            elif not _names_keyword(body, m, _SQL_CASE_WORDS):
+                continue
+            elif _is_sql_qualified(body, m.start()) or _previous_word(body, m.start())[0] == "as":
+                continue
+            elif _fold_unquoted(tok) == "case":
+                if _opens_case_expression(body, m.end(), b):
+                    cases.append((depth, [m.start()]))
+            elif cases and cases[-1][0] == depth:
+                cases[-1][1].append(m.start())
+                if _fold_unquoted(tok) == "end":
+                    closed = cases.pop()[1]
+                    self.sql_case.update(closed)
+                    self.sql_case_opens.add(closed[0])
+        while cases:
+            self.unclosed(cases.pop())
+
+    def unclosed(self, case) -> None:
+        self.fail(case[1][0])
+
+
+@functools.lru_cache(maxsize=256)
+def _statement_map(body: str) -> _StatementMap:
+    """The statement-ownership walk over `body`. See the Round 25 note."""
+    walk = _StatementWalk(body)
+    walk.run()
+    return _StatementMap(walk)
 
 
 def _is_statement_start(body: str, pos: int) -> bool:
-    """True when a PL/pgSQL statement may begin at `pos`.
+    """True when a PL/pgSQL statement begins with a KEYWORD at `pos`.
 
-    `LOOP` has to be an opener, because `LOOP RAISE EXCEPTION ...` is the real
-    thing. But PostgreSQL also closes a labelled loop as
-    `END LOOP <label>;`, and `raise` is a perfectly ordinary label there, so
-    `LOOP` alone made the loop's END-LABEL read as the start of a RAISE
-    statement.
+    Round 25: a lookup in `_statement_map()`, the one forward walk that decides
+    which tokens own PL/pgSQL structure. Every earlier round's rule is a
+    consequence of that walk rather than a separate test:
 
-    Round 15: the oracle confirms `<<raise>> WHILE false LOOP NULL; END LOOP
-    raise;` compiles on PostgreSQL 17.11 and raises NOTHING - as do the plain
-    LOOP, FOR and FOREACH forms - while an unguarded SECURITY DEFINER routine
-    built around it stayed `prosecdef = true`, executable by PUBLIC and
-    `authenticated`, and drove its privileged UPDATE for a non-member. The
-    same misreading hit the other caller in the opposite direction: an end
-    label named `raise` counted as an earlier outer-level abort and a real
-    `PERFORM public.wardah_assert_org_member(...)` after it was written off as
-    unreachable.
+      * Round 13 (`AS raise`, `v := raise`), 14 (`8 >> raise`) and 19-21
+        (keyword-shaped suffixes, `t.raise`): the word sits inside a SQL
+        statement, which runs from its head to its `;`.
+      * Round 15 (`END LOOP raise;`): `raise` is the END statement's label.
+      * Rounds 16-18, 22-23 (declarations named `raise`): the walk steps over a
+        declaration section in one move, to the BEGIN `_owned_section_begin()`
+        proves owns it, so no declaration is ever at a statement position.
+      * Round 17 (`raise := 2`): an assignment statement's head is a variable.
+      * Round 24 (SQL CASE arms): a CASE expression is SQL text.
+      * Round 25 (`SELECT a, begin raise ...`): a bare column label is SQL text,
+        whatever word stands before it.
 
-    So when the previous word is `LOOP`, the word before THAT decides: `END
-    LOOP` closes a loop, and whatever follows is its label, never a statement.
-    Everything that genuinely opens a loop body - a bare `LOOP`, `<<lp>> LOOP`,
-    `WHILE x LOOP`, `FOR ... LOOP` - has something other than `END` there and
-    is unaffected, and `END LOOP; RAISE ...` still reaches the `;` test above.
-
-    A labelled BLOCK needs nothing here: it closes as `END <label>;`, and
-    `END` was never an opener. Labels are still parsed only by
-    _block_labels()/_labelled_opener(); this reads two keywords, and adds no
-    second label parser.
-
-    DECLARE is deliberately absent from the opener set - see the note there.
-    It begins a DECLARATION section, not a statement, so the identifier after
-    it is a variable name.
-
-    Round 17: the previous token alone cannot settle two cases, so two
-    structural tests run first. Inside a DECLARE section every `;` terminates a
-    DECLARATION, so a second or third variable named `raise` is not a statement
-    however it is reached; and a word an assignment operator follows is the
-    TARGET of that assignment, which no RAISE statement can be. Both tests live
-    here, in the one classifier both callers share, so neither caller can drift.
+    Both RAISE consumers - parse_blocks()'s deny-branch test and
+    unconditional_abort_before() - ask this, so they cannot disagree.
     """
-    if _in_declaration_section(body, pos):
-        return False
-    if _is_assignment_target(body, pos):
-        return False
-    return _opens_statement_position(body, pos)
+    walk = _statement_map(body)
+    return pos in walk.positions and pos not in walk.assignments
 
 # ---------------------------------------------------------------------------
 # Which EXCEPTION handlers can actually catch an authorization failure
@@ -1970,10 +2520,10 @@ def _labelled_opener(body: str, pos: int) -> int | None:
         # it walks a head. Unbounded, this search adopted the next LOOP
         # anywhere later in the body, so a label could be attached to a real
         # loop it does not introduce and across any number of statements.
-        opener = _LOOP_KW_RE.search(body, i)
-        if opener is None or ";" in body[i:opener.start()]:
-            return None
-        return opener.start()
+        #
+        # Round 25: the LOOP a head owns is its header's depth-0 terminator,
+        # not the first textual `loop` (see `_loop_keyword_of()`).
+        return _loop_keyword_of(body, _LOOP_HEAD_RE.match(body, i))
     return None
 
 
@@ -2177,6 +2727,9 @@ def _control_frames(body: str, labels: dict[int, str], on_raise=None):
     # Round 24: every position question this walk asks - PUSH, CASE kind and
     # EXCEPTION - goes through one ownership test that sees the open frames.
     owns = _walk_ownership(stack)
+    # Round 25: which tokens are PL/pgSQL structure at all is decided once, by
+    # the forward statement walk; text inside a SQL statement mutates nothing.
+    statements = _statement_map(body)
 
     def pop(kinds, at):
         for i in range(len(stack) - 1, -1, -1):
@@ -2192,18 +2745,31 @@ def _control_frames(body: str, labels: dict[int, str], on_raise=None):
         # pop and RAISE alike - so no spelling is left to a per-keyword patch.
         if _is_sql_qualified(body, m.start()):
             continue
+        # A token inside a SQL statement - a column, an alias, a bare column
+        # label such as `SELECT 1 end` - is never structure, whichever word
+        # stands before it. Applied before every test below, push to RAISE.
+        if statements.is_inert(m.start()):
+            continue
         token = " ".join(m.group(1).upper().split())
+        if token.startswith("END ") and m.start() in statements.sql_case:
+            # A SQL CASE's END followed by a bare column label `if`, `loop` or
+            # `case` (`SELECT CASE ... END if`, valid on 17.11) lexes as one
+            # multiword token. It is the expression's END; the word is a label.
+            token = "END"  # nosec B105 - parsed PL/pgSQL keyword, not a credential
         if token in ("BEGIN", "IF", "LOOP", "CASE"):
             if not _owns_control_frame(body, token, m.start(), owns):
                 continue
             frame = _Frame(token, m.start(), labels.get(m.start()))
             if token == "CASE":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
-                frame.sql_expr = not _opens_frame_position(body, m.start(), owns)
+                frame.sql_expr = (
+                    m.start() in statements.sql_case
+                    or not _opens_frame_position(body, m.start(), owns)
+                )
             stack.append(frame)
         elif token == "THEN":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             if stack and stack[-1].kind == "IF" and stack[-1].then_pos is None:
                 stack[-1].then_pos = m.start()
-        elif token in ("ELSIF", "ELSE"):
+        elif token in ("ELSIF", "ELSEIF", "ELSE"):
             if stack and stack[-1].kind == "IF":
                 stack[-1].closed = True
         elif token == "EXCEPTION":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
@@ -2212,8 +2778,12 @@ def _control_frames(body: str, labels: dict[int, str], on_raise=None):
                 continue
             # `exception` is not a SQL keyword at all, so `SELECT exception
             # FROM t` runs on 17.11; a handler section only ever opens where a
-            # statement may begin.
-            if not _opens_frame_position(body, m.start(), owns):
+            # statement may begin. Round 25: where the statement walk proved
+            # the section, that proof stands (see `_owns_control_frame()`).
+            if (
+                m.start() not in statements.structural
+                and not _opens_frame_position(body, m.start(), owns)
+            ):
                 continue
             for fr in reversed(stack):
                 if fr.kind == "BEGIN":
@@ -2354,9 +2924,22 @@ def terminating_return_before(body: str, pos: int) -> bool:
     privileged work unguarded on at least one path. This can reject a complex
     future function whose returns are all provably guarded; the remedy is to move
     the authorization boundary earlier, never to weaken this gate.
+
+    Round 25: conservative about WHICH RETURN, not about whether a word is one.
+    `SELECT a return INTO v FROM t` - `return` a bare column label, valid on
+    17.11 - ends nothing, and read as a RETURN it wrote off every guard after
+    it. A RETURN counts when the statement walk puts it at a statement position,
+    the same test the RAISE consumers use; every real RETURN statement is one.
     """
-    m = _TERMINATING_RETURN_RE.search(body, 0, pos)
-    return m is not None
+    return _terminating_return_between(body, 0, pos)
+
+
+def _terminating_return_between(body: str, start: int, end: int) -> bool:
+    """True when a terminating RETURN STATEMENT begins in body[start:end]."""
+    return any(
+        _is_statement_start(body, m.start())
+        for m in _TERMINATING_RETURN_RE.finditer(body, start, end)
+    )
 
 
 # RETURN is not the only way the invocation can already be over. An aborting
@@ -2440,6 +3023,10 @@ def _exit_targets(body: str, raw_body: str, end: int):
     """(offset, target) for each EXIT before `end` that names a destination."""
     out = []
     for m in _EXIT_KW_RE.finditer(body, 0, end):
+        # Round 25: an EXIT is a statement. `SELECT exit blk FROM t` - a column
+        # `exit` under the bare label `blk` - jumps nowhere.
+        if not _is_statement_start(body, m.start()):
+            continue
         i = _skip_ws(body, m.end())
         if i >= len(body) or body[i] == ";" or _WHEN_KW_RE.match(body, i):
             continue  # `EXIT;` and `EXIT WHEN <predicate>` carry no label
@@ -2531,7 +3118,7 @@ def _if_blocks_with_raising_deny_branch(body: str, raw_body: str | None = None):
     for f in frames:
         if f.kind != "IF" or f.then_pos is None or f.raise_pos is None:
             continue
-        if _TERMINATING_RETURN_RE.search(body, f.then_pos, f.raise_pos):
+        if _terminating_return_between(body, f.then_pos, f.raise_pos):
             continue
         if labelled_exit_before(
             body, frames, f.raise_pos, raw_body, after=f.then_pos
@@ -2572,6 +3159,13 @@ def has_recognized_guard(
     under the strict contract it must also be a standalone PERFORM statement at
     the outer statement level, with no terminating RETURN before it."""
     frames = parse_blocks(body, raw_body)
+    if strict and not _statement_map(body).proves(frames):
+        # Round 25: text the statement grammar cannot account for, or frames
+        # that differ from the constructs it proved, prove no structure - so no
+        # guard inside it is credited. PostgreSQL rejects every such text
+        # itself; on a routine that exists this is a gap in one of the two
+        # walks, and it must report rather than guess.
+        return False
     for m in GUARD_RE.finditer(body):
         # An overload is a different function in PostgreSQL, so a call that does
         # not match the reviewed helper's arity is not the reviewed helper.

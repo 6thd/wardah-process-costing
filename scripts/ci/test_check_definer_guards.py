@@ -3695,10 +3695,18 @@ class DefinerScannerTests(unittest.TestCase):
 
     def test_only_blocks_and_loops_take_a_label(self) -> None:
         """PL/pgSQL labels blocks and loops; CASE and IF are not label targets,
-        and the parser must not invent one for them."""
+        and the parser must not invent one for them.
+
+        Round 25 fixture correction, expectation unchanged: this CASE statement
+        was written `THEN NULL ELSE NULL END CASE;`, which PostgreSQL 17.11
+        rejects (`syntax error at or near "ELSE"`) - each arm of a PL/pgSQL
+        CASE is a statement list, so `NULL` needs its `;`. The statement walk
+        reads that text the way PostgreSQL does, as one statement running to
+        the `;`, so the invalid spelling no longer produced any frames. The
+        valid spelling below compiles on 17.11 and pins the same fact."""
         body = (
             "<<auth_block>>\nBEGIN\n"
-            "  CASE WHEN p_org IS NULL THEN NULL ELSE NULL END CASE;\n"
+            "  CASE WHEN p_org IS NULL THEN NULL; ELSE NULL; END CASE;\n"
             "  EXIT auth_block;\n"
             "  PERFORM public.wardah_assert_org_member(p_org);\n"
             "END auth_block;\n"
@@ -12664,14 +12672,23 @@ class Round22StructuralWordInitializerTests(_Round22Base):
                 self.assertTrue(self.accepts(f"label_{word}", self.routine(body)))
 
     def test_the_return_word_stays_fail_closed(self) -> None:
-        """Pinned, not fixed. REJECT here is a false RED the oracle contradicts
-        - the guard raises P0001 and the write does not run - but it comes from
-        RETURN reachability, not from this section's end, and it errs toward
-        refusing. Moving it belongs to whichever round takes that consumer."""
+        """Round 22 pinned this as a false RED the oracle contradicts - the
+        guard raises P0001 and the write does not run - and left it to
+        "whichever round takes that consumer" (RETURN reachability).
+
+        ROUND 25 TAKES THAT CONSUMER, and this is the one historical
+        expectation it changes, on oracle evidence re-measured at this round:
+        on PostgreSQL 17.11 both forms compile, a non-member call fails with
+        TENANT_MEMBERSHIP_REQUIRED from the guard, and bins is untouched. The
+        `return` here is a column / column label inside a declaration
+        initializer, never a statement, and `terminating_return_before()` now
+        counts only RETURN statements, so the routine is ACCEPTED. The method
+        name is kept so the history of the pin stays traceable; the Round-25
+        classes pin the mirror (a real RETURN before the guard still rejects)."""
         for word in self.RETURN_REACHABILITY_FAIL_CLOSED:
             for form in (f"(SELECT {word} FROM public.t LIMIT 1)", f"(SELECT 1 AS {word})"):
                 with self.subTest(word=word, form=form):
-                    self.assertFalse(
+                    self.assertTrue(
                         self.accepts(f"failclosed_{word}", self.routine(
                             self.initializer_body(form)))
                     )
@@ -13743,6 +13760,677 @@ class Round24RegressionBatteryTests(_Round24Base):
                 self.assertEqual(
                     self.accepts(f"{name}_sqlcase", self.routine(self.compose(body), close=close)),
                     must_accept, f"`{name}` changed verdict under a SQL CASE `loop`",
+                )
+
+
+# ---------------------------------------------------------------------------
+# Round 25: statement ownership - one forward walk
+# ---------------------------------------------------------------------------
+# At a9fca633 every structural question the scanner asked was answered by
+# looking BACKWARD from a token at the word or two before it. PostgreSQL 14+
+# accepts nearly every keyword - reserved ones included - as a bare column label
+# (`SELECT 1 end`, `SELECT 1 case`, `SELECT loop begin FROM t`), and PL/pgSQL
+# hands a whole statement to the SQL parser up to its `;`, so no finite list of
+# previous words separates a label from structure. Round 25 found, live on
+# 17.11 with prosecdef = true and a client-executable routine:
+#
+#   * `SELECT a, begin raise ...` / `SELECT loop raise ...` in a deny branch
+#     credited as a RAISE (the label `raise` follows the COLUMN `begin`);
+#   * `SELECT 1 end INTO v_x;` popping real frames, so a swallowing handler
+#     attached to nothing;
+#   * `SELECT a, loop begin ...` pushing a BEGIN frame that stole a handler;
+#   * `SELECT a, loop loop ...` pushing a LOOP frame that stole a real loop's
+#     END LOOP, so a guard in a loop that never runs read as outer-level;
+#   * `ELSEIF` - PL/pgSQL's accepted spelling of ELSIF - invisible, so a RAISE
+#     in that branch was credited to the IF's deny branch;
+#
+# and, across the committed matrix below, 110 false REDs in the same family
+# (`return`, `exit`, `else`, `then`, `case` labels; a SQL CASE's END followed
+# by a label `if` / `loop`).
+#
+# The correction is one forward statement walk, `_statement_map()`, which every
+# consumer now asks instead of a previous-word test. These classes pin it end to
+# end through the real `check_file()`, parser-internally, and architecturally.
+class _Round25Base(unittest.TestCase):
+    """ORACLE, PostgreSQL 17.11 (`SELECT version()` = 17.11 on
+    x86_64-pc-linux-gnu, disposable local cluster). Every fixture in the
+    Round-25 classes was COMPILED, and every one with a stated runtime claim was
+    RUN as a non-member, against
+
+        CREATE TABLE public.bins (actual_qty integer, org_id uuid);  -- one row, 55
+        CREATE TABLE public.r21_t ("loop" int, "if" int, "begin" int, "end" int,
+            "declare" int, "raise" int, a int, "exception" int, "then" int,
+            "else" int, "return" int, "exit" int);                   -- one row
+        CREATE TABLE public.t ("begin" int, "end" int, a int, "loop" int,
+            "raise" int, "return" int);                              -- one row
+
+    with `wardah_assert_org_member(uuid)` raising P0001 and
+    `wardah_is_org_member(uuid)` returning false. "Writes" means the call
+    returned normally and bins.actual_qty became 0; "denies" means it failed
+    with the guard's P0001 (or the fixture's own DENIED) and bins stayed 55.
+    """
+
+    HEAD = "DECLARE\n  v_x integer;\n  v_y integer;\n  r record;\nBEGIN\n"
+    GUARD = "  PERFORM public.wardah_assert_org_member(p_org);\n"
+    PRIV = "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+    DENY_IF = "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._dir.name)
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def verdict(self, name: str, sql: str) -> list[str]:
+        path = self.root / f"999_round25_{_Round22Base.slug(name)}.sql"
+        path.write_text(sql, encoding="utf-8")
+        return guards.check_file(path)
+
+    def accepts(self, name: str, sql: str) -> bool:
+        return self.verdict(name, sql) == []
+
+    @staticmethod
+    def routine(body: str, close: str = "END;\n") -> str:
+        return _Round22Base.routine(body, close)
+
+    def masked(self, text: str) -> str:
+        masked, problems = guards.mask_sql_checked(text)
+        self.assertEqual(problems, [])
+        return masked
+
+    def deny_branch(self, stmt: str, then_raise: bool = False) -> str:
+        """`stmt` alone in a membership deny branch - optionally followed by a
+        real RAISE - then the privileged write."""
+        tail = "    RAISE EXCEPTION 'DENIED';\n" if then_raise else ""
+        return self.HEAD + self.DENY_IF + f"    {stmt}\n" + tail + "  END IF;\n" + self.PRIV
+
+
+class Round25BareLabelRaiseTests(_Round25Base):
+    """RED 1. A bare column label `raise` after a column named `begin` or `loop`.
+
+    Each deny branch below raises NOTHING on 17.11: the non-member call returns
+    normally and writes. At a9fca633 `_opens_statement_position()` saw `begin`
+    or `loop` before the label, `_is_statement_start()` said yes, and every one
+    returned [] - a false green. The same statements followed by a real RAISE
+    deny, and must still be accepted.
+    """
+
+    FORMS = {
+        "comma_begin": "SELECT a, begin raise INTO v_x, v_y FROM public.r21_t;",
+        "begin": "SELECT begin raise INTO v_x FROM public.r21_t;",
+        "comma_loop": "SELECT a, loop raise INTO v_x, v_y FROM public.r21_t;",
+        "loop": "SELECT loop raise INTO v_x FROM public.r21_t;",
+        "after_call": "SELECT coalesce(begin, 0), begin raise INTO v_x, v_y FROM public.r21_t;",
+        "subquery": "v_x := (SELECT begin raise FROM public.r21_t LIMIT 1);",
+        "if_label": "SELECT if raise INTO v_x FROM public.r21_t;",
+        "exception_label": "SELECT exception raise INTO v_x FROM public.r21_t;",
+    }
+
+    def test_a_bare_label_raise_is_not_a_denial(self) -> None:
+        for name, stmt in self.FORMS.items():
+            with self.subTest(form=name):
+                self.assertFalse(
+                    self.accepts(f"label_raise_{name}", self.routine(self.deny_branch(stmt))),
+                    f"`{stmt}` was credited as a RAISE statement",
+                )
+
+    def test_the_same_statement_before_a_real_raise_still_denies(self) -> None:
+        for name, stmt in self.FORMS.items():
+            with self.subTest(form=name):
+                self.assertTrue(self.accepts(
+                    f"label_raise_ctl_{name}",
+                    self.routine(self.deny_branch(stmt, then_raise=True)),
+                ))
+
+    def test_an_outer_bare_label_raise_does_not_kill_a_live_guard(self) -> None:
+        """The other consumer, the other direction: at the outer level the same
+        label read as an aborting RAISE, and the live guard after it (which
+        denies on 17.11) was written off as dead - a false RED."""
+        for name, stmt in self.FORMS.items():
+            with self.subTest(form=name):
+                self.assertTrue(self.accepts(
+                    f"label_raise_outer_{name}",
+                    self.routine(self.HEAD + f"  {stmt}\n" + self.GUARD + self.PRIV),
+                ))
+
+    def test_the_shared_classifier(self) -> None:
+        for name, stmt in self.FORMS.items():
+            with self.subTest(form=name):
+                body = self.masked("BEGIN\n  " + stmt + "\n  RAISE EXCEPTION 'x';\nEND;\n")
+                self.assertFalse(guards._is_statement_start(body, body.index("raise")))
+                self.assertTrue(guards._is_statement_start(body, body.index("RAISE")))
+
+
+class Round25BareLabelFrameTests(_Round25Base):
+    """REDs 2-4. A bare column label that spells a structural keyword mutated
+    the frame stack. Every fixture compiles on 17.11 and WRITES for a non-member
+    (the guard's P0001 is swallowed, or the guard is never entered); at
+    a9fca633 each returned [].
+    """
+
+    def test_a_bare_end_label_cannot_pop_a_real_block(self) -> None:
+        """Two `SELECT 1 end` labels popped the nested BEGIN and the routine's
+        own BEGIN, so the handler that swallows the guard attached to nothing
+        and the guard read as a live outer-level statement."""
+        body = (
+            self.HEAD + "  BEGIN\n    SELECT 1 end INTO v_x;\n    SELECT 1 end INTO v_x;\n"
+            "  " + self.GUARD.strip() + "\n  EXCEPTION WHEN others THEN NULL;\n  END;\n" + self.PRIV
+        )
+        self.assertFalse(self.accepts("fake_end_pop", self.routine(body)))
+
+    def test_a_label_after_a_loop_column_opens_no_block(self) -> None:
+        """`loop` is a column and `begin` its label; the lexical ownership test
+        took `loop` as a statement-list opener and pushed a BEGIN frame that
+        stole the real block's handler."""
+        for handler in ("others", "raise_exception", "SQLSTATE 'P0001'"):
+            with self.subTest(handler=handler):
+                body = (
+                    self.HEAD + "  BEGIN\n" + "  " + self.GUARD
+                    + "    SELECT a, loop begin INTO v_x, v_y FROM public.r21_t;\n"  # nosec B608 - fixture text, never executed as SQL
+                    f"  EXCEPTION WHEN {handler} THEN NULL;\n  END;\n" + self.PRIV
+                )
+                self.assertFalse(self.accepts(f"loop_begin_{handler}", self.routine(body)))
+
+    def test_a_label_after_a_loop_column_opens_no_loop(self) -> None:
+        """`loop loop` - column and label - pushed a LOOP frame that stole the
+        real loop's END LOOP; the real loop never iterates."""
+        body = (
+            self.HEAD + "  FOR v_x IN SELECT 1 WHERE false LOOP\n" + "  " + self.GUARD  # nosec B608 - fixture text, never executed as SQL
+            + "    SELECT a, loop loop INTO v_x, v_y FROM public.r21_t;\n  END LOOP;\n" + self.PRIV  # nosec B608 - fixture text, never executed as SQL
+        )
+        self.assertFalse(self.accepts("loop_loop", self.routine(body)))
+
+    def test_label_tokens_mutate_no_frame(self) -> None:
+        """PARSER-INTERNAL. Each label below, inside a statement that sits in a
+        real block, leaves exactly the real frames."""
+        for label_stmt in (
+            "SELECT 1 end INTO v_x;", "SELECT 1 case INTO v_x;",
+            "SELECT a, loop begin INTO v_x, v_y FROM public.r21_t;",
+            "SELECT a, loop if INTO v_x, v_y FROM public.r21_t;",
+            "SELECT a, loop loop INTO v_x, v_y FROM public.r21_t;",
+            "SELECT a, loop exception INTO v_x, v_y FROM public.r21_t;",
+            "SELECT 1 then INTO v_x;", "SELECT 1 else INTO v_x;",
+            "SELECT 1 when INTO v_x;", "SELECT 1 elseif INTO v_x;",
+            "v_x := (SELECT CASE WHEN true THEN 1 ELSE 0 END if);",
+            "v_x := (SELECT CASE WHEN true THEN 1 ELSE 0 END loop);",
+            "MERGE INTO public.t USING public.r21_t s ON false WHEN MATCHED THEN DO NOTHING;",
+        ):
+            with self.subTest(stmt=label_stmt):
+                body = self.masked(
+                    self.HEAD + "  BEGIN\n    " + label_stmt + "\n"
+                    "  EXCEPTION WHEN others THEN NULL;\n  END;\nEND;\n"
+                )
+                frames = guards.parse_blocks(body, body)
+                real = [f for f in frames if not f.sql_expr]
+                self.assertEqual(sorted(f.kind for f in real), ["BEGIN", "BEGIN"])
+                inner = max(real, key=lambda f: f.start)
+                self.assertEqual(inner.exc_pos, body.index("EXCEPTION"))
+                self.assertTrue(guards._statement_map(body).proves(frames))
+
+
+class Round25ElseifTests(_Round25Base):
+    """RED 5. `ELSEIF` is K_ELSIF in PostgreSQL 17.11's pl_unreserved_kwlist.h.
+
+    `IF NOT member THEN NULL; ELSEIF false THEN RAISE ...; END IF;` compiles and
+    WRITES for a non-member - the RAISE is in the ELSEIF branch - but at
+    a9fca633 the token was unknown, the branch never closed the IF's deny list,
+    and the RAISE was credited to it.
+    """
+
+    def test_a_raise_in_an_elseif_branch_is_not_the_deny_branch(self) -> None:
+        for spelling in ("ELSEIF", "elseif", "ElseIf"):
+            with self.subTest(spelling=spelling):
+                body = (
+                    self.HEAD + self.DENY_IF + "    NULL;\n"
+                    f"  {spelling} false THEN\n    RAISE EXCEPTION 'DENIED';\n"
+                    "  END IF;\n" + self.PRIV
+                )
+                self.assertFalse(self.accepts(f"elseif_{spelling}", self.routine(body)))
+
+    def test_elsif_is_unchanged(self) -> None:
+        body = (
+            self.HEAD + self.DENY_IF + "    NULL;\n"
+            "  ELSIF false THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n" + self.PRIV
+        )
+        self.assertFalse(self.accepts("elsif_branch", self.routine(body)))
+
+    def test_a_real_deny_before_an_elseif_still_denies(self) -> None:
+        body = (
+            self.HEAD + self.DENY_IF + "    RAISE EXCEPTION 'DENIED';\n"
+            "  ELSEIF false THEN\n    NULL;\n  END IF;\n" + self.PRIV
+        )
+        self.assertTrue(self.accepts("elseif_after_deny", self.routine(body)))
+
+    def test_elseif_closes_the_frame_like_elsif(self) -> None:
+        body = self.masked(self.HEAD + "  IF true THEN NULL; ELSEIF false THEN NULL; END IF;\nEND;\n")
+        (frame,) = [f for f in guards.parse_blocks(body, body) if f.kind == "IF"]
+        self.assertTrue(frame.closed)
+
+
+class Round25LoopHeaderTests(_Round25Base):
+    """A loop header ends at its FIRST parenthesis-depth-0 LOOP
+    (read_sql_construct(); brackets count). `WHILE (SELECT CASE WHEN true THEN
+    loop ELSE 0 END FROM t LIMIT 1) = 0 LOOP` compiles on 17.11; its loop never
+    iterates, so the guard inside is never entered and the write lands.
+
+    At a9fca633 the verdict was right for the wrong reason: the COLUMN `loop`
+    pushed a fake frame that stood in for the real loop, which owned none -
+    `_closes_loop_header()`, `_opens_loop_statement()` and `_labelled_opener()`
+    all took the first textual `loop` after the head. Once columns stopped
+    pushing frames the real loop had to be found by the real rule.
+    """
+
+    WHILE = "WHILE (SELECT CASE WHEN true THEN loop ELSE 0 END FROM public.r21_t LIMIT 1) = 0 LOOP"
+
+    def test_the_real_loop_owns_the_frame(self) -> None:
+        body = self.masked(self.HEAD + f"  {self.WHILE}\n" + self.GUARD + "  END LOOP;\nEND;\n")
+        real = body.index("LOOP\n")
+        loops = [f for f in guards.parse_blocks(body, body) if f.kind == "LOOP"]
+        self.assertEqual([f.start for f in loops], [real])
+        head = guards._LOOP_HEAD_RE.match(body, body.index("WHILE"))
+        self.assertEqual(guards._loop_keyword_of(body, head), real)
+        self.assertEqual(guards._labelled_opener(body, body.index("WHILE")), real)
+
+    def test_a_guard_in_that_loop_is_not_outer_level(self) -> None:
+        body = self.HEAD + f"  {self.WHILE}\n" + self.GUARD + "  END LOOP;\n" + self.PRIV
+        self.assertFalse(self.accepts("while_header_column", self.routine(body)))
+
+    def test_a_labelled_loop_keeps_its_label(self) -> None:
+        body = self.masked(
+            self.HEAD + f"  <<lp>>\n  {self.WHILE}\n    EXIT lp;\n" + self.GUARD
+            + "  END LOOP lp;\nEND;\n"
+        )
+        (loop,) = [f for f in guards.parse_blocks(body, body) if f.kind == "LOOP"]
+        self.assertEqual(loop.label, "lp")
+        self.assertEqual(loop.start, body.index("LOOP\n"))
+
+
+class Round25FalseRedTests(_Round25Base):
+    """Every fixture DENIES a non-member on 17.11 and must be ACCEPTED. At
+    a9fca633 each was rejected, because a label spelled `return`, `exit`,
+    `else` or a SQL CASE's `END if` was read as a statement or as structure."""
+
+    def test_structural_labels_before_a_live_guard(self) -> None:
+        for stmt in (
+            "SELECT a return INTO v_x FROM public.r21_t;",
+            "SELECT a AS return INTO v_x FROM public.r21_t;",
+            "v_x := (SELECT 1 return);",
+            "PERFORM 1 return;",
+            "SELECT exit blk INTO v_x FROM public.r21_t;",
+            "SELECT 1 case INTO v_x;",
+            "v_x := (SELECT CASE WHEN true THEN 1 ELSE 0 END if);",
+            "v_x := (SELECT CASE WHEN true THEN 1 ELSE 0 END loop);",
+            "UPDATE public.t SET a = a WHERE false RETURNING a return INTO v_x;",
+        ):
+            with self.subTest(stmt=stmt):
+                self.assertTrue(self.accepts(
+                    "live_guard_after_label",
+                    self.routine(self.HEAD + f"  {stmt}\n" + self.GUARD + self.PRIV),
+                ))
+
+    def test_structural_labels_inside_a_real_deny_branch(self) -> None:
+        for stmt in (
+            "SELECT 1 else INTO v_x;",
+            "SELECT a return INTO v_x FROM public.r21_t;",
+            "SELECT 1 then INTO v_x;",
+            "MERGE INTO public.t USING public.r21_t s ON false WHEN MATCHED THEN DO NOTHING;",
+        ):
+            with self.subTest(stmt=stmt):
+                self.assertTrue(self.accepts(
+                    "deny_after_label", self.routine(self.deny_branch(stmt, then_raise=True))
+                ))
+
+    def test_a_label_named_like_a_block_label_is_no_exit(self) -> None:
+        """`SELECT exit blk` - column `exit`, label `blk` - inside the
+        routine's own `<<blk>>` block jumps nowhere; the guard after it denies
+        on 17.11. The real `EXIT blk;` mirror leaves the routine before the
+        guard ever runs (17.11: no error, nothing executed after it), so the
+        guard authorizes nothing and it must still reject."""
+        fake = "  SELECT exit blk INTO v_x FROM public.r21_t;\n"
+        self.assertTrue(self.accepts(
+            "exit_label", self.routine("<<blk>>\n" + self.HEAD + fake + self.GUARD + self.PRIV,
+                                       close="END blk;\n")))
+        self.assertFalse(self.accepts(
+            "exit_real", self.routine("<<blk>>\n" + self.HEAD + "  EXIT blk;\n" + self.GUARD
+                                      + self.PRIV, close="END blk;\n")))
+
+
+class Round25RealStructureTests(_Round25Base):
+    """Genuine PL/pgSQL keeps every verdict, with Round-25 labels composed in.
+
+    REJECT fixtures write for a non-member on 17.11, abort before a dead
+    guard, or leave the routine before the guard runs; ACCEPT fixtures deny.
+    The label statement is harmless at runtime. Measured at a9fca633 on these
+    96 fixtures: 3 false greens and 18 false reds.
+    """
+
+    LABELS = (
+        "NULL;",
+        "SELECT 1 end INTO v_x;",
+        "SELECT a, loop begin INTO v_x, v_y FROM public.r21_t;",
+        "SELECT begin raise INTO v_x FROM public.r21_t;",
+        "SELECT a return INTO v_x FROM public.r21_t;",
+        "v_x := (SELECT CASE WHEN true THEN 1 ELSE 0 END loop);",
+    )
+
+    def shapes(self, f: str) -> dict[str, tuple[str, bool]]:
+        g, p, h = self.GUARD.strip(), self.PRIV, self.HEAD
+        return {
+            "labelled_exit_skips": (h + f"  <<blk>>\n  BEGIN\n    {f}\n    EXIT blk;\n    {g}\n  END blk;\n" + p, False),
+            "return_before_guard": (h + f"  IF p_org IS NOT NULL THEN\n    {f}\n    RETURN;\n  END IF;\n  {g}\n" + p, False),
+            "return_in_deny": (h + self.DENY_IF + f"    {f}\n    RETURN;\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n" + p, False),
+            "handler_raise_exception": (h + f"  BEGIN\n    {f}\n    {g}\n  EXCEPTION WHEN raise_exception THEN NULL;\n  END;\n" + p, False),
+            "handler_sqlstate": (h + f"  BEGIN\n    {g}\n    {f}\n  EXCEPTION WHEN SQLSTATE 'P0001' THEN NULL;\n  END;\n" + p, False),
+            "guard_in_case_arm": (h + f"  CASE WHEN false THEN\n    {g}\n    {f}\n  ELSE\n    NULL;\n  END CASE;\n" + p, False),
+            "real_abort_then_dead_guard": (h + f"  {f}\n  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n  {g}\n" + p, False),
+            "labelled_loop_exit_when": (h + f"  <<lp>>\n  LOOP\n    {f}\n    EXIT lp WHEN true;\n    {g}\n  END LOOP lp;\n" + p, False),
+            "nested_declare_raise_var": (h + self.DENY_IF + f"    DECLARE\n      raise integer := 1;\n    BEGIN\n      {f}\n      raise := 2;\n    END;\n  END IF;\n" + p, False),
+            "live_after_labelled_block": (h + f"  <<blk>>\n  BEGIN\n    {f}\n    EXIT blk;\n  END blk;\n  {g}\n" + p, True),
+            "live_after_case_statement": (h + f"  CASE WHEN true THEN\n    {f}\n  ELSE\n    NULL;\n  END CASE;\n  {g}\n" + p, True),
+            "live_after_unrelated_handler": (h + f"  BEGIN\n    {f}\n  EXCEPTION WHEN unique_violation THEN NULL;\n  END;\n  {g}\n" + p, True),
+            "live_after_for_loop": (h + f"  FOR v_y IN 1..2 LOOP\n    {f}\n  END LOOP;\n  {g}\n" + p, True),
+            "live_after_handler_declare": (h + f"  BEGIN\n    NULL;\n  EXCEPTION WHEN others THEN\n    DECLARE raise integer := 1;\n    BEGIN\n      {f}\n    END;\n  END;\n  {g}\n" + p, True),
+            "real_deny_then_nested_declare": (h + self.DENY_IF + f"    {f}\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n  DECLARE\n    raise integer := 1;\n  BEGIN\n    raise := 2;\n  END;\n" + p, True),
+            "standalone_guard": (h + f"  {f}\n  {g}\n" + p, True),
+        }
+
+    def test_real_structure_keeps_every_verdict(self) -> None:
+        for label in self.LABELS:
+            for name, (body, must_accept) in self.shapes(label).items():
+                with self.subTest(shape=name, label=label):
+                    self.assertEqual(
+                        self.accepts(f"r25_{name}", self.routine(body)), must_accept,
+                        f"`{name}` with `{label}` changed verdict",
+                    )
+
+
+#: The Round-25 matrix. Each context holds `{w}` where a word stands as a bare
+#: column label, an `AS` label, a qualified column, or the column before a
+#: `raise` label.
+R25_CONTEXTS = (
+    "SELECT a {w} INTO v_x FROM public.r21_t;",
+    "SELECT a, loop {w} INTO v_x, v_y FROM public.r21_t;",
+    "SELECT a, begin {w} INTO v_x, v_y FROM public.r21_t;",
+    "SELECT {w} raise INTO v_x FROM public.r21_t;",
+    "v_x := (SELECT 1 {w});",
+    "PERFORM 1 {w};",
+    "SELECT a AS {w} INTO v_x FROM public.r21_t;",
+    "v_x := (SELECT CASE WHEN true THEN 1 ELSE 0 END {w});",
+    "SELECT x.{w} INTO v_x FROM public.r21_t x;",
+    "UPDATE public.t SET a = a WHERE false RETURNING a {w} INTO v_x;",
+    "IF (SELECT 1 {w}) = 1 THEN NULL; END IF;",
+    "WHILE (SELECT 0 {w}) = 1 LOOP NULL; END LOOP;",
+    "FOR r IN SELECT a {w} FROM public.r21_t LOOP NULL; END LOOP;",
+    "RAISE NOTICE '%', (SELECT 1 {w});",
+    "SELECT 1 {w}, 2 raise INTO v_x, v_y;",
+    "SELECT CASE WHEN true THEN (SELECT 1 {w}) ELSE 0 END INTO v_x;",
+    "IF v_x {w} THEN NULL; END IF;",
+    "CASE (SELECT 1 {w}) WHEN 1 THEN NULL; ELSE NULL; END CASE;",
+    "v_x := (SELECT count(*) FROM (SELECT 1 {w}) s);",
+)
+R25_WORDS = (
+    "exit", "begin", "end", "case", "when", "then", "else", "if", "loop",
+    "exception", "elsif", "elseif", "raise", "declare", "return", "while",
+    "foreach", "null", "perform",
+)
+#: (context index, word) pairs PostgreSQL 17.11 does not compile - a reserved
+#: word as a bare column, a header whose first depth-0 terminator is the label,
+#: or a column the oracle table does not have. Measured, not inferred.
+R25_NOT_COMPILED = frozenset({
+    (3, "end"), (3, "then"), (3, "else"),          # syntax error at the word
+    (12, "loop"),                                  # FOR header ends at the label
+    (16, "then"),                                  # IF header ends at the label
+    *((ci, w) for ci in (3, 8) for w in (
+        "case", "when", "elsif", "elseif", "while", "foreach", "null", "perform",
+    )),                                            # no such column
+})
+
+
+class Round25MatrixTests(_Round25Base):
+    """19 words x 19 contexts, minus the 21 pairs 17.11 does not compile, is
+    340 statements; each is run in seven probe shapes, 2,380 fixtures, every
+    one compiled AND run on 17.11 as a non-member. A, C, C2 and F write; B
+    aborts before a dead guard -> REJECT. D and E deny -> ACCEPT. Measured at
+    a9fca633 on these exact fixtures: 6 false greens and 110 false reds."""
+
+    def statements(self) -> list[str]:
+        out = []
+        for ci, ctx in enumerate(R25_CONTEXTS):
+            for w in R25_WORDS:
+                if (ci, w) not in R25_NOT_COMPILED:
+                    out.append(ctx.format(w=w))
+        return out
+
+    def probes(self, s: str) -> dict[str, tuple[str, bool]]:
+        g, h, p = self.GUARD.strip(), self.HEAD, self.PRIV
+        return {
+            "A_deny_without_raise": (h + self.DENY_IF + f"    {s}\n  END IF;\n" + p, False),
+            "B_dead_guard": (h + f"  {s}\n  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n  {g}\n" + p, False),
+            "C_swallowed_after": (h + f"  BEGIN\n    {g}\n    {s}\n  EXCEPTION WHEN others THEN NULL;\n  END;\n" + p, False),
+            "C2_swallowed_before": (h + f"  BEGIN\n    {s}\n    {g}\n  EXCEPTION WHEN others THEN NULL;\n  END;\n" + p, False),
+            "D_live_guard": (h + f"  {s}\n  {g}\n" + p, True),
+            "E_real_deny": (h + self.DENY_IF + f"    {s}\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n" + p, True),
+            "F_dead_loop": (h + f"  FOR v_x IN SELECT 1 WHERE false LOOP\n    {g}\n    {s}\n  END LOOP;\n" + p, False),
+        }
+
+    def test_the_matrix(self) -> None:
+        statements = self.statements()
+        self.assertEqual(len(statements), len(R25_CONTEXTS) * len(R25_WORDS) - len(R25_NOT_COMPILED))
+        for s in statements:
+            for name, (body, must_accept) in self.probes(s).items():
+                with self.subTest(probe=name, stmt=s):
+                    self.assertEqual(
+                        self.accepts(f"m_{name}", self.routine(body)), must_accept,
+                        f"{name}: `{s}`",
+                    )
+
+
+class Round25StatementMapTests(_Round25Base):
+    """PARSER-INTERNAL. What the forward walk proves, asserted directly."""
+
+    def test_positions_structure_and_inert_text(self) -> None:
+        body = self.masked(
+            "CREATE FUNCTION public.f(p_org uuid) RETURNS void LANGUAGE plpgsql AS $f$\n"
+            "DECLARE\n  raise integer := (SELECT 1 end);\nBEGIN\n"
+            "  SELECT a, begin raise INTO v_x, v_y FROM public.r21_t;\n"
+            "  IF (SELECT CASE WHEN true THEN 1 END) = 1 THEN\n"
+            "    raise := 2;\n  ELSEIF false THEN\n    RAISE EXCEPTION 'x';\n  END IF;\n"
+            "END;\n$f$;\n"
+        )
+        body = body[:body.rindex("$f$")]  # what check_file() passes: up to the closing tag
+        walk = guards._statement_map(body)
+        self.assertIsNone(walk.violation)
+        at = body.index
+        for word in ("DECLARE", "BEGIN\n", "IF (", "THEN\n", "ELSEIF", "RAISE", "END IF"):
+            with self.subTest(structural=word):
+                self.assertIn(at(word), walk.structural)
+        self.assertEqual({at("CASE"), at("WHEN"), at("THEN 1"), at("END)")} & walk.sql_case,
+                         {at("CASE"), at("WHEN"), at("THEN 1"), at("END)")})
+        for word in ("end);", "begin raise", "raise INTO"):
+            with self.subTest(inert=word):
+                self.assertTrue(walk.is_inert(at(word)))
+        self.assertFalse(guards._is_statement_start(body, at("raise integer")))
+        self.assertFalse(guards._is_statement_start(body, at("raise INTO")))
+        self.assertFalse(guards._is_statement_start(body, at("raise := 2")))
+        self.assertTrue(guards._is_statement_start(body, at("RAISE EXCEPTION")))
+        self.assertTrue(guards._is_statement_start(body, at("SELECT a")))
+
+    def test_text_postgresql_rejects_is_a_violation(self) -> None:
+        """Each compiles NOWHERE - 17.11 raises a syntax error - and each is
+        recorded as a violation rather than guessed at."""
+        for text in (
+            "BEGIN\n  NULL;;\nEND;\n",
+            "BEGIN\n  NULL;\n  ELSE\n  NULL;\nEND;\n",
+            "BEGIN\n  IF true\n  NULL;\n  END IF;\nEND;\n",
+            "BEGIN\n  WHILE true NULL; END LOOP;\nEND;\n",
+            "BEGIN\n  LOOP\n    NULL;\nEND;\n",
+            "BEGIN\n  CASE WHEN true THEN NULL ELSE NULL END CASE;\nEND;\n",
+            "BEGIN\n  v_x := (SELECT CASE WHEN true THEN 1);\nEND;\n",
+            "BEGIN\n  EXCEPTION WHEN others THEN NULL;\n  NULL;\n  EXCEPTION WHEN others THEN NULL;\nEND;\n",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNotNone(guards._statement_map(self.masked(text)).violation)
+
+    def test_every_statement_form_is_accounted_for(self) -> None:
+        """The pl_gram.y statement set, each in a form 17.11 compiles."""
+        body = self.masked(
+            "#variable_conflict use_column\n<<outer>>\nDECLARE\n  c CURSOR FOR SELECT 1;\n"
+            "  v integer;\nBEGIN\n"
+            "  v := 1; v = 2; PERFORM 1; SELECT 1 INTO v; NULL; EXECUTE 'SELECT 1';\n"
+            "  GET DIAGNOSTICS v = ROW_COUNT; OPEN c; FETCH c INTO v; CLOSE c;\n"
+            "  ASSERT true, 'x'; RAISE NOTICE 'x'; CALL public.p();\n"
+            "  IF true THEN NULL; ELSIF false THEN NULL; ELSEIF false THEN NULL; ELSE NULL; END IF;\n"
+            "  CASE v WHEN 1, 2 THEN NULL; ELSE NULL; END CASE;\n"
+            "  CASE WHEN v = 1 THEN NULL; END CASE;\n"
+            "  <<lp>> LOOP EXIT lp WHEN true; CONTINUE lp WHEN false; END LOOP lp;\n"
+            "  WHILE false LOOP NULL; END LOOP;\n"
+            "  FOR i IN REVERSE 10..1 BY 2 LOOP NULL; END LOOP;\n"
+            "  FOR r IN EXECUTE 'SELECT 1' USING v LOOP NULL; END LOOP;\n"
+            "  FOREACH v SLICE 0 IN ARRAY ARRAY[1] LOOP NULL; END LOOP;\n"
+            "  DECLARE DECLARE BEGIN NULL; END;\n"
+            "  BEGIN NULL; EXCEPTION WHEN unique_violation OR SQLSTATE '22012' THEN NULL;"
+            " WHEN others THEN RAISE; END;\n"
+            "  RETURN;\nEND outer;\n"
+        )
+        walk = guards._statement_map(body)
+        self.assertIsNone(walk.violation, body[walk.violation or 0:][:60])
+        self.assertTrue(walk.proves(guards.parse_blocks(body, body)))
+
+    def test_frames_that_differ_from_the_walk_prove_nothing(self) -> None:
+        body = self.masked(self.HEAD + "  BEGIN\n    NULL;\n  EXCEPTION WHEN others THEN NULL;\n  END;\nEND;\n")
+        walk = guards._statement_map(body)
+        frames = guards.parse_blocks(body, body)
+        self.assertTrue(walk.proves(frames))
+        self.assertFalse(walk.proves(frames[1:]), "a dropped frame went unnoticed")
+        inner = max(frames, key=lambda f: f.start)
+        saved, inner.exc_pos = inner.exc_pos, None
+        try:
+            self.assertFalse(walk.proves(frames), "a dropped handler went unnoticed")
+        finally:
+            inner.exc_pos = saved
+
+
+class Round25FailClosedTests(_Round25Base):
+    """Ambiguity is fail-closed at the verdict, under the strict contract."""
+
+    def test_a_body_the_walk_cannot_account_for_credits_no_guard(self) -> None:
+        """The guard is real and standalone, but the CASE statement before it is
+        PostgreSQL-invalid (17.11: syntax error at or near "ELSE"), so no
+        structure around it is proven."""
+        body = (
+            self.HEAD + "  CASE WHEN p_org IS NULL THEN NULL ELSE NULL END CASE;\n"
+            + self.GUARD + self.PRIV
+        )
+        self.assertFalse(self.accepts("invalid_case", self.routine(body)))
+        valid = body.replace("THEN NULL ELSE NULL END", "THEN NULL; ELSE NULL; END")
+        self.assertTrue(self.accepts("valid_case", self.routine(valid)))
+
+    def test_a_frame_model_gap_credits_no_guard(self) -> None:
+        """Simulated: a frame walk that drops a real handler. The guard would
+        read as live; the statement walk's disagreement refuses it."""
+        body = (
+            self.HEAD + "  BEGIN\n  " + self.GUARD
+            + "  EXCEPTION WHEN others THEN NULL;\n  END;\n" + self.PRIV
+        )
+        self.assertFalse(self.accepts("handler_kept", self.routine(body)))
+        original = guards._control_frames
+
+        def drop_handlers(*args, **kwargs):
+            frames = original(*args, **kwargs)
+            for f in frames:
+                f.exc_pos = None
+            return frames
+
+        guards._control_frames = drop_handlers
+        try:
+            self.assertFalse(self.accepts("handler_dropped", self.routine(body)))
+        finally:
+            guards._control_frames = original
+
+
+class Round25ArchitectureTests(unittest.TestCase):
+    """ARCHITECTURAL. One ownership layer, and every consumer asks it."""
+
+    def test_the_previous_word_statement_test_is_gone(self) -> None:
+        self.assertFalse(hasattr(guards, "_opens_statement_position"))
+        self.assertIn("_statement_map(body)", inspect.getsource(guards._is_statement_start))
+
+    def test_every_statement_evidence_consumer_asks_the_walk(self) -> None:
+        for fn in (guards.unconditional_abort_before, guards.parse_blocks,
+                   guards._terminating_return_between, guards._exit_targets):
+            with self.subTest(fn=fn.__name__):
+                self.assertIn("_is_statement_start(", inspect.getsource(fn))
+        self.assertIn("_terminating_return_between(", inspect.getsource(guards.terminating_return_before))
+        self.assertIn(
+            "_terminating_return_between(",
+            inspect.getsource(guards._if_blocks_with_raising_deny_branch),
+        )
+
+    def test_the_frame_walk_drops_inert_tokens_first(self) -> None:
+        walk = inspect.getsource(guards._control_frames)
+        self.assertIn("statements = _statement_map(body)", walk)
+        inert = walk.index("statements.is_inert(m.start())")
+        self.assertLess(inert, walk.index("_owns_control_frame(body, token, m.start(), owns)"))
+        self.assertLess(inert, walk.index("on_raise(stack, m)"))
+
+    def test_default_block_positions_come_from_the_walk(self) -> None:
+        self.assertIn("_statement_map(body).positions",
+                      inspect.getsource(guards._opens_block_position))
+        self.assertIn("_statement_map(body).structural",
+                      inspect.getsource(guards._owns_control_frame))
+
+    def test_loop_heads_share_one_terminator_rule(self) -> None:
+        for fn in (guards._closes_loop_header, guards._opens_loop_statement,
+                   guards._labelled_opener):
+            with self.subTest(fn=fn.__name__):
+                self.assertIn("_loop_keyword_of(", inspect.getsource(fn))
+        self.assertIn("_header_terminator(", inspect.getsource(guards._StatementWalk.header))
+
+    def test_the_strict_verdict_requires_proven_structure(self) -> None:
+        self.assertIn(".proves(frames)", inspect.getsource(guards.has_recognized_guard))
+
+
+class Round25RegressionBatteryTests(_Round24Base):
+    """Rounds 13-24, re-proved with the Round-25 labels composed on.
+
+    `PERFORM 1 end, 2 case, 3 then, 4 else, loop begin, begin raise FROM
+    public.r21_t;` - four structural bare labels, a label after a `loop` column
+    and a `raise` label after a `begin` column - is added as the first
+    statement of every historical fixture. It compiles in all of them on 17.11
+    and changes nothing at runtime, so every verdict must survive it.
+    """
+
+    LABELS = "PERFORM 1 end, 2 case, 3 then, 4 else, loop begin, begin raise FROM public.r21_t;"
+
+    def compose(self, body: str) -> str:
+        first = body.index("\nBEGIN\n") + len("\nBEGIN\n") if "\nBEGIN\n" in body else (
+            len("BEGIN\n") if body.startswith("BEGIN\n") else None)
+        self.assertIsNotNone(first, "fixture has no outer BEGIN")
+        return body[:first] + f"  {self.LABELS}\n" + body[first:]
+
+    def test_the_round22_battery(self) -> None:
+        for name, (body, must_accept) in Round22RegressionBatteryTests.battery(self).items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(f"{name}_r25", self.routine(self.compose(body))),
+                    must_accept, f"`{name}` changed verdict under Round-25 labels",
+                )
+
+    def test_the_round23_chain_mutants(self) -> None:
+        for name, (body, close, must_accept) in _r23_mutants(self).items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(f"{name}_r25", self.routine(self.compose(body), close=close)),
+                    must_accept, f"`{name}` changed verdict under Round-25 labels",
+                )
+
+    def test_the_round24_sql_case_mutants(self) -> None:
+        for name, (body, must_accept) in _r24_mutants(self).items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(f"{name}_r25", self.routine(self.compose(body))),
+                    must_accept, f"`{name}` changed verdict under Round-25 labels",
                 )
 
 
