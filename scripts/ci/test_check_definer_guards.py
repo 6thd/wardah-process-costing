@@ -12986,6 +12986,392 @@ class Round22SuiteCollectionTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Round 23: a chain of extra DECLAREs is ONE declaration section
+# ---------------------------------------------------------------------------
+# Two independent Round-22 reviews reported P1s that share one root cause.
+# PostgreSQL 17.11's pl_gram.y (REL_17_11) reads:
+#
+#     decl_sect : opt_block_label [ decl_start [ decl_stmts ] ]
+#     decl_stmt : decl_statement          -- always ends with its own `;`
+#               | K_DECLARE               -- "We allow useless extra DECLAREs"
+#
+# so the block's real BEGIN may follow the section start, a `;`, OR any chain
+# of extra DECLARE keywords after either. Round 22 modelled only the first two,
+# in two places:
+#
+#   _owned_section_begin() skipped a BEGIN preceded by an extra DECLARE, the
+#   section ran to the end of the body, and every real RAISE after it read as
+#   declaration text. A routine that aborts before its guard was ACCEPTED - a
+#   regression, because Round 21's first-textual-BEGIN rule found that BEGIN.
+#
+#   _opens_block_position() stepped over ONE DECLARE and then compared the next
+#   DECLARE's owned BEGIN with the offset it had just stepped from. No BEGIN
+#   frame was pushed for `DECLARE DECLARE BEGIN`, so a labelled EXIT past the
+#   guard and an EXCEPTION handler swallowing it were both invisible
+#   (pre-existing on Round 21 too).
+#
+# One boundary helper now states the grammar, `_at_declaration_boundary()`, and
+# the frame walk carries the BEGIN it is justifying across the whole chain.
+# Every DECLARE in a chain owns the same BEGIN, and all three consumers agree
+# on it.
+class _Round23Base(_Round22Base):
+    """ORACLE, PostgreSQL 17.11, same disposable cluster and schema as Round 22,
+    plus `public.t2("declare" integer, "begin" integer)` so a column named
+    `declare` under the bare label `begin` can be written at paren depth 0.
+    The guard helper also bumps a sequence, so "the guard was entered" is read
+    back from `guard_hits.is_called` rather than inferred.
+
+    Measured: every chain form below compiles. `DECLARE <<l>> BEGIN`,
+    `DECLARE v integer; <<l>> BEGIN` ("block label must be placed before
+    DECLARE, not after") and `DECLARE declare integer;` do not.
+    """
+
+    RAISE = "  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n"
+
+    #: Declaration sections ending in a chain of extra DECLAREs, keyed by name.
+    #: Each is followed directly by the real BEGIN in every fixture.
+    CHAINS = {
+        "declare_declare": "DECLARE\nDECLARE\n",
+        "declare_comment_declare": "DECLARE /* c */ DECLARE -- c\n",
+        "declaration_then_extra": "DECLARE\n  v_x integer := 1;\nDECLARE\n",
+        "declaration_then_three_extras": "DECLARE\n  v_x integer := 1;\nDECLARE DECLARE DECLARE\n",
+        "extra_between_declarations": "DECLARE\n  v_x integer := 1;\nDECLARE\n  v_y integer := 2;\nDECLARE\n",
+        "extra_before_declaration": "DECLARE\nDECLARE\n  v_x integer := 1;\n",
+        "every_form_then_extra": (
+            "DECLARE\n  n CONSTANT integer := 1;\n  a ALIAS FOR p_org;\n"
+            "  r pg_catalog.pg_class%ROWTYPE;\n"
+            "  c CURSOR (k integer) FOR SELECT k AS begin;\nDECLARE\n"
+        ),
+        "fake_begin_then_extra": "DECLARE\n  v_x integer := (SELECT 1 AS begin);\nDECLARE\n",
+    }
+
+    def real_begin(self, body: str) -> int:
+        """The LAST `begin` spelling, which is the real opener in every fixture."""
+        return [m.start() for m in guards._SECTION_BEGIN_RE.finditer(body)][-1]
+
+
+class Round23DeclarationBoundaryTests(_Round23Base):
+    """PARSER-INTERNAL. The boundary rule, asserted on offsets."""
+
+    def test_every_chain_resolves_to_the_real_begin(self) -> None:
+        for name, chain in self.CHAINS.items():
+            with self.subTest(chain=name):
+                body = self.masked(chain + "BEGIN\n  PERFORM 1;\nEND;\n")
+                opener = guards._DECLARE_TOKEN_RE.search(body)
+                self.assertEqual(
+                    guards._owned_section_begin(body, opener.end()),
+                    self.real_begin(body),
+                )
+
+    def test_every_declare_in_a_chain_owns_the_same_begin(self) -> None:
+        """The invariant the frame walk relies on."""
+        for name, chain in self.CHAINS.items():
+            with self.subTest(chain=name):
+                body = self.masked(chain + "BEGIN\n  PERFORM 1;\nEND;\n")
+                real = self.real_begin(body)
+                owners = {
+                    guards._owned_section_begin(body, m.end())
+                    for m in guards._DECLARE_TOKEN_RE.finditer(body, 0, real)
+                }
+                self.assertEqual(owners, {real})
+
+    def test_declare_begin_as_expression_text_is_not_a_boundary(self) -> None:
+        """A column named `declare` under the bare label `begin` compiles at
+        paren depth 0 in a cursor. The walk reaches SELECT, not a boundary."""
+        for name, text in {
+            "cursor_bare_label": "  c CURSOR FOR SELECT declare begin FROM public.t2;\n",
+            "cursor_after_comma": "  c CURSOR FOR SELECT 1 declare, declare begin FROM public.t2;\n",
+            "initializer": "  v_x integer := (SELECT declare begin FROM public.t2 LIMIT 1);\n",
+            "qualified_declare": "  v_x integer := (SELECT t2.declare begin FROM public.t2 LIMIT 1);\n",
+        }.items():
+            with self.subTest(form=name):
+                body = self.masked("DECLARE\n" + text + "BEGIN\n  PERFORM 1;\nEND;\n")
+                fake = [m.start() for m in guards._SECTION_BEGIN_RE.finditer(body)][0]
+                start = guards._DECLARE_TOKEN_RE.search(body).end()
+                self.assertFalse(guards._at_declaration_boundary(body, start, fake))
+                self.assertEqual(
+                    guards._owned_section_begin(body, start), self.real_begin(body)
+                )
+
+    def test_the_boundary_rule_is_the_resolvers_only_test(self) -> None:
+        """ARCHITECTURAL. One definition of the boundary, used by the resolver;
+        the frame walk reaches the resolver rather than restating it."""
+        resolver = inspect.getsource(guards._owned_section_begin)
+        self.assertIn("_at_declaration_boundary(", resolver)
+        self.assertNotIn('== ";"', resolver)
+        self.assertIn(
+            "_owned_section_begin(", inspect.getsource(guards._opens_block_position)
+        )
+
+
+class Round23SharedOwnerTests(_Round23Base):
+    """The three consumers must agree on the SAME PostgreSQL-owned BEGIN.
+
+    `_declaration_spans()` ends the span there, `_labelled_opener()` attaches
+    the label there, and `_opens_block_position()` - through the frame walk -
+    pushes the BEGIN frame there. Round 22 had the first two agreeing and the
+    third disagreeing for a DECLARE chain.
+    """
+
+    def test_span_label_and_frame_agree_on_every_chain(self) -> None:
+        for name, chain in self.CHAINS.items():
+            with self.subTest(chain=name):
+                body = self.masked(
+                    "<<auth_block>>\n" + chain + "BEGIN\n  PERFORM 1;\nEND auth_block;\n"
+                )
+                real = self.real_begin(body)
+                self.assertEqual(guards._declaration_spans(body)[0][1], real)
+                self.assertEqual(
+                    guards._labelled_opener(body, body.index(">>") + 2), real
+                )
+                self.assertTrue(guards._opens_block_position(body, real))
+                self.assertEqual(guards._block_labels(body), {real: "auth_block"})
+                frames = [
+                    f for f in guards.parse_blocks(body, body)
+                    if f.kind == "BEGIN" and f.start == real
+                ]
+                self.assertEqual(len(frames), 1, "no BEGIN frame at the real opener")
+                self.assertEqual(frames[0].label, "auth_block")
+
+    def test_an_extra_declare_is_not_a_block_opener_of_its_own(self) -> None:
+        """Inside `DECLARE DECLARE BEGIN` the second keyword opens nothing."""
+        body = self.masked("DECLARE\nDECLARE\nBEGIN\n  PERFORM 1;\nEND;\n")
+        second = [m.start() for m in guards._DECLARE_TOKEN_RE.finditer(body)][1]
+        self.assertFalse(guards._opens_block_position(body, second))
+        self.assertEqual(len(guards._declaration_spans(body)), 1)
+
+    def test_a_chain_after_a_non_block_word_still_opens_nothing(self) -> None:
+        """Round 19's class must stay closed: `SELECT declare declare begin`
+        reaches SELECT, so the walk refuses every step of the chain."""
+        body = self.masked(
+            "DECLARE\n  v_x integer;\nBEGIN\n"
+            "  SELECT declare declare INTO v_x FROM public.t2;\nEND;\n"
+        )
+        inner = [m.start() for m in guards._DECLARE_TOKEN_RE.finditer(body)][1:]
+        for pos in inner:
+            self.assertFalse(guards._opens_declaration_section(body, pos))
+        self.assertEqual(len(guards._declaration_spans(body)), 1)
+
+
+class Round23OuterRaiseTests(_Round23Base):
+    """Finding 1, end to end. Each routine aborts with NOT_IMPLEMENTED on 17.11
+    before the guard runs (`guard_hits` untouched), so the guard is dead and the
+    routine must be REJECTED. At 5e28ffe2 every one of these returned []."""
+
+    def test_an_outer_raise_after_every_chain_is_visible(self) -> None:
+        for name, chain in self.CHAINS.items():
+            with self.subTest(chain=name):
+                body = chain + "BEGIN\n" + self.RAISE + self.GUARD + self.PRIV
+                self.assertFalse(self.accepts(f"r23_raise_{name}", self.routine(body)))
+
+    def test_an_inner_chain_block_does_not_swallow_the_outer_raise(self) -> None:
+        body = (
+            "BEGIN\n  DECLARE DECLARE BEGIN NULL; END;\n"
+            + self.RAISE + self.GUARD + self.PRIV
+        )
+        self.assertFalse(self.accepts("r23_inner_chain", self.routine(body)))
+
+
+class Round23ChainFrameTests(_Round23Base):
+    """Finding 2, end to end. With no BEGIN frame, a labelled EXIT past the guard
+    and a handler swallowing it were invisible. Measured on 17.11: the EXIT
+    variants commit the UPDATE and never enter the guard; the handler variants
+    enter the guard, swallow P0001 and return normally."""
+
+    def test_a_labelled_exit_over_the_guard_is_rejected(self) -> None:
+        for name, chain in self.CHAINS.items():
+            for exit_line in ("  EXIT auth_block;\n", "  EXIT auth_block WHEN true;\n"):
+                with self.subTest(chain=name, exit=exit_line.strip()):
+                    body = (
+                        "<<auth_block>>\n" + chain + "BEGIN\n" + self.PRIV
+                        + exit_line + self.GUARD
+                    )
+                    self.assertFalse(self.accepts(
+                        f"r23_exit_{name}", self.routine(body, close="END auth_block;\n")
+                    ))
+
+    def test_a_swallowing_handler_is_rejected(self) -> None:
+        for name, chain in self.CHAINS.items():
+            for handler in ("others", "SQLSTATE 'P0001'", "raise_exception"):
+                with self.subTest(chain=name, handler=handler):
+                    body = (
+                        chain + "BEGIN\n" + self.GUARD + self.PRIV
+                        + f"EXCEPTION WHEN {handler} THEN\n  NULL;\n"
+                    )
+                    self.assertFalse(self.accepts(f"r23_exc_{name}", self.routine(body)))
+
+    def test_the_handler_is_recorded_on_the_chain_frame(self) -> None:
+        body = self.masked(
+            "DECLARE\nDECLARE\nBEGIN\n  PERFORM 1;\nEXCEPTION WHEN others THEN\n  NULL;\nEND;\n"
+        )
+        real = self.real_begin(body)
+        frame, = [
+            f for f in guards.parse_blocks(body, body)
+            if f.kind == "BEGIN" and f.start == real
+        ]
+        self.assertIsNotNone(frame.exc_pos, "the EXCEPTION section was not recorded")
+
+
+class Round23ControlTests(_Round23Base):
+    """The opposite direction: nothing here may turn into a rejection. Each
+    routine denies a non-member on 17.11 (P0001, no write)."""
+
+    def test_a_live_guard_after_every_chain_is_accepted(self) -> None:
+        for name, chain in self.CHAINS.items():
+            with self.subTest(chain=name):
+                body = chain + "BEGIN\n" + self.GUARD + self.PRIV
+                self.assertTrue(self.accepts(f"r23_live_{name}", self.routine(body)))
+
+    def test_a_declared_raise_in_a_chain_section_stays_inert(self) -> None:
+        body = "DECLARE\nDECLARE\n  raise integer := 2;\nBEGIN\n" + self.GUARD + self.PRIV
+        self.assertTrue(self.accepts("r23_declared_raise", self.routine(body)))
+
+    def test_an_unrelated_handler_on_a_chain_block_is_harmless(self) -> None:
+        body = (
+            "DECLARE\nDECLARE\nBEGIN\n" + self.GUARD + self.PRIV
+            + "EXCEPTION WHEN unique_violation THEN\n  NULL;\n"
+        )
+        self.assertTrue(self.accepts("r23_unique_violation", self.routine(body)))
+
+    def test_declare_begin_expression_text_keeps_the_guard(self) -> None:
+        body = (
+            "DECLARE\n  c CURSOR FOR SELECT declare begin FROM public.t2;\n"
+            "  raise integer := 2;\nBEGIN\n" + self.GUARD + self.PRIV
+        )
+        self.assertTrue(self.accepts("r23_cursor_text", self.routine(body)))
+
+
+#: 20 fresh compositions. Every one COMPILES on PostgreSQL 17.11 and was RUN as
+#: a non-member: "abort" = NOT_IMPLEMENTED before the guard, "write" = the
+#: UPDATE committed with the guard never entered, "swallowed" = guard entered
+#: and P0001 swallowed, "deny" = P0001 propagated and no write, "returned" =
+#: RETURN before the guard. `must_accept` is what that runtime requires.
+def _r23_mutants(base: _Round23Base) -> dict[str, tuple[str, str, bool]]:
+    g, u, r = base.GUARD, base.PRIV, base.RAISE
+    e, el = "END;\n", "END auth_block;\n"
+    return {
+        "01_declare_declare_then_raise": ("DECLARE\nDECLARE\nBEGIN\n" + r + g + u, e, False),
+        "02_declaration_then_extra_then_raise": (
+            "DECLARE\n  v integer := 1;\nDECLARE\nBEGIN\n" + r + g + u, e, False),
+        "03_three_trailing_declares_then_raise": (
+            "DECLARE\n  v integer := 1;\nDECLARE DECLARE DECLARE\nBEGIN\n" + r + g + u, e, False),
+        "04_commented_chain_then_raise": (
+            "DECLARE /* c */ DECLARE -- c\nBEGIN\n" + r + g + u, e, False),
+        "05_every_decl_form_then_extra_then_raise": (
+            "DECLARE\n  n CONSTANT integer := 1;\n  a ALIAS FOR p_org;\n"
+            "  r pg_catalog.pg_class%ROWTYPE;\n"
+            "  c CURSOR (k integer) FOR SELECT k AS begin;\nDECLARE\nBEGIN\n" + r + g + u,
+            e, False),
+        "06_inner_chain_block_then_outer_raise": (
+            "BEGIN\n  DECLARE DECLARE BEGIN NULL; END;\n" + r + g + u, e, False),
+        "07_labelled_chain_exit": (
+            "<<auth_block>>\nDECLARE\nDECLARE\nBEGIN\n" + u + "  EXIT auth_block;\n" + g, el, False),
+        "08_labelled_chain_exit_when": (
+            "<<auth_block>>\nDECLARE\nDECLARE\nBEGIN\n" + u + "  EXIT auth_block WHEN true;\n" + g,
+            el, False),
+        "09_chain_handler_swallows_others": (
+            "DECLARE\nDECLARE\nBEGIN\n" + g + u + "EXCEPTION WHEN others THEN\n  NULL;\n", e, False),
+        "10_chain_handler_swallows_p0001": (
+            "DECLARE\nDECLARE\nBEGIN\n" + g + u + "EXCEPTION WHEN SQLSTATE 'P0001' THEN\n  NULL;\n",
+            e, False),
+        "11_chain_unrelated_unique_violation": (
+            "DECLARE\nDECLARE\nBEGIN\n" + g + u + "EXCEPTION WHEN unique_violation THEN\n  NULL;\n",
+            e, True),
+        "12_chain_then_declared_raise_inert": (
+            "DECLARE\nDECLARE\n  raise integer := 2;\nBEGIN\n" + g + u, e, True),
+        "13_chain_live_guard": ("DECLARE\nDECLARE\nBEGIN\n" + g + u, e, True),
+        "14_cursor_declare_begin_is_expression_text": (
+            "DECLARE\n  c CURSOR FOR SELECT declare begin FROM public.t2;\n"
+            "  raise integer := 2;\nBEGIN\n" + g + u, e, True),
+        "15_cursor_declare_begin_in_deny_branch": (
+            "BEGIN\n  IF NOT public.wardah_is_org_member(p_org) THEN\n    DECLARE\n"
+            "      c CURSOR FOR SELECT declare begin FROM public.t2;\n"
+            "      raise integer := 2;\n    DECLARE\n    BEGIN\n      NULL;\n    END;\n"
+            "  END IF;\n" + u, e, False),
+        "16_fake_begin_plus_chain_labelled_exit": (
+            "<<auth_block>>\nDECLARE\n  v integer := (SELECT 1 AS begin);\nDECLARE\nBEGIN\n"
+            + u + "  EXIT auth_block;\n" + g, el, False),
+        "17_nested_labelled_chain_exits_only_inner": (
+            "BEGIN\n  <<inner_block>>\n  DECLARE DECLARE\n  BEGIN\n    EXIT inner_block;\n"
+            "  END inner_block;\n" + g + u, e, True),
+        "18_chain_then_return_before_guard": ("DECLARE\nDECLARE\nBEGIN\n  RETURN;\n" + g + u, e, False),
+        "19_chain_negated_raise_idiom": (
+            "DECLARE\nDECLARE\nBEGIN\n  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            "    RAISE EXCEPTION 'DENIED';\n  END IF;\n" + u, e, True),
+        "20_qualified_declare_is_not_a_chain": (
+            "DECLARE\n  v integer := (SELECT t2.declare begin FROM public.t2 LIMIT 1);\n"
+            "  raise integer := 2;\nBEGIN\n" + g + u, e, True),
+    }
+
+
+class Round23ComposedMutantTests(_Round23Base):
+    """Runtime, measured on 17.11 as a non-member:
+
+      * 01-06 abort with NOT_IMPLEMENTED before the guard -> REJECT.
+      * 07, 08, 15, 16 commit the UPDATE and never enter the guard -> REJECT.
+      * 09, 10 enter the guard and swallow P0001 -> REJECT.
+      * 18 returns before the guard -> REJECT.
+      * 11, 12, 13, 14, 17, 19, 20 deny with P0001 and write nothing -> ACCEPT.
+
+    At 5e28ffe2, 01-10 and 16 were accepted and 19 was rejected: the chain hid
+    the real BEGIN, which both swallowed real aborts and hid the real RAISE in
+    19's denial branch.
+    """
+
+    def test_composed_mutants(self) -> None:
+        mutants = _r23_mutants(self)
+        self.assertEqual(len(mutants), 20)
+        for name, (body, close, must_accept) in mutants.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(name, self.routine(body, close=close)), must_accept,
+                    f"`{name}` changed verdict",
+                )
+
+
+class Round23RegressionBatteryTests(_Round23Base):
+    """Rounds 13-22, re-proved with a DECLARE chain composed onto each class.
+
+    Reuses the Round-22 battery verbatim, so the historical expectations are
+    the same objects, and adds an extra DECLARE after the routine's opening
+    one - or a `DECLARE DECLARE` section where there was none. A resolver or
+    frame walk that mis-located the chain's BEGIN moves at least one verdict.
+    """
+
+    def test_a_declare_chain_changes_no_verdict(self) -> None:
+        battery = Round22RegressionBatteryTests.battery(self)
+        self.assertGreaterEqual(len(battery), 20)
+        for name, (body, must_accept) in battery.items():
+            with self.subTest(case=name):
+                if body.startswith("DECLARE\n"):
+                    decorated = body.replace("\nBEGIN\n", "\nDECLARE\nBEGIN\n", 1)
+                    self.assertNotEqual(decorated, body)
+                else:
+                    decorated = "DECLARE\nDECLARE\n" + body
+                self.assertEqual(
+                    self.accepts(f"{name}_chain", self.routine(decorated)), must_accept,
+                    f"`{name}` changed verdict once a DECLARE chain was added",
+                )
+
+    def test_round22_initializer_matrix_still_holds_with_a_chain(self) -> None:
+        """Round 22's fake-`begin` initializers, now followed by an extra
+        DECLARE: RED A must still reject and the mirror must still accept."""
+        for name, initializer in R22_FAKE_INITIALIZERS.items():
+            with self.subTest(form=name):
+                deny = self.deny_branch(
+                    f"      v_x integer := {initializer};\n      raise integer := 2;\n"
+                    "    DECLARE\n",
+                    "      v_x := v_x + raise;\n",
+                )
+                self.assertFalse(self.accepts(f"r23_redA_{name}", self.routine(deny)))
+                mirror = (
+                    f"DECLARE\n  v_x integer := {initializer};\n  raise integer := 2;\n"
+                    "DECLARE\nBEGIN\n" + self.GUARD + self.PRIV
+                )
+                self.assertTrue(self.accepts(f"r23_mirror_{name}", self.routine(mirror)))
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 # This MUST stay the last statement in the file. It used to sit mid-file, just

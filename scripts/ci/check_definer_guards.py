@@ -849,7 +849,18 @@ def _opens_block_position(body: str, pos: int, owns=None) -> bool:
     them to say so. Which offset that is comes from `_owned_section_begin()`,
     the one resolver both declaration consumers use, so the frame model and the
     span model cannot disagree about where a block opens.
+
+    Round 23: `target` is the BEGIN (or label) this walk is currently
+    justifying, and it survives a DECLARE step. PL/pgSQL's `decl_stmt` has a
+    `K_DECLARE` alternative - "We allow useless extra DECLAREs" in 17.11's
+    pl_gram.y - so `DECLARE DECLARE BEGIN` is one block whose opening DECLARE is
+    two keywords left of the BEGIN. Comparing each DECLARE against the position
+    just stepped from, as Round 22 did, made the second step compare a BEGIN
+    offset with a DECLARE offset: no frame was pushed, and a labelled EXIT or an
+    EXCEPTION handler on that block became invisible. Every DECLARE in a chain
+    owns the SAME BEGIN, so each one is checked against that BEGIN.
     """
+    target = pos
     while True:
         j = _prev_nonspace(body, pos)
         if j < 0:
@@ -860,7 +871,7 @@ def _opens_block_position(body: str, pos: int, owns=None) -> bool:
             return True
         label = _label_opener_before(body, pos)
         if label is not None:
-            pos = label
+            pos = target = label
             continue
         word, word_start = _previous_word(body, pos)
         if word == "declare":
@@ -879,14 +890,18 @@ def _opens_block_position(body: str, pos: int, owns=None) -> bool:
             # from it, exactly as the `begin` step below does, so a label before
             # it is handled by the label step already in this loop and no new
             # grammar is introduced. The step moves strictly left.
+            #
+            # Round 23: compared with `target`, not `pos`, so a chain of extra
+            # DECLAREs is crossed as the one section it is (see the docstring).
+            # `target` is left alone here and reset only by a label or BEGIN step.
             declare = _DECLARE_TOKEN_RE.match(body, word_start)
-            if declare is None or _owned_section_begin(body, declare.end()) != pos:
+            if declare is None or _owned_section_begin(body, declare.end()) != target:
                 return False
             pos = word_start
             continue
         if word != "begin":
             return (owns or _owns_statement_list)(body, word, word_start)
-        pos = word_start
+        pos = target = word_start
 
 
 def _opens_frame_position(body: str, pos: int) -> bool:
@@ -1001,6 +1016,48 @@ def _opens_declaration_section(body: str, pos: int) -> bool:
     )
 
 
+def _at_declaration_boundary(body: str, start: int, at: int) -> bool:
+    """True when `at` stands where PL/pgSQL expects the next `decl_stmt`.
+
+    Round 23. The declaration grammar of PostgreSQL 17.11, read from pl_gram.y
+    at REL_17_11 rather than inferred:
+
+        decl_sect  : opt_block_label [ decl_start [ decl_stmts ] ]
+        decl_start : K_DECLARE
+        decl_stmt  : decl_statement      -- always ends with its own `;`
+                   | K_DECLARE           -- "We allow useless extra DECLAREs"
+
+    So a new `decl_stmt` - and therefore the block's BEGIN - may stand at the
+    section start, directly after a `;` that ended a declaration, or after any
+    number of extra DECLARE keywords following either one. Round 22 knew only
+    the first two. `DECLARE DECLARE BEGIN` and `DECLARE v integer; DECLARE
+    BEGIN` both compile, and in each the real BEGIN was skipped, the section ran
+    to the end of the body, and every executable RAISE after it was read as
+    declaration text - so a routine that aborts before its guard was accepted.
+
+    The walk moves left over whitespace (comments are already blank) and over
+    clean, unqualified `declare` words only, and stops at the first other token.
+    That is what keeps `c CURSOR FOR SELECT declare begin FROM t` - a column
+    named `declare` under the bare label `begin`, valid on 17.11 at paren depth
+    0 - from ending the section: the walk reaches `SELECT`, not a boundary. At a
+    real boundary `declare` and `begin` cannot be anything but keywords: they
+    are reserved to PL/pgSQL, and `DECLARE declare integer;` does not compile.
+    """
+    pos = at
+    while True:
+        j = _prev_nonspace(body, pos)
+        if j < start or body[j] == ";":
+            return True
+        word, word_start = _previous_word(body, pos)
+        if (
+            word != "declare"
+            or word_start < start
+            or _is_sql_qualified(body, word_start)
+        ):
+            return False
+        pos = word_start
+
+
 @functools.lru_cache(maxsize=1024)
 def _owned_section_begin(body: str, start: int) -> int | None:
     """Offset of the BEGIN that actually OPENS the block `start` declares.
@@ -1034,15 +1091,17 @@ def _owned_section_begin(body: str, start: int) -> int | None:
     The discriminator is the declaration grammar, confirmed on 17.11, not an
     expression parser:
 
-        [ <<label>> ] DECLARE declaration* BEGIN statements END
+        [ <<label>> ] DECLARE decl_stmt* BEGIN statements END
 
     Every declaration ends with `;`, and no declaration may be NAMED `begin`:
     `DECLARE begin integer := 1;` is rejected, because BEGIN is reserved to
     PL/pgSQL even though SQL leaves the word unreserved. So the opening BEGIN is
-    the first candidate standing at a DECLARATION BOUNDARY - either the section
-    start itself, which is the empty `DECLARE BEGIN` section 17.11 accepts, or
-    directly after the `;` that ended the previous declaration. A `begin`
-    anywhere else inside the section is expression text, whatever it spells.
+    the first candidate standing at a DECLARATION BOUNDARY, which
+    `_at_declaration_boundary()` defines once: the section start (the empty
+    `DECLARE BEGIN` list 17.11 accepts), directly after the `;` that ended the
+    previous declaration, or - Round 23 - after any chain of the extra DECLARE
+    keywords `decl_stmt` also allows. A `begin` anywhere else inside the section
+    is expression text, whatever it spells.
 
     Two conditions refuse the spellings that could reach a boundary by accident.
     A block opener never stands inside an unclosed parenthesis - parens survive
@@ -1051,9 +1110,13 @@ def _owned_section_begin(body: str, start: int) -> int | None:
     (`t.begin`, `t . begin`, `(t).begin`), which is the rule `_is_sql_qualified()`
     already states once for every structural token.
 
-    Ambiguity fails CLOSED: a candidate that cannot be PROVED to own the block is
-    skipped, which leaves the declaration section open rather than ending it
-    early. `None` means no BEGIN in this body owns the section at all.
+    Round 23 correction: skipping a candidate is NOT a fail-closed default here.
+    Round 22 said it was, and that is how `DECLARE DECLARE BEGIN` became a false
+    green - an unrecognized real opener left the section open, and an open
+    section swallows the block's real RAISE statements. Ending too early and
+    ending too late are both unsafe, so the boundary rule has to match the
+    grammar exactly rather than lean either way. `None` means no BEGIN in this
+    body owns the section at all.
     """
     depth = 0
     cursor = start
@@ -1063,11 +1126,7 @@ def _owned_section_begin(body: str, start: int) -> int | None:
         cursor = at
         if depth != 0 or _is_sql_qualified(body, at):
             continue
-        if _skip_ws(body, start) == at:
-            # `DECLARE BEGIN` - an empty declaration list, valid on 17.11.
-            return at
-        previous = _prev_nonspace(body, at)
-        if previous >= 0 and body[previous] == ";":
+        if _at_declaration_boundary(body, start, at):
             return at
     return None
 
