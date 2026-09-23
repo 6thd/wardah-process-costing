@@ -13372,6 +13372,381 @@ class Round23RegressionBatteryTests(_Round23Base):
 
 
 # ---------------------------------------------------------------------------
+# Round 24: a SQL CASE arm owns no PL/pgSQL statement list
+# ---------------------------------------------------------------------------
+# Codex thread r4072777435 ("Reject SQL CASE arms as statement-list owners"),
+# still live at 388fc827. `THEN` and `ELSE` are SQL CASE keywords as well as
+# PL/pgSQL ones, and `loop`, `begin`, `if` and `exception` are legal column
+# names on 17.11. `_control_frames()` decided whether such a word OPENS a
+# construct through `_owns_statement_list_lexically()`, which accepted ANY
+# preceding THEN or ELSE - so a column named `loop` in a SQL CASE arm pushed a
+# LOOP frame, that frame took the real END LOOP, and a guard inside a loop that
+# never iterates was credited at the routine's outer level.
+#
+# The walk already knew better: its in-progress stack says which construct is
+# open at the THEN. `_walk_ownership()` now asks it, and a CASE frame records at
+# push time whether it is a SQL expression, so a THEN or ELSE owned by a SQL
+# CASE proves nothing - for a PUSH, for a nested CASE statement, or for an
+# EXCEPTION section. Nothing else in the walk changed.
+class _Round24Base(_Round23Base):
+    """ORACLE, PostgreSQL 17.11, same disposable cluster, plus
+
+        CREATE TABLE public.r21_t ("loop" int, "if" int, "begin" int, "end" int,
+                                   "declare" int, "raise" int, a int);
+        CREATE TABLE public.r24_t ("exception" int);
+
+    so every spelling below compiles. The guard helper bumps a sequence, so
+    "the guard was entered" is read back, not inferred.
+    """
+
+    HEAD = "DECLARE\n  v_x integer;\n  v_arr integer[] := ARRAY[1];\nBEGIN\n"
+    INNER_GUARD = "    PERFORM public.wardah_assert_org_member(p_org);\n"
+    T = "public.r21_t"
+
+    def dead_loop(self, stmt: str, head: str = "FOR v_x IN SELECT 1 WHERE false LOOP") -> str:
+        """The guard sits in a real loop that never iterates, followed by `stmt`.
+
+        On 17.11 the loop body never runs, the guard is never entered, and the
+        UPDATE after the loop lands - so the routine must be REJECTED.
+        """
+        return (
+            self.HEAD + f"  {head}\n" + self.INNER_GUARD + f"    {stmt}\n"
+            "  END LOOP;\n" + self.PRIV
+        )
+
+    def arm(self, word: str, where: str = "THEN") -> str:
+        branch = (
+            f"CASE WHEN true THEN {word} ELSE 0 END" if where == "THEN"
+            else f"CASE WHEN false THEN 0 ELSE {word} END"
+        )
+        return f"PERFORM (SELECT {branch} FROM {self.T} LIMIT 1);"
+
+    def frames(self, text: str):
+        body = self.masked(text)
+        return body, guards.parse_blocks(body, body)
+
+
+class Round24WalkOwnershipTests(_Round24Base):
+    """PARSER-INTERNAL. What the walk now builds, asserted on frames."""
+
+    def test_a_loop_column_in_a_sql_case_arm_opens_no_frame(self) -> None:
+        for where in ("THEN", "ELSE"):
+            with self.subTest(arm=where):
+                body, frames = self.frames(self.dead_loop(self.arm("loop", where)) + "END;\n")
+                column = body.index(" loop ", body.index("CASE")) + 1
+                loops = [f for f in frames if f.kind == "LOOP"]
+                self.assertEqual(len(loops), 1, "a SQL identifier opened a LOOP")
+                self.assertNotEqual(loops[0].start, column)
+                self.assertGreater(loops[0].end, body.index("END LOOP") - 1)
+                self.assertTrue(
+                    loops[0].start < body.index("PERFORM public.wardah") < loops[0].end,
+                    "the guard is no longer inside the real loop",
+                )
+
+    def test_case_frames_know_whether_they_are_sql_expressions(self) -> None:
+        text = (
+            self.HEAD
+            + "  CASE WHEN (SELECT CASE WHEN true THEN 0 ELSE 1 END) = 1 THEN\n"
+            "    CASE WHEN false THEN\n      NULL;\n    ELSE\n"
+            "      v_x := (SELECT CASE WHEN true THEN CASE WHEN true THEN 1 END END);\n"
+            "    END CASE;\n  END CASE;\nEND;\n"
+        )
+        body, frames = self.frames(text)
+        by_start = {f.start: f for f in frames if f.kind == "CASE"}
+        starts = sorted(by_start)
+        self.assertEqual(len(starts), 5)
+        # statement, expression in its WHEN, statement, expression, nested expression
+        self.assertEqual(
+            [by_start[s].sql_expr for s in starts], [False, True, False, True, True]
+        )
+
+    def test_only_a_sql_case_withdraws_then_and_else(self) -> None:
+        """IF, a PL/pgSQL CASE statement and a handler keep their lists."""
+        for name, text in {
+            "if_then": self.HEAD + "  IF true THEN\n    LOOP EXIT; END LOOP;\n  END IF;\nEND;\n",
+            "if_else": self.HEAD + "  IF true THEN NULL; ELSE\n    LOOP EXIT; END LOOP;\n  END IF;\nEND;\n",
+            "case_then": self.HEAD + "  CASE WHEN true THEN\n    LOOP EXIT; END LOOP;\n  END CASE;\nEND;\n",
+            "case_else": self.HEAD + "  CASE WHEN true THEN NULL; ELSE\n    LOOP EXIT; END LOOP;\n  END CASE;\nEND;\n",
+            "handler": self.HEAD + "  BEGIN NULL;\n  EXCEPTION WHEN others THEN\n    LOOP EXIT; END LOOP;\n  END;\nEND;\n",
+        }.items():
+            with self.subTest(owner=name):
+                body, frames = self.frames(text)
+                real = body.index("LOOP EXIT")
+                self.assertIn(
+                    real, [f.start for f in frames if f.kind == "LOOP"],
+                    "a real LOOP frame was dropped",
+                )
+
+    def test_the_walk_asks_one_stack_aware_question(self) -> None:
+        """ARCHITECTURAL. Every position question in the walk goes through
+        `_walk_ownership()`; outside the walk the defaults are unchanged."""
+        walk = inspect.getsource(guards._control_frames)
+        self.assertIn("_walk_ownership(stack)", walk)
+        self.assertIn("_owns_control_frame(body, token, m.start(), owns)", walk)
+        self.assertEqual(walk.count("_opens_frame_position(body, m.start(), owns)"), 2)
+        self.assertNotIn("_opens_frame_position(body, m.start())", walk)
+        for fn in (guards._owns_control_frame, guards._opens_frame_position,
+                   guards._closes_loop_header):
+            with self.subTest(fn=fn.__name__):
+                self.assertIs(
+                    inspect.signature(fn).parameters["owns"].default,
+                    guards._owns_statement_list_lexically,
+                )
+
+
+class Round24SqlCaseArmTests(_Round24Base):
+    """The false-green family, end to end. Every fixture compiles on 17.11,
+    never enters the guard and commits the UPDATE; each returned [] at
+    388fc827 and must be REJECTED."""
+
+    def test_a_loop_column_in_either_arm_every_statement_form(self) -> None:
+        for name, stmt in {
+            "then_in_perform": self.arm("loop", "THEN"),
+            "else_in_perform": self.arm("loop", "ELSE"),
+            "nested_sql_case": (
+                "PERFORM (SELECT CASE WHEN true THEN CASE WHEN true THEN loop ELSE 0 END"
+                f" ELSE 0 END FROM {self.T} LIMIT 1);"
+            ),
+            "select_into": f"SELECT CASE WHEN true THEN loop ELSE 0 END INTO v_x FROM {self.T} LIMIT 1;",
+            "assignment": f"v_x := (SELECT CASE WHEN true THEN loop ELSE 0 END FROM {self.T} LIMIT 1);",
+        }.items():
+            with self.subTest(form=name):
+                self.assertFalse(self.accepts(
+                    f"r24_{name}", self.routine(self.dead_loop(stmt))))
+
+    def test_every_loop_kind(self) -> None:
+        for name, head in {
+            "for_query": "FOR v_x IN SELECT 1 WHERE false LOOP",
+            "while_false": "WHILE false LOOP",
+            "foreach_empty": "FOREACH v_x IN ARRAY ARRAY[]::integer[] LOOP",
+        }.items():
+            with self.subTest(loop=name):
+                self.assertFalse(self.accepts(
+                    f"r24_kind_{name}", self.routine(self.dead_loop(self.arm("loop"), head))))
+
+    def test_a_labelled_loop(self) -> None:
+        body = (
+            self.HEAD + "  <<lp>>\n  FOR v_x IN SELECT 1 WHERE false LOOP\n"
+            + self.INNER_GUARD + f"    {self.arm('loop')}\n  END LOOP lp;\n" + self.PRIV
+        )
+        self.assertFalse(self.accepts("r24_labelled", self.routine(body)))
+
+    def test_other_opener_spellings_stay_rejected(self) -> None:
+        """`begin` and `if` were already rejected; the rule must not move them."""
+        for word in ("begin", "if"):
+            with self.subTest(word=word):
+                self.assertFalse(self.accepts(
+                    f"r24_word_{word}", self.routine(self.dead_loop(self.arm(word)))))
+
+
+class Round24FalseRedTests(_Round24Base):
+    """The same flaw in the other direction. Each routine DENIES a non-member
+    on 17.11 (P0001 or DENIED, no write), and 388fc827 rejected it."""
+
+    def test_an_exception_column_opens_no_handler_section(self) -> None:
+        body = (
+            self.HEAD
+            + "  PERFORM (SELECT CASE WHEN true THEN exception ELSE 0 END"
+            " FROM public.r24_t LIMIT 1);\n" + self.GUARD + self.PRIV
+        )
+        self.assertTrue(self.accepts("r24_exception_column", self.routine(body)))
+
+    def test_a_loop_column_does_not_hide_the_deny_branch_raise(self) -> None:
+        for where in ("THEN", "ELSE"):
+            with self.subTest(arm=where):
+                body = (
+                    self.HEAD + "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    f"    {self.arm('loop', where)}\n"
+                    "    RAISE EXCEPTION 'DENIED';\n  END IF;\n" + self.PRIV
+                )
+                self.assertTrue(self.accepts(f"r24_deny_{where}", self.routine(body)))
+
+
+class Round24RealStructureControlTests(_Round24Base):
+    """Real PL/pgSQL structure must keep its frames. The dead-guard fixtures
+    commit the UPDATE without entering the guard on 17.11 (REJECT); the rest
+    deny (ACCEPT)."""
+
+    def test_real_structure_keeps_the_guard_dead(self) -> None:
+        inner = "    LOOP\n" + self.INNER_GUARD + "      EXIT;\n    END LOOP;\n"
+        for name, text in {
+            "plpgsql_case_then": "  CASE WHEN false THEN\n" + inner + "  ELSE\n    NULL;\n  END CASE;\n",
+            "plpgsql_case_else": "  CASE WHEN true THEN\n    NULL;\n  ELSE\n" + inner + "  END CASE;\n",
+            "sql_case_in_plpgsql_case_when": (
+                "  CASE WHEN (SELECT CASE WHEN true THEN 0 ELSE 1 END) = 1 THEN\n" + inner
+                + "  ELSE\n    NULL;\n  END CASE;\n"),
+            "nested_plpgsql_case": (
+                "  CASE WHEN true THEN\n    CASE WHEN false THEN\n" + inner
+                + "    ELSE\n      NULL;\n    END CASE;\n  END CASE;\n"),
+            "if_condition_sql_case": (
+                "  IF (SELECT CASE WHEN true THEN false ELSE true END) THEN\n" + inner
+                + "  END IF;\n"),
+            "if_false": "  IF false THEN\n" + inner + "  END IF;\n",
+            "while_header_holds_loop_column": (
+                f"  WHILE (SELECT CASE WHEN true THEN loop ELSE 0 END FROM {self.T} LIMIT 1) = 0 LOOP\n"
+                + self.INNER_GUARD + "  END LOOP;\n"),
+        }.items():
+            with self.subTest(shape=name):
+                self.assertFalse(self.accepts(
+                    f"r24_dead_{name}", self.routine(self.HEAD + text + self.PRIV)))
+
+    def test_real_structure_with_a_live_guard(self) -> None:
+        for name, text in {
+            "plpgsql_case_then_loop": "  CASE WHEN true THEN\n    LOOP\n      EXIT;\n    END LOOP;\n  ELSE\n    NULL;\n  END CASE;\n",
+            "handler_then_loop": (
+                "  BEGIN\n    RAISE EXCEPTION 'x';\n  EXCEPTION WHEN others THEN\n"
+                "    LOOP\n      EXIT;\n    END LOOP;\n  END;\n"),
+            "entered_for_loop": "  FOR v_x IN SELECT 1 LOOP\n    NULL;\n  END LOOP;\n",
+            "labelled_while_exit": "  <<lp>>\n  WHILE true LOOP\n    EXIT lp;\n  END LOOP lp;\n",
+            "entered_foreach": "  FOREACH v_x IN ARRAY v_arr LOOP\n    NULL;\n  END LOOP;\n",
+            "sql_case_loop_before_guard": f"  {self.arm('loop')}\n",
+            "sql_case_loop_select_into": (
+                f"  SELECT CASE WHEN true THEN loop ELSE 0 END INTO v_x FROM {self.T} LIMIT 1;\n"),
+        }.items():
+            with self.subTest(shape=name):
+                self.assertTrue(self.accepts(
+                    f"r24_live_{name}", self.routine(self.HEAD + text + self.GUARD + self.PRIV)))
+
+    def test_sql_case_after_a_live_guard(self) -> None:
+        body = self.HEAD + self.GUARD + f"  {self.arm('loop')}\n" + self.PRIV
+        self.assertTrue(self.accepts("r24_after_guard", self.routine(body)))
+
+
+#: 29 fresh compositions. Every one COMPILES on PostgreSQL 17.11 and was RUN as
+#: a non-member; `must_accept` is what the measured runtime requires.
+def _r24_mutants(base: _Round24Base) -> dict[str, tuple[str, bool]]:
+    g, gi, u, h, t = base.GUARD, base.INNER_GUARD, base.PRIV, base.HEAD, base.T
+    dl, arm = base.dead_loop, base.arm
+    inner = "    LOOP\n" + gi + "      EXIT;\n    END LOOP;\n"
+    return {
+        "01_codex_then_loop_in_perform": (dl(arm("loop")), False),
+        "02_else_arm_loop": (dl(arm("loop", "ELSE")), False),
+        "03_nested_sql_case_loop": (dl(
+            "PERFORM (SELECT CASE WHEN true THEN CASE WHEN true THEN loop ELSE 0 END"
+            f" ELSE 0 END FROM {t} LIMIT 1);"), False),
+        "04_select_into_case_loop": (dl(
+            f"SELECT CASE WHEN true THEN loop ELSE 0 END INTO v_x FROM {t} LIMIT 1;"), False),
+        "05_assignment_case_loop": (dl(
+            f"v_x := (SELECT CASE WHEN true THEN loop ELSE 0 END FROM {t} LIMIT 1);"), False),
+        "06_while_false_then_loop": (dl(arm("loop"), "WHILE false LOOP"), False),
+        "07_foreach_empty_then_loop": (dl(
+            arm("loop"), "FOREACH v_x IN ARRAY ARRAY[]::integer[] LOOP"), False),
+        "08_then_begin_column": (dl(arm("begin")), False),
+        "09_then_if_column": (dl(arm("if")), False),
+        "10_labelled_dead_loop_then_loop": (
+            h + "  <<lp>>\n  FOR v_x IN SELECT 1 WHERE false LOOP\n" + gi
+            + f"    {arm('loop')}\n  END LOOP lp;\n" + u, False),
+        "11_sql_case_loop_before_live_guard": (h + f"  {arm('loop')}\n" + g + u, True),
+        "12_sql_case_loop_after_live_guard": (h + g + f"  {arm('loop')}\n" + u, True),
+        "13_plpgsql_case_then_loop_dead": (
+            h + "  CASE WHEN false THEN\n" + inner + "  ELSE\n    NULL;\n  END CASE;\n" + u, False),
+        "14_plpgsql_case_then_loop_live_guard_after": (
+            h + "  CASE WHEN true THEN\n    LOOP\n      EXIT;\n    END LOOP;\n"
+            "  ELSE\n    NULL;\n  END CASE;\n" + g + u, True),
+        "15_if_false_then_loop_dead": (h + "  IF false THEN\n" + inner + "  END IF;\n" + u, False),
+        "16_entered_for_loop_live_guard_after": (
+            h + "  FOR v_x IN SELECT 1 LOOP\n    NULL;\n  END LOOP;\n" + g + u, True),
+        "17_exception_column_live_guard": (
+            h + "  PERFORM (SELECT CASE WHEN true THEN exception ELSE 0 END"
+            " FROM public.r24_t LIMIT 1);\n" + g + u, True),
+        "18_plpgsql_case_sqlcase_in_when_then_loop_dead": (
+            h + "  CASE WHEN (SELECT CASE WHEN true THEN 0 ELSE 1 END) = 1 THEN\n" + inner
+            + "  ELSE\n    NULL;\n  END CASE;\n" + u, False),
+        "19_plpgsql_case_else_loop_dead": (
+            h + "  CASE WHEN true THEN\n    NULL;\n  ELSE\n" + inner + "  END CASE;\n" + u, False),
+        "20_nested_plpgsql_case_then_loop_dead": (
+            h + "  CASE WHEN true THEN\n    CASE WHEN false THEN\n" + inner
+            + "    ELSE\n      NULL;\n    END CASE;\n  END CASE;\n" + u, False),
+        "21_if_cond_sqlcase_then_loop_dead": (
+            h + "  IF (SELECT CASE WHEN true THEN false ELSE true END) THEN\n" + inner
+            + "  END IF;\n" + u, False),
+        "22_handler_then_loop_then_live_guard": (
+            h + "  BEGIN\n    RAISE EXCEPTION 'x';\n  EXCEPTION WHEN others THEN\n"
+            "    LOOP\n      EXIT;\n    END LOOP;\n  END;\n" + g + u, True),
+        "23_deny_branch_sqlcase_loop_then_raise": (
+            h + "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            f"    {arm('loop')}\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n" + u, True),
+        "24_deny_branch_sqlcase_else_loop_then_raise": (
+            h + "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            f"    {arm('loop', 'ELSE')}\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n" + u, True),
+        "25_while_header_contains_loop_column": (
+            h + f"  WHILE (SELECT CASE WHEN true THEN loop ELSE 0 END FROM {t} LIMIT 1) = 0 LOOP\n"
+            + gi + "  END LOOP;\n" + u, False),
+        "26_exception_column_then_real_swallowing_handler": (
+            h + "  BEGIN\n    PERFORM (SELECT CASE WHEN true THEN exception ELSE 0 END"
+            " FROM public.r24_t LIMIT 1);\n" + gi
+            + "    UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+            "  EXCEPTION WHEN others THEN\n    NULL;\n  END;\n" + u, False),
+        "27_labelled_real_while_exit_live_guard_after": (
+            h + "  <<lp>>\n  WHILE true LOOP\n    EXIT lp;\n  END LOOP lp;\n" + g + u, True),
+        "28_real_foreach_entered_live_guard_after": (
+            h + "  FOREACH v_x IN ARRAY v_arr LOOP\n    NULL;\n  END LOOP;\n" + g + u, True),
+        "29_sqlcase_loop_in_select_into_live_guard": (
+            h + f"  SELECT CASE WHEN true THEN loop ELSE 0 END INTO v_x FROM {t} LIMIT 1;\n"
+            + g + u, True),
+    }
+
+
+class Round24ComposedMutantTests(_Round24Base):
+    """Runtime, measured on 17.11 as a non-member:
+
+      * 01-10, 13, 15, 18-21, 25 never enter the guard and commit the UPDATE
+        -> REJECT. 26 enters it inside a block whose handler swallows P0001
+        and then commits the outer UPDATE -> REJECT.
+      * 11, 12, 14, 16, 17, 22-24, 27-29 deny (P0001 or DENIED), no write
+        -> ACCEPT.
+
+    At 388fc827, 01-07 and 10 were accepted (false greens) and 17, 23 and 24
+    were rejected (false reds). Every other verdict is unchanged.
+    """
+
+    def test_composed_mutants(self) -> None:
+        mutants = _r24_mutants(self)
+        self.assertEqual(len(mutants), 29)
+        for name, (body, must_accept) in mutants.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(name, self.routine(body)), must_accept,
+                    f"`{name}` changed verdict",
+                )
+
+
+class Round24RegressionBatteryTests(_Round24Base):
+    """Rounds 13-23, re-proved with a SQL CASE arm naming `loop` composed on.
+
+    The Round-22 battery is reused verbatim, and a harmless
+    `PERFORM (SELECT CASE WHEN true THEN loop ELSE 0 END FROM t)` is added as the
+    first statement of every routine. It changes nothing at runtime, so every
+    historical verdict must survive it. The Round-23 DECLARE-chain mutants get
+    the same treatment.
+    """
+
+    def compose(self, body: str) -> str:
+        first = body.index("\nBEGIN\n") + len("\nBEGIN\n") if "\nBEGIN\n" in body else (
+            len("BEGIN\n") if body.startswith("BEGIN\n") else None)
+        self.assertIsNotNone(first, "fixture has no outer BEGIN")
+        return body[:first] + f"  {self.arm('loop')}\n" + body[first:]
+
+    def test_the_round22_battery_survives_a_sql_case_loop(self) -> None:
+        battery = Round22RegressionBatteryTests.battery(self)
+        self.assertGreaterEqual(len(battery), 20)
+        for name, (body, must_accept) in battery.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(f"{name}_sqlcase", self.routine(self.compose(body))),
+                    must_accept, f"`{name}` changed verdict under a SQL CASE `loop`",
+                )
+
+    def test_the_round23_chain_mutants_survive_a_sql_case_loop(self) -> None:
+        for name, (body, close, must_accept) in _r23_mutants(self).items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(f"{name}_sqlcase", self.routine(self.compose(body), close=close)),
+                    must_accept, f"`{name}` changed verdict under a SQL CASE `loop`",
+                )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 # This MUST stay the last statement in the file. It used to sit mid-file, just

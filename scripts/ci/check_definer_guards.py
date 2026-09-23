@@ -798,6 +798,52 @@ def _owns_statement_list_lexically(body: str, word: str, word_start: int) -> boo
     return not (word == "loop" and _previous_word(body, word_start)[0] == "end")
 
 
+def _walk_ownership(stack):
+    """The lexical test above, plus the one fact the frame walk already holds.
+
+    Round 24 (Codex r4072777435). A THEN or an ELSE opens a PL/pgSQL statement
+    list only when the construct that owns it is PL/pgSQL. `THEN` and `ELSE`
+    are also SQL CASE keywords, and `loop`, `begin`, `if` and `exception` are
+    all legal column names on 17.11, so the lexical test alone read
+
+        FOR v IN SELECT 1 WHERE false LOOP
+          PERFORM guard(p_org);
+          PERFORM (SELECT CASE WHEN true THEN loop ELSE 0 END FROM t);
+        END LOOP;
+        UPDATE ...;
+
+    as a second LOOP opening inside the first. That fake frame took the real
+    END LOOP, the real loop was left unclosed and dropped, and a guard that
+    never runs - the loop body is never entered - was credited at the outer
+    level. Live on 17.11: the guard is never entered and the UPDATE lands.
+
+    `_control_frames()` cannot ask the frame-reading strict test, because it is
+    the walk that builds those frames. It does not need to: its in-progress
+    `stack` already says which construct is open at the THEN or ELSE. A CASE
+    frame records at push time whether it is a SQL expression - its keyword
+    stands where no PL/pgSQL statement may begin, decided by this same test, so
+    a CASE nested inside another SQL CASE arm is an expression too - and when
+    the innermost construct open at the THEN or ELSE is such a CASE, the word
+    owns no statement list.
+
+    Everything else is left exactly as permissive as before: an IF, a PL/pgSQL
+    CASE statement and an EXCEPTION handler's `WHEN ... THEN` still own their
+    statement lists, because dropping a frame PostgreSQL really opens is the
+    fail-open direction for this walk (see `_owns_statement_list_lexically()`).
+    """
+    def owns(body: str, word: str, word_start: int) -> bool:
+        if word in ("then", "else"):
+            open_at_word = [fr for fr in stack if fr.start < word_start]
+            if (
+                open_at_word
+                and open_at_word[-1].kind == "CASE"
+                and open_at_word[-1].sql_expr
+            ):
+                return False
+        return _owns_statement_list_lexically(body, word, word_start)
+    return owns
+
+
 def _is_sql_qualified(body: str, pos: int) -> bool:
     """True when the token at `pos` is the tail of a dot-qualified SQL name.
 
@@ -904,12 +950,20 @@ def _opens_block_position(body: str, pos: int, owns=None) -> bool:
         pos = target = word_start
 
 
-def _opens_frame_position(body: str, pos: int) -> bool:
-    """Where a PL/pgSQL BLOCK or STATEMENT may begin, without reading frames."""
-    return _opens_block_position(body, pos, _owns_statement_list_lexically)
+def _opens_frame_position(
+    body: str, pos: int, owns=_owns_statement_list_lexically
+) -> bool:
+    """Where a PL/pgSQL BLOCK or STATEMENT may begin, without reading frames.
+
+    `owns` is the statement-list ownership test. The frame walk passes
+    `_walk_ownership()`, which also knows the constructs it has opened so far.
+    """
+    return _opens_block_position(body, pos, owns)
 
 
-def _closes_loop_header(body: str, pos: int) -> bool:
+def _closes_loop_header(
+    body: str, pos: int, owns=_owns_statement_list_lexically
+) -> bool:
     """True when the LOOP at `pos` ends a loop HEADER.
 
     `_opens_loop_statement()` asks this too, but it also requires a closed LOOP
@@ -927,13 +981,15 @@ def _closes_loop_header(body: str, pos: int) -> bool:
         if (
             keyword is not None
             and keyword.start() == pos
-            and _opens_frame_position(body, head)
+            and _opens_frame_position(body, head, owns)
         ):
             return True
     return False
 
 
-def _owns_control_frame(body: str, token: str, pos: int) -> bool:
+def _owns_control_frame(
+    body: str, token: str, pos: int, owns=_owns_statement_list_lexically
+) -> bool:
     """True when the matched token really OPENS the PL/pgSQL construct it names.
 
     Round 21 (Codex, A1). Matching a keyword is not owning one. `BEGIN`, `IF`
@@ -963,8 +1019,11 @@ def _owns_control_frame(body: str, token: str, pos: int) -> bool:
     if token == "CASE":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
         return True
     if token == "LOOP":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
-        return _opens_frame_position(body, pos) or _closes_loop_header(body, pos)
-    return _opens_frame_position(body, pos)
+        return (
+            _opens_frame_position(body, pos, owns)
+            or _closes_loop_header(body, pos, owns)
+        )
+    return _opens_frame_position(body, pos, owns)
 
 
 @functools.lru_cache(maxsize=256)
@@ -2034,7 +2093,7 @@ def _block_labels(body: str, raw_body: str | None = None) -> dict[int, str]:
 
 class _Frame:
     __slots__ = ("kind", "start", "end", "then_pos", "closed", "raise_pos", "exc_pos",
-                 "label")
+                 "label", "sql_expr")
 
     def __init__(self, kind, start, label=None):
         self.kind = kind
@@ -2045,6 +2104,9 @@ class _Frame:
         self.raise_pos = None
         self.exc_pos = None
         self.label = label
+        # Round 24: a CASE frame opened inside a SQL expression rather than
+        # as a PL/pgSQL CASE statement. See `_walk_ownership()`.
+        self.sql_expr = False
 
 
 def _control_frames(body: str, labels: dict[int, str], on_raise=None):
@@ -2082,6 +2144,9 @@ def _control_frames(body: str, labels: dict[int, str], on_raise=None):
       PUSH CASE - reserved, so it is never a bare identifier, and SHARED-3
         covers `t.case`. An embedded SQL CASE is a REAL CASE frame, which is why
         a bare END closes one; refusing it would leave that END to pop a BEGIN.
+        Round 24: the frame records whether it is a SQL expression, and a THEN
+        or ELSE owned by such a frame proves no position for a PUSH, a CASE
+        statement or an EXCEPTION section (`_walk_ownership()`).
       ANNOTATE THEN / ELSE - both RESERVED, so neither can be a bare column
         name; SHARED-1..3 are the whole defence. No position test is applied,
         because a real THEN follows an expression rather than a statement
@@ -2109,6 +2174,9 @@ def _control_frames(body: str, labels: dict[int, str], on_raise=None):
     before.
     """
     stack, frames = [], []
+    # Round 24: every position question this walk asks - PUSH, CASE kind and
+    # EXCEPTION - goes through one ownership test that sees the open frames.
+    owns = _walk_ownership(stack)
 
     def pop(kinds, at):
         for i in range(len(stack) - 1, -1, -1):
@@ -2126,9 +2194,12 @@ def _control_frames(body: str, labels: dict[int, str], on_raise=None):
             continue
         token = " ".join(m.group(1).upper().split())
         if token in ("BEGIN", "IF", "LOOP", "CASE"):
-            if not _owns_control_frame(body, token, m.start()):
+            if not _owns_control_frame(body, token, m.start(), owns):
                 continue
-            stack.append(_Frame(token, m.start(), labels.get(m.start())))
+            frame = _Frame(token, m.start(), labels.get(m.start()))
+            if token == "CASE":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
+                frame.sql_expr = not _opens_frame_position(body, m.start(), owns)
+            stack.append(frame)
         elif token == "THEN":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             if stack and stack[-1].kind == "IF" and stack[-1].then_pos is None:
                 stack[-1].then_pos = m.start()
@@ -2142,7 +2213,7 @@ def _control_frames(body: str, labels: dict[int, str], on_raise=None):
             # `exception` is not a SQL keyword at all, so `SELECT exception
             # FROM t` runs on 17.11; a handler section only ever opens where a
             # statement may begin.
-            if not _opens_frame_position(body, m.start()):
+            if not _opens_frame_position(body, m.start(), owns):
                 continue
             for fr in reversed(stack):
                 if fr.kind == "BEGIN":
