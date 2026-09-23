@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { safeStorageAdapter } from '@/lib/safe-storage'
 import { getSupabase } from '../lib/supabase'
-import type { AuthError, AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabase-js'
+import type { AuthError, AuthChangeEvent, Session, SupabaseClient, User } from '@supabase/supabase-js'
 import { loadConfig } from '../lib/config'
 
 // Define a separate AppUser interface to include custom properties like full_name
@@ -10,9 +10,32 @@ export interface AppUser {
   id: string;
   email?: string;
   role?: string;
-  full_name?: string; // This can come from your 'users' table
+  full_name?: string; // Enriched from public.user_profiles when available
   created_at?: string;
   updated_at?: string;
+}
+
+interface UserProfileSnapshot {
+  user_id: string;
+  email?: string | null;
+  full_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+function toAppUser(user: User, profile?: UserProfileSnapshot | null): AppUser {
+  return {
+    id: user.id,
+    email: profile?.email || user.email || '',
+    full_name:
+      profile?.full_name ||
+      user.user_metadata?.full_name ||
+      user.email?.split('@')[0] ||
+      'User',
+    role: user.user_metadata?.role || 'employee',
+    created_at: profile?.created_at || user.created_at || new Date().toISOString(),
+    updated_at: profile?.updated_at || new Date().toISOString(),
+  }
 }
 
 interface AuthState {
@@ -54,33 +77,21 @@ export const useAuthStore = create<AuthState>()(
           }
 
           if (data.user) {
-            // users: legacy public.users table, not in generated types — cast to bypass
+            // public.user_profiles is the live profile contract. Its primary
+            // identity column for auth is user_id; AppUser.id must remain the
+            // auth.users id used by AuthContext/RBAC, never the profile row id.
             const { data: profile, error: profileError } = await (client as SupabaseClient)
-              .from('users')
-              .select('*')
-              .eq('id', data.user.id)
-              .single()
+              .from('user_profiles')
+              .select('user_id, email, full_name, created_at, updated_at')
+              .eq('user_id', data.user.id)
+              .maybeSingle()
 
             if (profileError) {
-              const fallbackUser: AppUser = {
-                id: data.user.id,
-                email: data.user.email || '',
-                full_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'User',
-                role: 'employee',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              }
-              
-              set({ 
-                user: fallbackUser, 
-                isAuthenticated: true, 
-                isLoading: false 
-              })
-              return
+              console.warn('Could not fetch user profile, using session data only:', profileError)
             }
 
             set({
-              user: profile as AppUser,
+              user: toAppUser(data.user, profile as UserProfileSnapshot | null),
               isAuthenticated: true,
               isLoading: false
             })
@@ -157,70 +168,28 @@ export const useAuthStore = create<AuthState>()(
           if (session?.user) {
             try {
               const dynClient = client as SupabaseClient
-              const { data: profile, error } = await dynClient
-                .from('users')
-                .select('*')
-                .eq('id', session.user.id)
-                .single()
+              const { data: profile, error: profileError } = await dynClient
+                .from('user_profiles')
+                .select('user_id, email, full_name, created_at, updated_at')
+                .eq('user_id', session.user.id)
+                .maybeSingle()
 
-              if (!error && profile) {
-                set({
-                  user: profile as AppUser,
-                  isAuthenticated: true
-                })
-              } else {
-                const newUser: AppUser = {
-                  id: session.user.id,
-                  email: session.user.email || '',
-                  full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
-                  role: session.user.user_metadata?.role || 'employee',
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString()
-                }
-
-                const { error: insertError } = await dynClient
-                  .from('users')
-                  .insert([newUser])
-                  
-                if (insertError) {
-                  const fallbackUser: AppUser = {
-                    id: session.user.id,
-                    email: session.user.email || '',
-                    full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
-                    role: session.user.user_metadata?.role || 'employee',
-                    created_at: session.user.created_at || new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                  }
-                  
-                  set({ 
-                    user: fallbackUser, 
-                    isAuthenticated: true 
-                  })
-                } else {
-                  set({ 
-                    user: newUser, 
-                    isAuthenticated: true 
-                  })
-                }
+              if (profileError) {
+                console.warn('Could not fetch user profile, using session data only:', profileError)
               }
+
+              // Profile creation is an administrative/onboarding concern.
+              // Auth hydration is read-only and falls back to the signed
+              // Supabase session when a profile is absent or unreadable.
+              set({
+                user: toAppUser(session.user, profile as UserProfileSnapshot | null),
+                isAuthenticated: true
+              })
             } catch (tableError: unknown) {
-              // Expected behavior: user_profiles table may not exist, fallback to session data
-              // eslint-disable-next-line no-console
-              console.warn('Could not fetch user profile, using session data only:', tableError);
-              // Fallback to session user data if profile table doesn't exist
-              // This is expected behavior when user_profiles table is not available
-              const fallbackUser: AppUser = {
-                id: session.user.id,
-                email: session.user.email || '',
-                full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
-                role: session.user.user_metadata?.role || 'employee',
-                created_at: session.user.created_at || new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              }
-              
-              set({ 
-                user: fallbackUser, 
-                isAuthenticated: true 
+              console.warn('Could not fetch user profile, using session data only:', tableError)
+              set({
+                user: toAppUser(session.user),
+                isAuthenticated: true
               })
             }
           } else {
