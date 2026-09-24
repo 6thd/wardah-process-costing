@@ -14767,6 +14767,391 @@ class Round26HandlerSectionModelTests(_Round26Base):
 
 
 # ---------------------------------------------------------------------------
+# Round 27: a normally-completing handler and the routine's RESULT
+# ---------------------------------------------------------------------------
+# Round 26 credited a `NULL;` handler on a block that declares nothing, because
+# the handler's subtransaction rollback undoes the block's writes. Result state
+# is not rolled back: PL/pgSQL variables are not transactional, and rows
+# already handed to RETURN NEXT / RETURN QUERY stay in the result set. So a
+# routine that fills an OUT / INOUT parameter, a RETURNS TABLE column, or a
+# SETOF result before an early failure returns that value to an unauthorized
+# caller through the "inert" handler. Independent review found this live on
+# 17.11 at 6e982e2f with check_file() returning [] - for the standalone guard
+# and for the negated-predicate idiom whose own denial the handler catches.
+#
+# The rule (strict contract only, one shared helper for both consumers): a
+# handler that can complete normally is harmless only when the block declares
+# nothing AND the routine's CREATE header proves it has no result state - a
+# FUNCTION returning `void`, or a PROCEDURE, with no OUT or INOUT parameter.
+# Every other shape credits only handlers that all re-raise. A plain scalar
+# return is refused too, although 17.11 raises 2F005 when its handler falls
+# off the end: that is a deliberate fail-closed simplification, pinned below.
+
+
+class _Round27Base(_Round26Base):
+    """ORACLE, PostgreSQL 17.11 (x86_64-pc-linux-gnu, disposable local cluster).
+
+        CREATE TABLE public.secrets (org_id uuid, secret text);   -- 'TOPSECRET'
+        CREATE TABLE public.bins (actual_qty integer, org_id uuid);  -- 55
+        wardah_assert_org_member(uuid) raises P0001; wardah_is_org_member(uuid)
+        returns false.
+
+    Every fixture from `matrix()` and `extras()` was COMPILED under its own
+    name and RUN as a non-member role with no privilege on either table.
+    "Leaks" means the call returned normally and its result carried TOPSECRET;
+    "clean" means it returned normally with bins still 55 and no secret;
+    "aborts" means the call failed. Results (788 fixtures, 0 accepted leaks):
+
+        matrix, result shape x normally-completing handler   384 leak
+        matrix, `scalar` x normally-completing handler        48 abort (2F005)
+        matrix, result-less shape x normally-completing      144 clean
+        matrix, any shape x only re-raising handlers         192 abort
+        extras refused but not leaking, kept as conservative pins:
+          `table_assignment_only` (no RETURN NEXT: 0 rows), clean
+          `void/declarations/null` (the Round 26 rule), clean
+          `*/write_then_reraise` (the handler writes), abort
+    """
+
+    POPULATE_OUT = (
+        "  SELECT secret INTO leaked FROM public.secrets WHERE org_id = p_org::uuid;\n")
+    POPULATE_NEXT = POPULATE_OUT + "  RETURN NEXT;\n"
+    POPULATE_QUERY = (
+        "  RETURN QUERY SELECT secret FROM public.secrets WHERE org_id = p_org::uuid;\n")
+    POPULATE_SETOF_NEXT = (
+        "  RETURN NEXT (SELECT secret FROM public.secrets WHERE org_id = p_org::uuid);\n")
+    WRITE = "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org::uuid;\n"
+    SCALAR_TAIL = (
+        "  RETURN (SELECT secret FROM public.secrets WHERE org_id = p_org::uuid);\n")
+
+    # shape -> (kind, extra parameters, RETURNS clause, pre-failure step, tail
+    # after the guard). `tail` is only needed where the shape must RETURN.
+    SHAPES = {
+        "out": ("FUNCTION", ", OUT leaked text", "", POPULATE_OUT, ""),
+        "out_two": ("FUNCTION", ", OUT leaked text, OUT other integer", "",
+                    POPULATE_OUT, ""),
+        "inout_function": ("FUNCTION", ", INOUT leaked text", "", POPULATE_OUT, ""),
+        "inout_procedure": ("PROCEDURE", ", INOUT leaked text", "", POPULATE_OUT, ""),
+        "out_procedure": ("PROCEDURE", ", OUT leaked text", "", POPULATE_OUT, ""),
+        "table_return_next": ("FUNCTION", "", "RETURNS TABLE (leaked text)\n",
+                              POPULATE_NEXT, ""),
+        "setof_return_next": ("FUNCTION", "", "RETURNS SETOF text\n",
+                              POPULATE_SETOF_NEXT, ""),
+        "setof_return_query": ("FUNCTION", "", "RETURNS SETOF text\n",
+                               POPULATE_QUERY, ""),
+        "scalar": ("FUNCTION", "", "RETURNS text\n", "", SCALAR_TAIL),
+        "void": ("FUNCTION", "", "RETURNS void\n", WRITE, ""),
+        "void_qualified": ("FUNCTION", "", "RETURNS pg_catalog.void\n", WRITE, ""),
+        "procedure": ("PROCEDURE", "", "", WRITE, ""),
+    }
+    RESULTLESS = frozenset({"void", "void_qualified", "procedure"})
+
+    GUARD_ON = "  PERFORM public.wardah_assert_org_member({arg});\n"
+    # entry -> (parameter type, statement(s) that fail before authorization -
+    # the guard or the negated-predicate IF included - and the caught condition)
+    ENTRIES = {
+        "guard_argument_fails": (
+            "uuid", GUARD_ON.format(arg="(p_org::text || 'z')::uuid"),
+            "invalid_text_representation"),
+        "guard_argument_fails_category": (
+            "uuid", GUARD_ON.format(arg="(p_org::text || 'z')::uuid"),
+            "data_exception"),
+        "guard_argument_fails_sqlstate": (
+            "uuid", GUARD_ON.format(arg="(p_org::text || 'z')::uuid"),
+            "SQLSTATE '22P02'"),
+        "runtime_error_before_guard": (
+            "uuid", "  PERFORM 1 / 0;\n" + GUARD_ON.format(arg="p_org"),
+            "division_by_zero"),
+        "strict_lookup_before_guard": (
+            "uuid",
+            "  SELECT org_id INTO STRICT p_org FROM public.secrets WHERE false;\n"
+            + GUARD_ON.format(arg="p_org"),
+            "no_data_found"),
+        "guard_resolution_fails": (
+            "text", GUARD_ON.format(arg="p_org"), "undefined_function"),
+        "negated_predicate_denial": (
+            "uuid",
+            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            "    RAISE insufficient_privilege;\n  END IF;\n",
+            "insufficient_privilege"),
+        "negated_predicate_errcode_denial": (
+            "uuid",
+            "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            "    RAISE EXCEPTION 'DENIED' USING ERRCODE = '42501';\n  END IF;\n",
+            "SQLSTATE '42501'"),
+    }
+
+    # handler form -> (EXCEPTION section text for condition {cond}, completes
+    # normally on some path?)
+    HANDLERS = {
+        "null": ("EXCEPTION WHEN {cond} THEN\n  NULL;\n", True),
+        "null_with_comments": (
+            "EXCEPTION\n  -- swallow the early failure\n  WHEN {cond} THEN\n"
+            "    /* nothing */\n    NULL /* still nothing */ ;\n\n", True),
+        "null_twice": ("EXCEPTION WHEN {cond} THEN\n  NULL;\n  NULL;\n", True),
+        "empty": ("EXCEPTION WHEN {cond} THEN\n", True),
+        "one_arm_reraises_one_returns": (
+            "EXCEPTION\n  WHEN unique_violation THEN\n    RAISE;\n"
+            "  WHEN {cond} THEN\n    NULL;\n", True),
+        "one_arm_returns_one_reraises": (
+            "EXCEPTION\n  WHEN {cond} THEN\n    NULL;\n"
+            "  WHEN unique_violation THEN\n    RAISE;\n", True),
+        "reraise": ("EXCEPTION WHEN {cond} THEN\n  RAISE;\n", False),
+        "every_arm_reraises": (
+            "EXCEPTION\n  WHEN unique_violation THEN\n    RAISE;\n"
+            "  WHEN {cond} THEN\n    RAISE;\n", False),
+    }
+
+    @staticmethod
+    def header(kind: str, params: str, returns: str, name: str = "f_probe") -> str:
+        return (
+            f"CREATE OR REPLACE {kind} public.{name}({params})\n{returns}"
+            "LANGUAGE plpgsql\nSECURITY DEFINER\n"
+            "SET search_path TO 'public', 'pg_temp'\nAS $function$\n"
+        )
+
+    def build(self, shape: str, entry: str, handler: str, *, label: bool = False,
+              declare: str = "") -> str:
+        kind, extra, returns, populate, tail = self.SHAPES[shape]
+        ptype, fails, cond = self.ENTRIES[entry]
+        section, _normal = self.HANDLERS[handler]
+        head = "<<blk>>\n" if label else ""
+        decl = f"DECLARE\n{declare}" if declare else ""
+        return (
+            self.header(kind, f"p_org {ptype}{extra}", returns)
+            + head + decl + "BEGIN\n" + populate + fails + tail
+            + section.format(cond=cond)
+            + ("END blk;\n" if label else "END;\n") + "$function$;\n"
+        )
+
+    def expected(self, shape: str, handler: str) -> bool:
+        """True = ACCEPT. Only a handler that can complete normally on a shape
+        that has result state is refused by the Round 27 rule."""
+        return not (self.HANDLERS[handler][1] and shape not in self.RESULTLESS)
+
+    def matrix(self) -> dict:
+        return {
+            f"{shape}/{entry}/{handler}": (
+                self.build(shape, entry, handler), self.expected(shape, handler))
+            for shape in self.SHAPES
+            for entry in self.ENTRIES
+            for handler in self.HANDLERS
+        }
+
+    def extras(self) -> dict:
+        """Composed shapes outside the matrix: (sql, ACCEPT?)."""
+        nested = (
+            "  BEGIN\n    SELECT secret INTO leaked FROM public.secrets"
+            " WHERE org_id = p_org;\n  EXCEPTION WHEN unique_violation THEN\n"
+            "    NULL;\n  END;\n")
+        return {
+            "out/labelled_block/null": (
+                self.build("out", "guard_argument_fails", "null", label=True), False),
+            "inout_function/labelled_negated_predicate/null": (
+                self.build("inout_function", "negated_predicate_denial", "null",
+                           label=True), False),
+            "void/labelled_block/null": (
+                self.build("void", "guard_argument_fails", "null", label=True), True),
+            "out/declarations/null": (
+                self.build("out", "runtime_error_before_guard", "null",
+                           declare="  v_x integer;\n"), False),
+            "out/declarations/reraise": (
+                self.build("out", "runtime_error_before_guard", "reraise",
+                           declare="  v_x integer;\n"), True),
+            "void/declarations/null": (
+                self.build("void", "runtime_error_before_guard", "null",
+                           declare="  v_x integer;\n"), False),
+            "out/repeated_declare_chain/null": (
+                self.build("out", "runtime_error_before_guard", "null",
+                           declare="DECLARE\n"), False),
+            "void/repeated_declare_chain/null": (
+                self.build("void", "runtime_error_before_guard", "null",
+                           declare="DECLARE\n"), True),
+            "out/nested_exception_block_populates/null": (
+                self.header("FUNCTION", "p_org uuid, OUT leaked text", "")
+                + "BEGIN\n" + nested
+                + self.GUARD_ON.format(arg="(p_org::text || 'z')::uuid")
+                + "EXCEPTION WHEN invalid_text_representation THEN\n  NULL;\n"
+                "END;\n$function$;\n", False),
+            "out/write_then_reraise": (
+                self.header("FUNCTION", "p_org uuid, OUT leaked text", "")
+                + "BEGIN\n" + self.POPULATE_OUT
+                + self.GUARD_ON.format(arg="(p_org::text || 'z')::uuid")
+                + "EXCEPTION WHEN invalid_text_representation THEN\n"
+                + self.WRITE + "  RAISE;\nEND;\n$function$;\n", False),
+            "void/write_then_reraise": (
+                self.header("FUNCTION", "p_org uuid", "RETURNS void\n")
+                + "BEGIN\n" + self.WRITE
+                + self.GUARD_ON.format(arg="(p_org::text || 'z')::uuid")
+                + "EXCEPTION WHEN invalid_text_representation THEN\n"
+                + self.WRITE + "  RAISE;\nEND;\n$function$;\n", False),
+            "table_assignment_only/null": (
+                self.header("FUNCTION", "p_org uuid", "RETURNS TABLE (leaked text)\n")
+                + "BEGIN\n" + self.POPULATE_OUT
+                + self.GUARD_ON.format(arg="(p_org::text || 'z')::uuid")
+                + "EXCEPTION WHEN invalid_text_representation THEN\n  NULL;\n"
+                "END;\n$function$;\n", False),
+        }
+
+
+class Round27ReviewerReproductionTests(_Round27Base):
+    """RED at 6e982e2f: the reviewers' A-F shapes, each accepted there."""
+
+    def cases(self) -> dict:
+        return {
+            "A_out_standalone_guard_argument_failure":
+                self.build("out", "guard_argument_fails", "null"),
+            "B_out_negated_predicate_denial":
+                self.build("out", "negated_predicate_denial", "null"),
+            "C_returns_table":
+                self.build("table_return_next", "strict_lookup_before_guard", "null"),
+            "D_setof_return_next":
+                self.build("setof_return_next", "negated_predicate_errcode_denial", "null"),
+            "D_setof_return_query":
+                self.build("setof_return_query", "runtime_error_before_guard", "null"),
+            "E_inout_function":
+                self.build("inout_function", "negated_predicate_denial", "null"),
+            "E_inout_procedure":
+                self.build("inout_procedure", "guard_resolution_fails", "null"),
+            "F_scalar_conservative":
+                self.build("scalar", "guard_argument_fails", "null"),
+        }
+
+    def test_each_reproduction_is_refused(self) -> None:
+        for name, sql in self.cases().items():
+            with self.subTest(case=name):
+                self.assertFalse(
+                    self.accepts(f"r27_{name}", sql),
+                    f"`{name}`: a normally-completing handler returns result "
+                    "state set before authorization, and it was accepted",
+                )
+
+    def test_the_finding_names_the_routine(self) -> None:
+        errors = self.verdict("r27_named", self.cases()["A_out_standalone_guard_argument_failure"])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("public.f_probe", errors[0])
+        self.assertIn("no recognized tenant/authorization assertion", errors[0])
+
+
+class Round27MatrixTests(_Round27Base):
+    """Every result shape x every early entry x every handler form.
+
+    RED at 6e982e2f for every result-bearing shape with a normally-completing
+    handler; every other cell was already this verdict and must stay it."""
+
+    def test_the_matrix(self) -> None:
+        cells = self.matrix()
+        self.assertEqual(len(cells), len(self.SHAPES) * len(self.ENTRIES) * len(self.HANDLERS))
+        for name, (sql, accept) in cells.items():
+            with self.subTest(cell=name):
+                self.assertEqual(self.accepts(f"r27_{name}", sql), accept)
+
+    def test_the_matrix_is_not_one_sided(self) -> None:
+        verdicts = {accept for _sql, accept in self.matrix().values()}
+        self.assertEqual(verdicts, {True, False})
+
+    def test_both_consumers_are_in_the_matrix(self) -> None:
+        """The standalone guard and the negated-predicate idiom each reach the
+        rule, so neither consumer can drift from the shared policy."""
+        entries = set(self.ENTRIES)
+        self.assertIn("guard_argument_fails", entries)
+        self.assertIn("negated_predicate_denial", entries)
+        for entry in ("guard_argument_fails", "negated_predicate_denial"):
+            with self.subTest(entry=entry):
+                self.assertFalse(self.accepts("r27_c", self.build("out", entry, "null")))
+                self.assertTrue(self.accepts("r27_c", self.build("out", entry, "reraise")))
+                self.assertTrue(self.accepts("r27_c", self.build("void", entry, "null")))
+
+
+class Round27ComposedTests(_Round27Base):
+    """Composed shapes outside the matrix."""
+
+    def test_composed_shapes(self) -> None:
+        for name, (sql, accept) in self.extras().items():
+            with self.subTest(case=name):
+                self.assertEqual(self.accepts(f"r27_{name}", sql), accept)
+
+
+class Round27ControlTests(_Round27Base):
+    """GREEN at 6e982e2f and after: what the rule must NOT refuse."""
+
+    def test_resultless_null_handler_stays_accepted(self) -> None:
+        for shape in sorted(self.RESULTLESS):
+            for handler in ("null", "empty", "null_with_comments"):
+                with self.subTest(shape=shape, handler=handler):
+                    self.assertTrue(self.accepts(
+                        "r27_ok", self.build(shape, "guard_argument_fails", handler)))
+
+    def test_bare_reraise_is_safe_on_every_shape(self) -> None:
+        for shape in self.SHAPES:
+            for handler in ("reraise", "every_arm_reraises"):
+                with self.subTest(shape=shape, handler=handler):
+                    self.assertTrue(self.accepts(
+                        "r27_raise", self.build(shape, "guard_argument_fails", handler)))
+
+    def test_round26_safe_shapes_are_unchanged(self) -> None:
+        for name, body in self.safe().items():
+            with self.subTest(case=name):
+                self.assertTrue(self.accepts(f"r27_r26_{name}", self.routine(body)))
+
+    def test_no_handler_on_a_result_shape_stays_accepted(self) -> None:
+        sql = (self.header("FUNCTION", "p_org uuid, OUT leaked text", "")
+               + "BEGIN\n" + self.GUARD_ON.format(arg="p_org") + self.POPULATE_OUT
+               + "END;\n$function$;\n")
+        self.assertTrue(self.accepts("r27_no_handler", sql))
+
+
+class Round27ResultShapeModelTests(_Round27Base):
+    """`_routine_has_no_result_state()` answers from the CREATE header only,
+    and anything it cannot read is False."""
+
+    def probe(self, header: str) -> bool:
+        masked = self.masked(header + "BEGIN\nEND;\n$function$;\n")
+        return guards._routine_has_no_result_state(masked)
+
+    def test_headers(self) -> None:
+        cases = {
+            ("FUNCTION", "p_org uuid", "RETURNS void\n"): True,
+            ("FUNCTION", "IN p_org uuid", "RETURNS void\n"): True,
+            ("FUNCTION", "p_org uuid", "RETURNS pg_catalog.void\n"): True,
+            ("FUNCTION", "p_org uuid", "RETURNS /* nothing */ void\n"): True,
+            ("FUNCTION", "p_org uuid, \"out\" text", "RETURNS void\n"): True,
+            ("FUNCTION", "p_org uuid, p_n text DEFAULT 'out'", "RETURNS void\n"): True,
+            ("PROCEDURE", "p_org uuid", ""): True,
+            ("PROCEDURE", "", ""): True,
+            # Intentional fail-closed simplifications, each a real PostgreSQL
+            # spelling of a result-less routine or harmless in practice:
+            ("FUNCTION", "p_org uuid", "RETURNS \"void\"\n"): False,
+            ("FUNCTION", "p_org uuid", "RETURNS text\n"): False,
+            # Result-bearing shapes:
+            ("FUNCTION", "p_org uuid", "RETURNS SETOF void\n"): False,
+            ("FUNCTION", "p_org uuid", "RETURNS SETOF text\n"): False,
+            ("FUNCTION", "p_org uuid", "RETURNS TABLE (x text)\n"): False,
+            ("FUNCTION", "p_org uuid, OUT x text", ""): False,
+            ("FUNCTION", "p_org uuid, out x text", ""): False,
+            ("FUNCTION", "p_org uuid, INOUT x text", ""): False,
+            ("PROCEDURE", "p_org uuid, INOUT x text", ""): False,
+            ("PROCEDURE", "p_org uuid, OUT x text", ""): False,
+        }
+        for (kind, params, returns), want in cases.items():
+            with self.subTest(kind=kind, params=params, returns=returns):
+                self.assertEqual(self.probe(self.header(kind, params, returns)), want)
+
+    def test_a_fragment_without_a_header_proves_nothing(self) -> None:
+        self.assertFalse(guards._routine_has_no_result_state("BEGIN\n  NULL;\nEND;\n"))
+
+    def test_one_shared_policy(self) -> None:
+        """The result-shape test lives in the shared handler model only; the two
+        strict consumers reach it through handler_can_run_unauthorized()."""
+        self.assertIn("_routine_has_no_result_state",
+                      inspect.getsource(guards._handler_section_is_inert))
+        for fn in (guards.has_recognized_guard, guards.has_negated_raising_predicate):
+            with self.subTest(fn=fn.__name__):
+                source = inspect.getsource(fn)
+                self.assertNotIn("_routine_has_no_result_state", source)
+                self.assertIn("handler_can_run_unauthorized", source)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 # This MUST stay the last statement in the file. It used to sit mid-file, just

@@ -2911,10 +2911,79 @@ def is_swallowed(body: str, frames, pos: int, raw_body: str | None = None) -> bo
 # returns normally. So a handler that can complete normally is inert only in a
 # block that declares nothing; one whose every handler re-raises aborts the
 # call, which rolls those effects back too.
+#
+# Round 27: nor is "declares nothing" enough, because the ROUTINE'S RESULT is
+# state too, and a subtransaction rollback does not touch it. PL/pgSQL
+# variables are not transactional, and rows already handed to RETURN NEXT /
+# RETURN QUERY stay in the result. Live on 17.11 at 6e982e2f, each returned a
+# protected value to a non-member through a `NULL;` handler while check_file()
+# returned []:
+#
+#     CREATE FUNCTION f(p_org uuid, OUT leaked text) ... AS $$
+#     BEGIN
+#       SELECT secret INTO leaked FROM public.secrets WHERE org_id = p_org;
+#       PERFORM public.wardah_assert_org_member((p_org::text || 'z')::uuid);
+#     EXCEPTION WHEN invalid_text_representation THEN
+#       NULL;
+#     END $$;
+#
+# and the same through INOUT (function and procedure), RETURNS TABLE and SETOF
+# after RETURN NEXT / RETURN QUERY, and the negated-predicate idiom whose own
+# denial the handler catches. Proving which result state is set before the
+# guard is result-flow analysis this scanner does not do, so the carve-out is
+# narrowed to the shapes that HAVE no result: a FUNCTION whose RETURNS clause
+# is `void`, or a PROCEDURE, with no OUT or INOUT parameter either way. Every
+# other shape - including a plain scalar return, which on 17.11 fails with
+# 2F005 when the handler falls off the end - credits only handlers that all
+# re-raise. That is a deliberate fail-closed simplification.
 _INERT_HANDLER_STATEMENT_RE = re.compile(
     _pg_kw("NULL|RAISE") + f"{_WS0};", re.IGNORECASE
 )
 _RERAISE_STATEMENT_RE = re.compile(_pg_kw("RAISE") + f"{_WS0};", re.IGNORECASE)
+_PROCEDURE_HEAD_RE = re.compile(_pg_kw("PROCEDURE") + f"{_WS1}\\Z", re.IGNORECASE)
+_RETURNS_KW_RE = re.compile(_pg_kw("RETURNS") + _WS1, re.IGNORECASE)
+_RESULTLESS_RETURN_TYPES = frozenset({("void",), ("pg_catalog", "void")})
+
+
+@functools.lru_cache(maxsize=256)
+def _routine_has_no_result_state(body: str) -> bool:
+    """True when `body`'s own CREATE header proves the routine returns nothing.
+
+    `body` is the masked routine sliced from its CREATE, as check_file() passes
+    it. Anything this cannot read - a fragment with no header, an unreadable
+    parameter, a quoted or qualified-elsewhere type - is answered False, so the
+    Round 26 carve-out it gates is withheld rather than guessed.
+    """
+    head = _CREATE_ROUTINE_RE.match(body)
+    if head is None:
+        return False
+    parsed, after = _parse_identity(body, body, head.end())
+    if parsed is None:
+        return False
+    inner, after = _balanced_parens(body, _skip_ws(body, after))
+    if inner is None:
+        return False
+    for part in _split_top_level_commas(inner):
+        if not part.strip():
+            continue
+        tokens = _tokenize_parameter(part, part)
+        if not tokens:
+            return False
+        kind, word, quoted = tokens[0][:3]
+        if kind == "ident" and not quoted and word in ("out", "inout"):
+            return False
+    if _PROCEDURE_HEAD_RE.search(head.group()):
+        return True
+    returns = _RETURNS_KW_RE.match(body, _skip_ws(body, after))
+    if returns is None:
+        return False
+    parsed, after = _parse_identity(body, body, returns.end())
+    if parsed is None:
+        return False
+    parts, quoted = parsed
+    if quoted or tuple(parts) not in _RESULTLESS_RETURN_TYPES:
+        return False
+    return after >= len(body) or body[after] not in "[(%"
 
 
 def _block_declares_something(body: str, frame) -> bool:
@@ -2950,7 +3019,14 @@ def _handler_section_is_inert(body: str, frame) -> bool:
             return False
         if _RERAISE_STATEMENT_RE.match(body, pos):
             handlers[-1] = True
-    return all(handlers) or not _block_declares_something(body, frame)
+    if all(handlers):
+        return True
+    # A handler can complete normally: harmless only when neither the block's
+    # declarations nor the routine's result can carry anything out (Round 27).
+    return (
+        not _block_declares_something(body, frame)
+        and _routine_has_no_result_state(body)
+    )
 
 
 def handler_can_run_unauthorized(body: str, frames, pos: int) -> bool:
