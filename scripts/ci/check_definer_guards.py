@@ -2884,6 +2884,88 @@ def is_swallowed(body: str, frames, pos: int, raw_body: str | None = None) -> bo
     return False
 
 
+# Round 26: is_swallowed() asks whether a block's handlers can catch the
+# guard's OWN denial. That is not the only way they run. PL/pgSQL enters a
+# block's EXCEPTION section for ANY error raised in its statement list, and
+# plenty can fail before the guard has returned - a STRICT lookup, arithmetic,
+# the guard's own argument, even the guard call failing to resolve:
+#
+#     BEGIN
+#       SELECT org_id INTO STRICT v_org FROM ... ;       -- no_data_found
+#       PERFORM public.wardah_assert_org_member(v_org);  -- never reached
+#     EXCEPTION WHEN no_data_found THEN
+#       UPDATE public.bins ...;                           -- runs unauthorized
+#     END;
+#
+# Live on 17.11 at 43edbf62, with check_file() returning []: the handler does
+# not catch P0001, so nothing counted it. Which statement can fail is runtime
+# state - a `text` parameter passed to the uuid helper fails with
+# undefined_function even when the guard is the block's first statement - so
+# no statement order is taken as proof. What the scanner CAN prove is that an
+# early entry does nothing: every handler statement is `NULL;` or a bare
+# re-raising `RAISE;`, so the handler either re-raises or leaves the block with
+# its work rolled back. That alone is not enough, because the block's
+# DECLARATIONS are initialized before the subtransaction its handlers roll
+# back - an initializer, or the CHECK of a domain-typed variable (evaluated by
+# 17.11 even with no initializer), that writes survives a `NULL;` handler that
+# returns normally. So a handler that can complete normally is inert only in a
+# block that declares nothing; one whose every handler re-raises aborts the
+# call, which rolls those effects back too.
+_INERT_HANDLER_STATEMENT_RE = re.compile(
+    _pg_kw("NULL|RAISE") + f"{_WS0};", re.IGNORECASE
+)
+_RERAISE_STATEMENT_RE = re.compile(_pg_kw("RAISE") + f"{_WS0};", re.IGNORECASE)
+
+
+def _block_declares_something(body: str, frame) -> bool:
+    """True when the block opening at `frame.start` has a declaration.
+
+    Only DECLARE keywords may stand in the block's own section: a chain of
+    useless extra DECLAREs declares nothing, and one `;` means something was.
+    The section is the one `_declaration_spans()` resolves to this BEGIN.
+    """
+    return any(
+        end == frame.start and ";" in body[start:end]
+        for start, end in _declaration_spans(body)
+    )
+
+
+def _handler_section_is_inert(body: str, frame) -> bool:
+    """True when entering `frame`'s EXCEPTION section early provably does nothing.
+
+    The handler statements are the statement positions the forward walk proved
+    inside the section - the same map every other structural consumer reads -
+    so a statement nested in any construct is a position whose word is not
+    `NULL` or `RAISE`, and fails the test rather than being looked through.
+    """
+    handlers: list[bool] = []  # per handler: does its list re-raise?
+    for pos in sorted(_statement_map(body).positions):
+        if not frame.exc_pos < pos < frame.end:
+            continue
+        word = _word_at(body, pos)
+        if word is not None and _fold_unquoted(word.group()) == "when":
+            handlers.append(False)  # a handler header, not a statement it runs
+            continue
+        if not handlers or not _INERT_HANDLER_STATEMENT_RE.match(body, pos):
+            return False
+        if _RERAISE_STATEMENT_RE.match(body, pos):
+            handlers[-1] = True
+    return all(handlers) or not _block_declares_something(body, frame)
+
+
+def handler_can_run_unauthorized(body: str, frames, pos: int) -> bool:
+    """True when a block enclosing `pos` owns an EXCEPTION section that can be
+    entered before the authorization at `pos` completes, and is not provably
+    inert when it is (see the Round 26 note above)."""
+    return any(
+        frame.kind == "BEGIN"
+        and frame.exc_pos is not None
+        and pos < frame.exc_pos
+        and not _handler_section_is_inert(body, frame)
+        for frame in _enclosing(frames, pos)
+    )
+
+
 def is_outer_statement_level(frames, pos: int) -> bool:
     """True when `pos` sits at the function's outermost PL/pgSQL statement level.
 
@@ -3143,6 +3225,10 @@ def has_negated_raising_predicate(
             continue
         if strict and not is_outer_statement_level(frames, if_pos):
             continue
+        if strict and handler_can_run_unauthorized(body, frames, if_pos):
+            # Round 26: an early failure - or this IF's own denial, whatever
+            # SQLSTATE it raises - can reach a handler that acts unauthorized.
+            continue
         if strict and is_unreachable_at(body, frames, if_pos, raw_body):
             continue
         condition = body[cond_start:cond_end]
@@ -3177,6 +3263,9 @@ def has_recognized_guard(
             if not is_standalone_perform_assertion(body, m):
                 continue
             if not is_outer_statement_level(frames, m.start()):
+                continue
+            if handler_can_run_unauthorized(body, frames, m.start()):
+                # Round 26: the block's handlers can run before this returns.
                 continue
             if is_unreachable_at(body, frames, m.start(), raw_body):
                 continue

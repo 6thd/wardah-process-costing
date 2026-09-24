@@ -1178,12 +1178,29 @@ MUST_FAIL_CLOSED = {
 # closed findings and must not be counted as any.
 
 
-def definer_outer_handler(handler: str, name: str = "f_probe") -> str:
+#: The handler body `definer_outer_handler()` used until Round 26: the
+#: privileged write itself. Round 26 refuses a guard whose block owns a handler
+#: that can act unauthorized, since any earlier failure enters it (see
+#: `handler_can_run_unauthorized()`), so this body now decides the verdict on
+#: its own - which is exactly what the fixture exists NOT to let happen.
+#: `Round26FixtureMigrationTests` keeps every non-catching condition that used
+#: this body pinned, with it, as REJECT.
+WRITING_HANDLER_BODY = "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+
+
+def definer_outer_handler(
+    handler: str, name: str = "f_probe", handler_body: str = "  NULL;\n"
+) -> str:
     """A guard at the OUTER statement level whose own block handles `handler`.
 
     The handler is on the FUNCTION's own BEGIN, so the fixture cannot pass or
     fail for placement reasons: the only thing under test is whether that
     handler can catch the assertion's P0001.
+
+    Round 26: the default handler body is `NULL;`, which Round 26 proves inert,
+    so the condition is again the ONLY thing under test. A catching condition
+    is still refused - it swallows the denial - and a non-catching one is
+    still accepted. The previous body is `WRITING_HANDLER_BODY`.
     """
     return (
         # Fixture text fed to check_file(); never executed as SQL.
@@ -1197,8 +1214,8 @@ def definer_outer_handler(handler: str, name: str = "f_probe") -> str:
         f"  PERFORM {OUTER}(p_org);\n"
         "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
         f"EXCEPTION WHEN {handler} THEN\n"
-        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
-        "END;\n"
+        + handler_body
+        + "END;\n"
         "$function$;\n"
     )
 
@@ -8211,16 +8228,30 @@ class Round17DeclarationRegionTests(unittest.TestCase):
     def test_declaration_region_with_exception_handlers(self) -> None:
         """A handler that cannot catch P0001 leaves the guard standing; one
         that can still swallows it. Both verified on the oracle."""
+        # Round 26: this block DECLARES, so its non-catching handler must
+        # re-raise to be provably inert; the `NULL;` form - which completes
+        # normally and would keep any declaration side effect - is refused.
         self.assertEqual(
             self.verdict(
                 "handler_not_catching",
                 self.guarded_probe(
                     "DECLARE\n  raise integer := 1;\nBEGIN\n  raise := 2;\n\n",
-                    "EXCEPTION WHEN unique_violation THEN\n  NULL;\n",
+                    "EXCEPTION WHEN unique_violation THEN\n  RAISE;\n",
                 ),
             ),
             [],
             "a handler for an unrelated condition invalidated a real guard",
+        )
+        self.assertTrue(
+            self.verdict(
+                "handler_not_catching_null",
+                self.guarded_probe(
+                    "DECLARE\n  raise integer := 1;\nBEGIN\n  raise := 2;\n\n",
+                    "EXCEPTION WHEN unique_violation THEN\n  NULL;\n",
+                ),
+            ),
+            "Round 26: a normally-completing handler on a declaring block was "
+            "accepted",
         )
         self.assertTrue(
             self.verdict(
@@ -11791,13 +11822,27 @@ class Round21SwallowingMatrixTests(_Round21Base):
     """A catcher PostgreSQL really applies stays enclosing in the model."""
 
     def test_handler_condition_matrix(self) -> None:
+        """Round 26: every handler here is `NULL;` on a block that DECLARES
+        variables, and a handler that completes normally there is refused
+        whatever it catches - declarations are initialized outside the
+        subtransaction the handler rolls back (see `handler_can_run_unauthorized`).
+        So the swallowing question is asked of the same handler re-raising with
+        a bare `RAISE;`, which Round 26 proves inert, and the `NULL;` form is
+        pinned as refused for every condition."""
         for name, handler, must_accept in _R21_HANDLERS:
             body = self.DECL + "BEGIN\n" + self.GUARD + self.PRIV + "EXCEPTION " + handler
+            reraise = body.replace("THEN\n  NULL;\n", "THEN\n  RAISE;\n")
             with self.subTest(case=name):
+                self.assertNotEqual(reraise, body)
                 self.assertEqual(
-                    self.accepts(f"handler_{name}", self.routine(body)),
+                    self.accepts(f"handler_{name}", self.routine(reraise)),
                     must_accept,
                     f"`{name}` changed whether it swallows the assertion",
+                )
+                self.assertFalse(
+                    self.accepts(f"handler_{name}_null", self.routine(body)),
+                    f"`{name}`: a normally-completing handler on a declaring "
+                    "block was accepted",
                 )
 
     def test_a_nested_handler_still_swallows(self) -> None:
@@ -12893,6 +12938,12 @@ class Round22RegressionBatteryTests(_Round22Base):
                     f"`{name}` changed verdict",
                 )
 
+    #: Battery cases the payload turns into a declaring block with a handler that
+    #: completes normally. The undecorated case keeps its verdict above.
+    ROUND26_DECLARING_NULL_HANDLER = frozenset({
+        "unrelated_unique_violation_handler_is_harmless",
+    })
+
     def test_a_fake_begin_declaration_changes_no_verdict(self) -> None:
         """The Round-22 payload, composed onto every class above. A resolver
         that mis-locates the opener moves at least one of these."""
@@ -12904,6 +12955,11 @@ class Round22RegressionBatteryTests(_Round22Base):
                 else:
                     decorated = (
                         f"DECLARE\n  v_fake integer := {self.FAKE};\n" + body)
+                if name in self.ROUND26_DECLARING_NULL_HANDLER:
+                    # Round 26: the payload DECLARES, onto a block whose `NULL;`
+                    # handler completes normally - refused whatever it catches,
+                    # because the initializer runs outside the handler's rollback.
+                    must_accept = False
                 self.assertEqual(
                     self.accepts(f"{name}_fake", self.routine(decorated)), must_accept,
                     f"`{name}` changed verdict once an initializer spelled begin",
@@ -14432,6 +14488,282 @@ class Round25RegressionBatteryTests(_Round24Base):
                     self.accepts(f"{name}_r25", self.routine(self.compose(body))),
                     must_accept, f"`{name}` changed verdict under Round-25 labels",
                 )
+
+
+# ---------------------------------------------------------------------------
+# Round 26: a handler section reachable before authorization
+# ---------------------------------------------------------------------------
+# Every earlier round asked one question of an EXCEPTION section: can it catch
+# the guard's OWN denial (P0001, or its class P0000)? That is not the only way
+# the section runs. PL/pgSQL enters a block's handlers for ANY error raised in
+# the block's statement list - a failed lookup, an arithmetic error, a failed
+# evaluation of the guard's own argument, even the guard call failing to
+# resolve - and every one of those can happen BEFORE the guard has returned.
+# The handler then runs with no authorization established, and whatever it does
+# is the routine's result. Independent review found this live on 17.11 at
+# 43edbf62, with check_file() returning [] for each shape below.
+#
+# The rule (strict contract only): a guard - or the IF of the negated-predicate
+# idiom - inside a block that owns an EXCEPTION section is credited only when
+# that section is PROVABLY HARMLESS if entered early: every handler statement is
+# `NULL;` or a bare re-raising `RAISE;`, and the block declares nothing. The
+# second half is not decoration. A block's declarations are initialized BEFORE
+# the subtransaction its handlers roll back, so an initializer - or the CHECK of
+# a domain-typed variable, which 17.11 evaluates even with no initializer - that
+# has a side effect survives a `NULL;` handler that returns normally.
+# "The guard comes first" is deliberately NOT a proof: its argument can fail to
+# evaluate, and the call itself can fail to resolve (a `text` parameter passed
+# to the uuid helper raises undefined_function), both before any authorization.
+
+
+class _Round26Base(_Round25Base):
+    """ORACLE, PostgreSQL 17.11 (x86_64-pc-linux-gnu, disposable local cluster).
+    The `_Round25Base` schema, plus
+
+        CREATE TABLE public.u (id integer PRIMARY KEY);            -- row (1)
+        CREATE FUNCTION public.r26_touch(uuid) RETURNS integer      -- writes bins
+        CREATE FUNCTION public.r26_chk(integer) RETURNS boolean     -- writes bins
+        CREATE DOMAIN public.r26_dz AS integer CHECK (public.r26_chk(VALUE));
+
+    Every fixture below was COMPILED and RUN as a non-member. "Writes" means the
+    call returned normally and bins.actual_qty went 55 -> 0 with the guard never
+    having authorized anything; "safe" means the guard denied (bins 55) or the
+    routine returned having changed nothing (bins 55).
+    """
+
+    HANDLED = "EXCEPTION WHEN {cond} THEN\n"
+
+    def plain(self, pre: str, cond: str, handler: str, decl: str = "") -> str:
+        """`pre` then the guard, in the routine's own block, whose handler for
+        `cond` runs `handler`."""
+        head = f"DECLARE\n{decl}" if decl else ""
+        return (
+            head + "BEGIN\n" + pre + self.GUARD
+            + self.HANDLED.format(cond=cond) + handler
+        )
+
+    # 1-7 and the variants: each WRITES on 17.11 and each was accepted at 43edbf62.
+    def unsafe(self) -> dict:
+        err = "  v_x := 1 / 0;\n"
+        var = "  v_x integer;\n"
+        return {
+            "runtime_error_before_guard": (
+                self.plain(err, "division_by_zero", self.PRIV, var), "END;\n"),
+            "strict_lookup_before_guard": (
+                self.plain("  SELECT a INTO STRICT v_x FROM public.t WHERE a = 42;\n",
+                           "no_data_found", self.PRIV, var), "END;\n"),
+            "category_handler": (
+                self.plain(err, "data_exception", self.PRIV, var), "END;\n"),
+            "explicit_sqlstate_handler": (
+                self.plain(err, "SQLSTATE '22012'", self.PRIV, var), "END;\n"),
+            "labelled_block": (
+                "<<blk>>\n" + self.plain(err, "division_by_zero", self.PRIV, var),
+                "END blk;\n"),
+            "guard_argument_fails": (
+                "BEGIN\n  PERFORM public.wardah_assert_org_member((1 / 0)::text::uuid);\n"
+                + self.HANDLED.format(cond="division_by_zero") + self.PRIV, "END;\n"),
+            "unrelated_handler_reached_by_earlier_failure": (
+                self.plain("  INSERT INTO public.u (id) VALUES (1);\n",
+                           "unique_violation", self.PRIV), "END;\n"),
+            "deny_branch_with_custom_sqlstate": (
+                "BEGIN\n" + self.DENY_IF + "    RAISE insufficient_privilege;\n"
+                "  END IF;\n" + self.HANDLED.format(cond="insufficient_privilege")
+                + self.PRIV, "END;\n"),
+            "predicate_idiom_after_a_failure": (
+                "DECLARE\n" + var + "BEGIN\n" + err + self.DENY_IF
+                + "    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+                + self.HANDLED.format(cond="division_by_zero") + self.PRIV, "END;\n"),
+            "null_handler_initializer_side_effect": (
+                self.plain(err, "division_by_zero", "  NULL;\n",
+                           "  v_w integer := public.r26_touch(p_org);\n" + var),
+                "END;\n"),
+            "null_handler_domain_check_side_effect": (
+                self.plain(err, "division_by_zero", "  NULL;\n",
+                           "  v_d public.r26_dz;\n" + var), "END;\n"),
+        }
+
+    def resolution_failure(self) -> str:
+        """The guard is the block's FIRST statement with a bare parameter as its
+        argument - and still never runs: the parameter is `text`, so the call
+        raises undefined_function and the handler writes. Live on 17.11."""
+        return self.routine(
+            "BEGIN\n  PERFORM public.wardah_assert_org_member(p_org);\n"
+            + self.HANDLED.format(cond="undefined_function")
+            + "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org::uuid;\n"
+        ).replace("f_probe(p_org uuid)", "f_probe(p_org text)")
+
+    # 8-10 and the harmless-section forms: each is safe on 17.11.
+    def safe(self) -> dict:
+        var = "  v_x integer;\n"
+        return {
+            "no_handler": (
+                "DECLARE\n" + var + "BEGIN\n  v_x := 1;\n" + self.GUARD + self.PRIV),
+            "authorization_before_later_risky_code": (
+                "DECLARE\n" + var + "BEGIN\n" + self.GUARD
+                + "  BEGIN\n    v_x := 1 / 0;\n  EXCEPTION WHEN division_by_zero THEN\n  "
+                + self.PRIV + "  END;\n" + self.PRIV),
+            "unrelated_handler_outside_the_guard_block": (
+                "DECLARE\n" + var + "BEGIN\n"
+                "  BEGIN\n    v_x := 1 / 0;\n  EXCEPTION WHEN division_by_zero THEN\n"
+                "    NULL;\n  END;\n" + self.GUARD + self.PRIV),
+            "inert_null_handler": (
+                "BEGIN\n  INSERT INTO public.u (id) VALUES (1);\n" + self.GUARD
+                + self.PRIV + self.HANDLED.format(cond="unique_violation") + "  NULL;\n"),
+            "inert_reraise_handler": (
+                "BEGIN\n  PERFORM 1 / 0;\n" + self.GUARD + self.PRIV
+                + self.HANDLED.format(cond="division_by_zero") + "  RAISE;\n"),
+            "inert_handler_on_an_empty_declare_chain": (
+                "DECLARE\nDECLARE\nBEGIN\n  PERFORM 1 / 0;\n" + self.GUARD + self.PRIV
+                + self.HANDLED.format(cond="division_by_zero")
+                + "  NULL;\n  NULL;\n"),
+            "inert_handler_predicate_idiom": (
+                "BEGIN\n" + self.DENY_IF + "    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+                + self.PRIV + self.HANDLED.format(cond="unique_violation")
+                + "  NULL;\n"),
+        }
+
+
+class Round26HandlerReachabilityTests(_Round26Base):
+    """RED at 43edbf62: every unsafe shape below was accepted."""
+
+    def test_a_handler_reachable_before_the_guard_is_not_trusted(self) -> None:
+        for name, (body, close) in self.unsafe().items():
+            with self.subTest(case=name):
+                self.assertFalse(
+                    self.accepts(f"r26_{name}", self.routine(body, close=close)),
+                    f"`{name}`: the handler runs before authorization and the "
+                    "routine was still accepted",
+                )
+
+    def test_the_guard_coming_first_proves_nothing(self) -> None:
+        self.assertFalse(self.accepts("r26_resolution", self.resolution_failure()))
+
+    def test_a_writing_handler_on_the_guard_block_is_refused(self) -> None:
+        """Conservative, and pinned as such. On 17.11 this routine denies a
+        non-member (its guard is first and resolves), but nothing in the text
+        proves the section is unreachable before the guard returns - the shape
+        above is the same text with one parameter type changed."""
+        body = "BEGIN\n" + self.GUARD + self.PRIV + self.HANDLED.format(
+            cond="unique_violation") + self.PRIV
+        self.assertFalse(self.accepts("r26_conservative", self.routine(body)))
+
+
+class Round26ControlTests(_Round26Base):
+    """GREEN at 43edbf62 and after: no false red from the new rule."""
+
+    def test_safe_shapes_stay_accepted(self) -> None:
+        for name, body in self.safe().items():
+            with self.subTest(case=name):
+                self.assertTrue(self.accepts(f"r26_{name}", self.routine(body)))
+
+    def test_a_swallowing_handler_still_rejects(self) -> None:
+        for cond in ("raise_exception", "SQLSTATE 'P0001'", "plpgsql_error", "others"):
+            with self.subTest(cond=cond):
+                body = ("BEGIN\n" + self.GUARD + self.PRIV
+                        + self.HANDLED.format(cond=cond) + "  NULL;\n")
+                self.assertFalse(self.accepts("r26_swallow", self.routine(body)))
+
+    def test_a_nested_handler_around_the_guard_still_rejects(self) -> None:
+        body = ("BEGIN\n  BEGIN\n" + self.GUARD
+                + "  EXCEPTION WHEN unique_violation THEN\n    NULL;\n  END;\n" + self.PRIV)
+        self.assertFalse(self.accepts("r26_nested", self.routine(body)))
+
+    def test_reachability_rules_are_unchanged(self) -> None:
+        cases = {
+            "real_raise_before_guard": (
+                "BEGIN\n  RAISE EXCEPTION 'stop';\n" + self.GUARD + self.PRIV, "END;\n", False),
+            "real_return_before_guard": (
+                "BEGIN\n" + self.PRIV + "  RETURN;\n" + self.GUARD, "END;\n", False),
+            "labelled_exit_before_guard": (
+                "<<blk>>\nBEGIN\n" + self.PRIV + "  EXIT blk;\n" + self.GUARD,
+                "END blk;\n", False),
+            "labelled_exit_when_before_guard": (
+                "<<blk>>\nBEGIN\n  EXIT blk WHEN p_org IS NOT NULL;\n" + self.GUARD
+                + self.PRIV, "END blk;\n", False),
+            "declare_chain_guard": (
+                "DECLARE\nDECLARE\n  v_x integer;\nBEGIN\n" + self.GUARD + self.PRIV,
+                "END;\n", True),
+            "round24_sql_case_in_a_never_entered_loop": (
+                "DECLARE\n  r record;\nBEGIN\n  FOR r IN SELECT 1 WHERE false LOOP\n"
+                + self.GUARD + "    PERFORM (SELECT CASE WHEN true THEN loop ELSE 0 END"
+                " FROM public.t);\n  END LOOP;\n" + self.PRIV, "END;\n", False),
+        }
+        for name, (body, close, must_accept) in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.accepts(f"r26_{name}", self.routine(body, close=close)),
+                    must_accept,
+                )
+
+
+class Round26FixtureMigrationTests(_Round26Base):
+    """`definer_outer_handler()` moved to an inert `NULL;` body in Round 26 so
+    that the handler CONDITION is again the only thing under test. Nothing is
+    dropped by that move: every module-level fixture it built that is accepted
+    with the inert body is rebuilt here with the old `WRITING_HANDLER_BODY` and
+    must now be refused - the writing handler can run before authorization."""
+
+    OUTER_HANDLER_TAIL = "THEN\n  NULL;\nEND;\n$function$;\n"
+
+    def outer_handler_fixtures(self) -> dict:
+        found = {}
+        for gname, value in globals().items():
+            items = (
+                value.items() if isinstance(value, dict)
+                else enumerate(value) if isinstance(value, (tuple, list))
+                else ()
+            )
+            for key, sql in items:
+                if (
+                    isinstance(sql, str)
+                    and sql.endswith(self.OUTER_HANDLER_TAIL)
+                    and f"  PERFORM {OUTER}(p_org);\n" in sql
+                ):
+                    found[f"{gname}[{key}]"] = sql
+        return found
+
+    def test_the_writing_body_is_refused_for_every_accepted_condition(self) -> None:
+        fixtures = self.outer_handler_fixtures()
+        accepted = 0
+        for name, sql in fixtures.items():
+            if not self.accepts(f"r26_inert_{accepted}", sql):
+                continue  # a catching or unreadable condition: refused either way
+            accepted += 1
+            writing = sql[: -len(self.OUTER_HANDLER_TAIL)] + (
+                "THEN\n" + WRITING_HANDLER_BODY + "END;\n$function$;\n")
+            with self.subTest(fixture=name):
+                self.assertFalse(
+                    self.accepts(f"r26_writing_{accepted}", writing),
+                    f"{name}: a writing handler on the guard's block was accepted",
+                )
+        self.assertGreaterEqual(accepted, 10, "the migrated fixture set shrank")
+
+
+class Round26HandlerSectionModelTests(_Round26Base):
+    """The rule at the function level, on the frames the scanner builds."""
+
+    def frames_of(self, body: str):
+        text = self.masked(self.routine(body))
+        return text, guards.parse_blocks(text)
+
+    def test_the_helper_names_the_owning_block(self) -> None:
+        body, _close = self.unsafe()["runtime_error_before_guard"]
+        text, frames = self.frames_of(body)
+        pos = guards.GUARD_RE.search(text).start()
+        self.assertTrue(guards.handler_can_run_unauthorized(text, frames, pos))
+        text, frames = self.frames_of(self.safe()["inert_null_handler"])
+        pos = guards.GUARD_RE.search(text).start()
+        self.assertFalse(guards.handler_can_run_unauthorized(text, frames, pos))
+
+    def test_a_later_block_does_not_count(self) -> None:
+        text, frames = self.frames_of(self.safe()["authorization_before_later_risky_code"])
+        pos = guards.GUARD_RE.search(text).start()
+        self.assertFalse(guards.handler_can_run_unauthorized(text, frames, pos))
+
+    def test_both_strict_consumers_ask_it(self) -> None:
+        for fn in (guards.has_recognized_guard, guards.has_negated_raising_predicate):
+            with self.subTest(fn=fn.__name__):
+                self.assertIn("handler_can_run_unauthorized", inspect.getsource(fn))
 
 
 # ---------------------------------------------------------------------------
