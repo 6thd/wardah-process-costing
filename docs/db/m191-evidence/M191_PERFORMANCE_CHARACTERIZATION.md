@@ -1,9 +1,9 @@
 # M191 — Pre-Production Performance Characterization
 
-**Status:** remediation rerun pending after a second independent review found
-a P2 measurement-boundary defect in the prior characterization. Runs through
-benchmark head `1b0d4b77a44f2344c0136a145ad1b740144e8406` are diagnostic only and
-do not close the section 8 gate.
+**Status:** post-remediation characterization collected successfully; fresh
+independent closure review pending. Runs through benchmark head
+`1b0d4b77a44f2344c0136a145ad1b740144e8406` are diagnostic only and must not
+be used for the owner rollout decision.
 
 **Authority:** docs/F2_M191_IMPLEMENTATION_EVIDENCE_GATES.md section 8.
 
@@ -26,11 +26,11 @@ To reduce simple runner/cache ordering bias, the measurement order is balanced:
 Each repetition uses:
 
 - 4 persistent psql workers;
-- 50 measured iterations per worker;
+- 200 measured iterations per worker;
 - 10 excluded warm-up iterations per worker;
 - 20 ms Lock-wait sampling.
 
-That yields **800 measured calls per workload per state**, while preserving
+That yields **3,200 measured calls per workload per state**, while preserving
 raw results per repetition so runner noise can be inspected.
 
 ## Workloads
@@ -275,7 +275,136 @@ The product-projection proof is path-aware and discriminating:
 The reporter now fails closed unless the artifact declares the persistent
 same-session model and the corrected server-clock measurement boundary.
 
-A new four-repetition PostgreSQL 17 characterization is required before any
-new numeric result is called final. Production and Staging remain untouched and
-out of scope.
+The required four-repetition PostgreSQL 17 characterization has now completed
+successfully on the corrected benchmark bytes. Its frozen evidence is recorded
+below. Production and Staging remain untouched and out of scope.
+
+## Final post-remediation characterization — evidence frozen 2026-09-25
+
+**Benchmark/workflow head:**  
+`e177503feb527c174653dfff4cf6aa281bdeedc5`
+
+**Workflow run:** `36157102264` — **SUCCESS**  
+**Artifact:** `10874176137`  
+**Artifact digest:**  
+`sha256:04acdf8fc984911392735c69e423400419e6d7e1740dfe732db1aa3320c2f224`
+
+**PostgreSQL server:** 17.11  
+**Scope:** disposable GitHub Actions databases only. Production and Staging
+were not accessed.
+
+All four fresh before/after repetitions, the pooled reporter, effect
+reconciliation and artifact upload succeeded. The run shape was:
+
+- 4 repetitions;
+- fresh pre191/post191 database pair per repetition;
+- balanced order: repetitions 1/3 pre->post, 2/4 post->pre;
+- 4 persistent psql workers;
+- **the same psql connection performs warm-up and measurement**;
+- 10 untimed warm-up calls per worker;
+- 200 measured calls per worker/repetition;
+- **3,200 measured calls per workload/state** pooled;
+- server-side measurement start/end timestamps after the warm-up barrier;
+- 20 ms Lock-wait sampling begun only after warm-up;
+- exact stock/SLE/queue and path-owned product-projection postconditions.
+
+The prior setup/connection timing P2 is therefore removed from the measurement
+boundary: process spawn, database connection, authentication/session SETs and
+warm-up are excluded from throughput wall time and from measured latency.
+
+The product-projection concern is also covered fail-closed:
+
+- every workload validates `products.stock_quantity`;
+- `products.cost_price` is seeded to a deliberately incorrect sentinel before
+  each workload and must be restored to the rate freshly derived from bins;
+- incoming/manual-in/Goods Receipt do **not** assert
+  `products.stock_value`, because canonical incoming deliberately does not
+  own that field;
+- outgoing and manufacturing consumption assert both the exact
+  `products.stock_value` delta and equality with summed bin value;
+- the pre-191 hot-multiwarehouse known-RED exception relaxes only
+  `stock_quantity`, never valuation projections.
+
+### Final pooled measurements
+
+| Workload | Pre ops/s | Post ops/s | Delta ops/s | Pre p95 ms | Post p95 ms | Delta p95 | Pre p99 ms | Post p99 ms | Pre Lock ms/100 ops | Post Lock ms/100 ops |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| distinct SKU | 2541.37 | 2491.13 | -2.0% | 2.239 | 2.313 | +3.3% | 2.712 | 2.958 | 0.0 | 0.0 |
+| hot SKU / multiwarehouse | 1876.58 | 1259.71 | **-32.9%** | 3.161 | 4.053 | **+28.2%** | 4.117 | 5.343 | 76.9 | 196.9 |
+| hot SKU / same warehouse | 1310.37 | 1271.05 | -3.0% | 4.244 | 4.039 | -4.8% | 5.667 | 4.913 | 192.5 | 206.2 |
+| Goods Receipt | 173.83 | 171.01 | -1.6% | 24.797 | 25.529 | +3.0% | 27.009 | 28.604 | 1676.2 | 1709.4 |
+| manual movement | 1155.13 | 1094.65 | -5.2% | 4.664 | 4.696 | +0.7% | 6.416 | 5.562 | 221.2 | 235.6 |
+| manufacturing consumption | 747.11 | 650.68 | -12.9% | 10.144 | 8.250 | -18.7% | 16.150 | 10.817 | 334.4 | 406.2 |
+| outgoing | 1172.24 | 1185.11 | +1.1% | 4.393 | 4.165 | -5.2% | 5.938 | 5.064 | 228.1 | 208.1 |
+
+The post-191 worst sampled Lock-wait episode for the hot-multiwarehouse proxy
+was **400 ms**.
+
+### Repeat-to-repeat envelope
+
+The corrected longer windows materially reduced the runner-noise problem that
+appeared in the first short-window remediation run.
+
+| Workload | Pre ops/s range | Post ops/s range | Pre p95 range ms | Post p95 range ms |
+|---|---:|---:|---:|---:|
+| distinct SKU | 2487.27–2573.19 | 2461.74–2530.24 | 2.203–2.261 | 2.253–2.349 |
+| hot SKU / multiwarehouse | 1842.97–1917.53 | 1223.85–1281.22 | 3.031–3.224 | 3.920–4.124 |
+| hot SKU / same warehouse | 1295.42–1319.84 | 1247.75–1284.61 | 3.850–4.622 | 3.952–4.411 |
+| Goods Receipt | 171.84–177.00 | 164.72–174.57 | 23.993–25.842 | 24.419–27.756 |
+| manual movement | 1116.24–1178.26 | 1079.99–1106.98 | 4.279–5.033 | 4.618–4.801 |
+| manufacturing consumption | 699.28–766.40 | 601.73–691.63 | 9.637–11.662 | 7.097–9.513 |
+| outgoing | 1146.97–1207.56 | 1159.20–1204.72 | 4.120–4.649 | 4.104–4.291 |
+
+### Fixture cardinalities at workload start
+
+| Workload | Org products | Org bins | Target products | Target bins | Org reservations | Target reservations | Org SLE rows | Target SLE rows |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| distinct SKU | 6 | 9 | 4 | 4 | 0 | 0 | 1680 | 0 |
+| hot SKU / multiwarehouse | 6 | 9 | 1 | 4 | 0 | 0 | 840 | 0 |
+| hot SKU / same warehouse | 6 | 9 | 1 | 1 | 0 | 0 | 0 | 0 |
+| Goods Receipt | 2 | 2 | 1 | 1 | 0 | 0 | 0 | 0 |
+| manual movement | 6 | 9 | 1 | 1 | 0 | 0 | 3360 | 1680 |
+| manufacturing consumption | 3 | 2 | 1 | 1 | 4 | 4 | 0 | 0 |
+| outgoing | 6 | 9 | 1 | 1 | 0 | 0 | 2520 | 840 |
+
+These remain controlled CI fixtures, not Production-scale capacity claims.
+
+### Interpretation pending independent closure review
+
+The material delta remains concentrated in the intentional same-product /
+different-bin contention shape:
+
+- throughput: **-32.9%**;
+- p95: **+28.2%**;
+- sampled Lock wait: **76.9 -> 196.9 ms/100 operations**.
+
+That workload shares one product projection while using separate warehouse
+bins. M191 intentionally adds the products-first serialization boundary there
+to prevent the pre-191 shared-product projection race.
+
+The controls remain consistent with that interpretation:
+
+- distinct SKU: **-2.0% throughput**, **+3.3% p95**, and zero sampled Lock
+  wait in both states;
+- same-product/same-bin was already contended and changes only modestly;
+- Goods Receipt is near flat;
+- outgoing is near flat/slightly faster;
+- manual movement shows a small throughput cost;
+- manufacturing consumption shows lower throughput but improved p95 while
+  including its ordered reservation-universe prepass and product prefix.
+
+The pre-191 lost-product-projection condition was observed in **1/4**
+repetitions. That is observational corroboration only; the deterministic RED
+acceptance suite remains the proof of the defect.
+
+### Gate disposition
+
+**Evidence collection after the measurement-boundary and projection
+remediation is complete. A fresh independent closure review of these exact
+bytes and this exact artifact is still required before §8 is classified
+closed.**
+
+No performance percentage here is an invented SLO. No result authorizes
+Production or Staging mutation, M191 deployment, rollout, or baseline
+regeneration.
 
