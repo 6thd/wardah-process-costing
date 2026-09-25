@@ -1,7 +1,10 @@
 # M191 — Pre-Production Performance Characterization
 
-**Status:** post-remediation characterization collected successfully; fresh
-independent closure review pending. Runs through benchmark head
+**Status:** authoritative evidence is run `36191681776` on benchmark head
+`260b540dfbd50245b8e0ef27e94e5a986958adea` (see the last section:
+durable pooled p50 plus per-call sampled Lock attribution). Fresh
+independent closure review pending. Run `36157102264` remains documented as
+the prior corrected run. Runs through benchmark head
 `1b0d4b77a44f2344c0136a145ad1b740144e8406` are diagnostic only and must not
 be used for the owner rollout decision.
 
@@ -48,9 +51,10 @@ raw results per repetition so runner noise can be inspected.
 ## Measurements
 
 For both states and every workload the report records pooled operations/sec,
-pooled p50/p95/p99/max latency, per-repetition throughput/p95 ranges, sampled
-Lock-wait time normalized per 100 operations, and the longest consecutive
-same-backend sampled Lock-wait streak.
+pooled p50/p95/p99/max latency, per-repetition throughput/p50/p95 ranges,
+sampled Lock-wait time normalized per 100 operations, the worst observed
+per-call sampled Lock-wait estimate (from benchmark head `260b540`), and the
+longest consecutive same-backend sampled Lock-wait streak.
 
 The lock numbers are sampling estimates, not exact PostgreSQL wait accounting.
 The streak metric groups consecutive Lock samples for one backend and may span
@@ -284,7 +288,18 @@ The required four-repetition PostgreSQL 17 characterization has now completed
 successfully on the corrected benchmark bytes. Its frozen evidence is recorded
 below. Production and Staging remain untouched and out of scope.
 
-## Final post-remediation characterization — evidence frozen 2026-09-25
+## Prior corrected characterization (run 36157102264) — superseded as authoritative
+
+> Superseded as the authoritative §8 evidence by run `36191681776` (last
+> section), which adds durable pooled p50 and per-call Lock attribution on
+> otherwise identical run shape, workloads and effect assertions. This run's
+> artifact predates the per-call sampler format; its pooled p50 values,
+> re-derived from the raw `Time:` samples of artifact `10874176137`
+> (3,200 per workload/state), were pre/post: distinct SKU 1.365/1.385 ms,
+> hot multiwarehouse 1.985/3.064 ms, hot same warehouse 2.927/3.054 ms,
+> Goods Receipt 22.824/23.113 ms, manual movement 3.311/3.535 ms,
+> manufacturing consumption 4.144/5.897 ms, outgoing 3.266/3.259 ms. They are
+> recorded for provenance only; the durable p50 table below uses the new run.
 
 **Benchmark/workflow head:**  
 `e177503feb527c174653dfff4cf6aa281bdeedc5`
@@ -421,3 +436,262 @@ No performance percentage here is an invented SLO. No result authorizes
 Production or Staging mutation, M191 deployment, rollout, or baseline
 regeneration.
 
+## Authoritative characterization — durable p50 and per-call Lock attribution (2026-09-25)
+
+**Benchmark/workflow head:** `260b540dfbd50245b8e0ef27e94e5a986958adea`  
+**Base:** `main@0761d567965e7977ea2702166143ea6c2f1dc1da`  
+**Workflow run:** `36191681776` — **SUCCESS**  
+**Artifact:** `10888402016`  
+**Artifact digest:**
+`sha256:af073204bcfd26e6b09cab20b781fce841331e85a04ec2393387164c345b196b`  
+**PostgreSQL server:** 17.11 (`PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2)`)  
+**Scope:** disposable GitHub Actions databases only. Production and Staging
+were not accessed.
+
+### Why this run exists
+
+Section 8 lists "p50, p95, and p99 RPC latency" and "time waiting on
+product-row locks (aggregate and worst observed call)". Run `36157102264`
+computed pooled p50 but this document persisted only p95/p99, and its only
+per-backend Lock figure was the consecutive same-backend **streak** (400 ms),
+which can span several calls, wait episodes and blockers and therefore is not
+a per-call value. Its largest statement latency (11.866 ms) bounds a call but
+is not isolated Lock-wait time. Neither literally satisfied "worst observed
+call".
+
+Benchmark head `260b540` changes only the sampler/marker format and the
+reporter. The run shape, workloads, fixtures, same-session measurement
+boundary and every stock-effect assertion are unchanged.
+
+### Run shape (unchanged)
+
+- 4 repetitions, fresh pre191/post191 database pair per repetition;
+- balanced order: repetitions 1/3 pre->post, 2/4 post->pre;
+- 4 persistent psql workers; the same connection performs setup, warm-up,
+  barrier and measured calls;
+- 10 untimed warm-up calls per worker/repetition, excluded from latency,
+  throughput and Lock metrics;
+- 200 measured calls per worker/repetition = **3,200 measured calls per
+  workload/state**;
+- throughput wall time = earliest server-side measured START -> latest
+  server-side measured END; process spawn, connect, auth/session SETs,
+  warm-up and barrier are excluded;
+- 20 ms Lock sampling, started after warm-up and proven ready before release.
+
+All 4 x 2 characterizations passed every exact effect check (bin qty/value,
+queue qty/value, SLE rows/qty/value, no negative stock, queue/bin
+reconciliation, products.stock_quantity, cost_price sentinel repair, incoming
+stock_value preservation, outgoing/consumption stock_value delta and
+equality). The only exception remains the bounded pre-191
+hot-multiwarehouse stock_quantity projection; it was observed in **0/4**
+repetitions this run (1/4 in run `36157102264`). The deterministic RED suite
+remains the defect proof.
+
+### Per-call Lock attribution design
+
+- **Call identity** is `(backend pid, pg_stat_activity.query_start)`.
+  `query_start` is the statement start timestamp. It is fixed for one
+  statement and new for every statement, so two sequential RPCs on one
+  persistent worker cannot share it. application_name is never used for
+  identity (worker names can be identical after NAMEDATALEN truncation, e.g.
+  manufacturing consumption).
+- Each worker's START/END marker statements also emit their backend PID and
+  their own `statement_timestamp()` (== their `query_start`) in integer
+  microseconds. A Lock sample counts only if its PID is a measured worker and
+  `START.query_start < query_start < END.query_start`. So warm-up, sampler
+  start-up and both marker statements can never become measured calls.
+- Samples of one identity accumulate across wait episodes, wait events and
+  blocker changes. Different PIDs never merge.
+- The sampler emits a tick every iteration. The harness requires a tick
+  before release and a tick after the latest END. The reporter requires tick
+  coverage of the whole measured window, so a legitimate zero stays
+  distinguishable from a sampler that did not run.
+- Fail closed on: a Lock sample from a non-worker PID, missing or malformed
+  query_start/PID, a non-Lock row, a legacy row without identity, a missing
+  readiness marker or sampler file, missing marker identity, duplicate worker
+  PIDs, a sample earlier than its statement start, or an identity whose
+  observed span exceeds the longest measured call on that worker plus one
+  interval (which would mean calls were merged).
+- **Pre-flight on this same PostgreSQL 17.11 server** (artifact
+  `query-start-probe.txt`): 500 back-to-back statements on one session each had
+  a distinct, strictly increasing `query_start` equal to
+  `statement_timestamp()`. A row-lock-blocked statement kept one `query_start`
+  across 15 samples. The next statement on that backend, blocked again, got a
+  new `query_start` (14 samples) and never inherited the previous one. A
+  second backend with the identical application_name stayed distinct by PID
+  (12 samples). The sampler's own backend never appeared.
+  `M191_QUERY_START_PROBE_OK`.
+- 18 reporter self-tests (artifact `reporter-selftest.txt`) cover:
+  sequential calls on one PID (3 + 8 samples -> worst 8, not 11), one call
+  across episodes and blocker changes, same name with different PIDs,
+  missing/malformed/legacy identity, a fully sampled zero-Lock workload
+  (0, not missing), out-of-window, warm-up and marker samples, non-worker
+  PIDs and missing coverage. Against the same Case 1 input, the prior parser
+  reported 220 ms (11 merged samples).
+
+### Estimator and its limits
+
+One estimator is used for both aggregate and per-call values: **each Lock
+sample counts one nominal 20 ms interval.** Measured sampler cadence averaged at most
+20.07 ms per workload run, with a largest single tick gap of 21.86 ms.
+
+For these RPCs (p50 about 1.4–23 ms), a call normally gets 0 or 1 sample. The
+per-call estimate is therefore **quantized**. "20 ms (1 sample)" means the call
+was observed Lock-waiting at one sampling instant, not that it waited 20 ms.
+Sub-interval waits are invisible to single calls and appear only
+statistically in the aggregate. A call's real lock wait cannot exceed its own
+measured latency, so the state's **max statement latency** is the hard upper
+bound for any one call. The **observed span** (latest Lock sample of a call
+minus its query_start) is a server-side lower bound on how long that call had
+been running while still Lock-waiting.
+
+### Lock classification
+
+The sampler records PostgreSQL `wait_event_type='Lock'` for measured workers
+only; it does not identify the locked relation or tuple. The recorded
+wait-event mix is:
+
+- hot multiwarehouse: `transactionid`/`tuple` only (pre 132/0, post 110/188).
+  These are row-lock waits. Workers share exactly one product row and no bin,
+  so this workload is the **product-row serialization proxy**. Pre-191 already
+  serialized on its product projection UPDATE; M191's products-first lock
+  adds `tuple` queueing.
+- distinct SKU: the single pre-191 sample was `extend` (relation extension),
+  not a row lock; post-191 had zero.
+- Goods Receipt: `advisory` only (pre 2670, post 2724). This is the RPC's own
+  advisory serialization, not a product-row wait.
+- same-warehouse, manual movement, outgoing, consumption: `transactionid`/
+  `tuple` row-lock waits on a shared bin **and** product. They cannot be
+  separated into product-row versus bin-row waits.
+
+So "product-row lock waiting" is represented honestly by the hot
+multiwarehouse proxy. The other rows are total Lock-wait context.
+
+### Authoritative pooled throughput and latency
+
+| Workload | Pre ops/s | Post ops/s | Delta ops/s | Pre p50 ms | Post p50 ms | Delta p50 | Pre p95 ms | Post p95 ms | Delta p95 | Pre p99 ms | Post p99 ms | Pre max ms | Post max ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| distinct SKU | 2432.23 | 2439.70 | +0.3% | 1.395 | 1.405 | +0.7% | 2.389 | 2.330 | -2.5% | 3.754 | 3.076 | 11.846 | 11.831 |
+| hot SKU / multiwarehouse | 1837.23 | 1260.45 | **-31.4%** | 1.975 | 3.050 | **+54.4%** | 3.345 | 4.077 | **+21.9%** | 4.987 | 5.214 | 12.048 | 6.874 |
+| hot SKU / same warehouse | 1280.45 | 1264.42 | -1.3% | 2.942 | 3.021 | +2.7% | 4.492 | 4.268 | -5.0% | 6.477 | 5.760 | 10.948 | 10.266 |
+| Goods Receipt | 174.75 | 171.06 | -2.1% | 22.668 | 23.105 | +1.9% | 25.050 | 25.536 | +1.9% | 28.595 | 28.591 | 35.243 | 33.721 |
+| manual movement | 1168.78 | 1055.02 | -9.7% | 3.277 | 3.583 | +9.3% | 4.662 | 5.079 | +8.9% | 5.963 | 6.370 | 8.538 | 9.390 |
+| manufacturing consumption | 757.92 | 667.77 | -11.9% | 3.944 | 5.742 | +45.6% | 10.323 | 7.764 | -24.8% | 15.550 | 9.525 | 30.716 | 16.663 |
+| outgoing | 1191.21 | 1153.86 | -3.1% | 3.216 | 3.285 | +2.1% | 4.378 | 4.773 | +9.0% | 5.914 | 6.136 | 9.057 | 8.193 |
+
+### Authoritative sampled Lock wait — aggregate and worst observed call
+
+| Workload | Pre Lock ms/100 ops | Post Lock ms/100 ops | Pre / post calls with >=1 Lock sample | Pre worst per-call sampled estimate | Post worst per-call sampled estimate | Pre / post worst observed span ms | Pre / post max statement latency ms (per-call upper bound) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| distinct SKU | 0.6 | 0.0 | 1 / 0 | 20 ms (1 sample, `extend`) | 0 ms (0) | 0.955 / 0.000 | 11.846 / 11.831 |
+| hot SKU / multiwarehouse | 82.5 | 186.2 | 132 / 298 | 20 ms (1 sample) | 20 ms (1 sample) | 5.961 / 4.181 | 12.048 / 6.874 |
+| hot SKU / same warehouse | 186.2 | 191.9 | 298 / 307 | 20 ms (1) | 20 ms (1) | 8.124 / 6.675 | 10.948 / 10.266 |
+| Goods Receipt | 1668.8 | 1702.5 | 2666 / 2715 | 40 ms (2) | 40 ms (2) | 23.274 / 23.684 | 35.243 / 33.721 |
+| manual movement | 203.8 | 235.0 | 326 / 376 | 20 ms (1) | 20 ms (1) | 5.452 / 4.356 | 8.538 / 9.390 |
+| manufacturing consumption | 327.5 | 391.9 | 524 / 627 | 20 ms (1) | 20 ms (1) | 19.525 / 10.257 | 30.716 / 16.663 |
+| outgoing | 201.9 | 211.2 | 323 / 338 | 20 ms (1) | 20 ms (1) | 7.035 / 5.973 | 9.057 / 8.193 |
+
+Out-of-window Lock samples excluded: **0** in every workload/state and
+repetition. Sampler ticks inside the measured windows: 66–936 per
+workload/state (pooled).
+
+**Worst observed per-call sampled product-row Lock-wait estimate** (hot
+multiwarehouse proxy): **20 ms (one 20 ms sample) both pre- and post-191.**
+No measured call was sampled Lock-waiting twice. Read with its bounds: that
+call's real lock wait was > 0 and at most the largest post-191 statement
+latency, **6.874 ms** (pre-191: 12.048 ms). The longest observed span of a
+waiting call was 4.181 ms post-191. At 20 ms resolution the single-call worst
+case is unchanged. The M191 cost appears as **more calls waiting**
+(132 -> 298 calls with a Lock sample; 82.5 -> 186.2 sampled ms/100 ops), not
+as longer individual waits.
+
+**Longest consecutive same-backend sampled Lock-wait streak** (a different
+metric, kept for contention persistence only): hot multiwarehouse
+**220 ms pre / 340 ms post** in this run (400 ms in run `36157102264`). Same
+warehouse 400/440, Goods Receipt 440/620, manual 380/520, consumption
+540/820, outgoing 400/460, distinct 20/0 ms. A streak spans multiple
+consecutive calls on one backend. It is **never** the lock wait of one call,
+and the per-call value above is the one to use for "worst observed call".
+
+### Repeat-to-repeat envelope
+
+| Workload | Pre ops/s range | Post ops/s range | Pre p50 range ms | Post p50 range ms | Pre p95 range ms | Post p95 range ms |
+|---|---:|---:|---:|---:|---:|---:|
+| distinct SKU | 2376.89–2526.68 | 2394.17–2499.88 | 1.373–1.418 | 1.393–1.417 | 2.260–2.580 | 2.241–2.430 |
+| hot SKU / multiwarehouse | 1770.26–1895.25 | 1245.98–1270.13 | 1.961–1.998 | 3.034–3.066 | 3.112–3.716 | 3.923–4.271 |
+| hot SKU / same warehouse | 1210.35–1316.82 | 1245.91–1278.94 | 2.909–3.051 | 3.015–3.030 | 4.098–5.289 | 4.084–4.379 |
+| Goods Receipt | 173.02–176.85 | 163.99–174.10 | 22.278–22.968 | 22.697–24.168 | 24.476–25.291 | 24.528–26.010 |
+| manual movement | 1131.66–1187.96 | 956.43–1115.50 | 3.245–3.348 | 3.486–4.003 | 4.447–4.985 | 4.475–5.565 |
+| manufacturing consumption | 742.93–767.84 | 621.79–693.69 | 3.856–4.008 | 5.612–6.283 | 9.992–10.764 | 7.122–8.047 |
+| outgoing | 1176.85–1210.50 | 1084.19–1181.85 | 3.171–3.243 | 3.246–3.456 | 4.241–4.428 | 4.240–5.395 |
+
+Hot multiwarehouse per-repetition throughput deltas: -33.5%, -31.5%,
+-31.0% and -29.6%. The ranges do not overlap: the lowest pre-191 run is
+1770.26 ops/s and the highest post-191 run is 1270.13 ops/s.
+
+### Fixture cardinalities at workload start (identical to run 36157102264)
+
+| Workload | Org products | Org bins | Target products | Target bins | Org reservations | Target reservations | Org SLE rows | Target SLE rows |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| distinct SKU | 6 | 9 | 4 | 4 | 0 | 0 | 1680 | 0 |
+| hot SKU / multiwarehouse | 6 | 9 | 1 | 4 | 0 | 0 | 840 | 0 |
+| hot SKU / same warehouse | 6 | 9 | 1 | 1 | 0 | 0 | 0 | 0 |
+| Goods Receipt | 2 | 2 | 1 | 1 | 0 | 0 | 0 | 0 |
+| manual movement | 6 | 9 | 1 | 1 | 0 | 0 | 3360 | 1680 |
+| manufacturing consumption | 3 | 2 | 1 | 1 | 4 | 4 | 0 | 0 |
+| outgoing | 6 | 9 | 1 | 1 | 0 | 0 | 2520 | 840 |
+
+### Raw artifact -> this report
+
+Every pooled figure above was independently recomputed from the raw
+`measured.worker*.log` `Time:` lines, the measurement markers and
+`locks.tsv`, without the reporter. The recomputation covered ops/s,
+p50/p95/p99/max, Lock ms/100 ops, calls with Lock samples and worst per-call
+sample count, for all 14 workload/state pairs. All matched the reporter's
+`M191_PERFORMANCE_REPORT.json`.
+
+### Interpretation versus run 36157102264
+
+- hot multiwarehouse: -31.4% throughput (was -32.9%), p95 +21.9% (was
+  +28.2%), sampled Lock 82.5 -> 186.2 ms/100 ops (was 76.9 -> 196.9). This
+  is consistent and reproducible in all four repetitions. It remains the
+  deliberate same-product/different-bin products-first serialization cost.
+  The new p50 (+54.4%) shows it shifts the typical call too, not only the
+  tail.
+- distinct SKU: +0.3% throughput with zero post-191 Lock samples, so there
+  is no global serialization (was -2.0%).
+- same warehouse -1.3% (was -3.0%), Goods Receipt -2.1% (was -1.6%): flat.
+- outgoing -3.1% (was +1.1%) and manual movement -9.7% (was -5.2%): both
+  are pulled down by one noisy post-191 database (repetition 3: manual
+  -19.0%, outgoing -7.9%). The other three repetitions were -5.2%/-8.4%/-5.0%
+  (manual) and -0.7%/-2.9%/-0.7% (outgoing). Their sampled Lock changes stay
+  small (203.8 -> 235.0 and 201.9 -> 211.2 ms/100 ops). This is runner noise
+  inside the documented range, not a new lock-wait regression.
+- manufacturing consumption: -11.9% throughput (was -12.9%), p95 improved
+  (-24.8%) while p50 rose (+45.6%). That fits the added ordered
+  reservation-universe prepass and product prefix: more fixed per-call work,
+  and fewer long tail waits.
+
+The sampler/marker change adds one tick row per iteration and one integer
+per Lock row. It runs identically in both states, so the before/after
+comparison stays fair. Absolute ops/s differs modestly from run
+`36157102264` (e.g. distinct SKU pre-191 2432.23 vs 2541.37). That is runner
+variance plus possibly this small sampler change, so only same-run
+before/after deltas are interpreted.
+
+### Gate disposition
+
+Section 8's listed items now each have durable evidence here: ops/s; p50,
+p95, p99 (plus max); product-row Lock waiting as aggregate (ms/100 ops) and
+worst observed call (per-call sampled estimate with its explicit bounds);
+the hot same-warehouse, hot multiwarehouse and distinct-SKU workloads plus
+receipt, outgoing, manual-movement and manufacturing-consumption
+representatives; fixture size; concurrency; iteration count; and warm-up
+disclosure.
+
+**A fresh independent closure review of these exact bytes and this exact
+artifact is still required before §8 is classified closed.** No percentage
+here is an SLO. The rollout decision on the measured hot-multiwarehouse cost
+belongs to the owner. The remedy may not be to weaken M191's correctness
+lock contract. Nothing here authorizes Production or Staging mutation, M191
+deployment, rollout or baseline regeneration.
