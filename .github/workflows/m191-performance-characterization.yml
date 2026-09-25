@@ -127,7 +127,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m191-performance-characterization-\${{ github.run_id }}
+          name: m191-performance-characterization-${{ github.run_id }}
           path: |
             /tmp/m191-perf/
             /tmp/chain-wardah_perf_pre191.txt
