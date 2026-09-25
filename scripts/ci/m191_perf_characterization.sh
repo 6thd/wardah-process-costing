@@ -21,6 +21,133 @@ CURRENT_SCENARIO="m191-perf-$LABEL"
 
 fail() { echo "M191_PERF_FAIL[$LABEL]: $*" >&2; exit 1; }
 
+CALLS_PER_WORKER=$((WARMUP + ITERATIONS))
+TOTAL_CALLS=$((CONCURRENCY * CALLS_PER_WORKER))
+
+declare -A SNAP_PRODUCT_QTY=()
+declare -A SNAP_BIN_QTY=()
+declare -A SNAP_BIN_VALUE=()
+declare -A SNAP_QUEUE_QTY=()
+declare -A SNAP_QUEUE_VALUE=()
+declare -A SNAP_SLE_ROWS=()
+declare -A SNAP_SLE_QTY=()
+declare -A SNAP_SLE_VALUE=()
+
+num_sub() {
+  awk -v a="$1" -v b="$2" 'BEGIN { printf "%.12g", a-b }'
+}
+
+product_effect_state() {
+  local org_id=$1 product_id=$2
+  "${PSQL[@]}" -F '|' -c "
+WITH
+b AS (
+  SELECT COALESCE(SUM(actual_qty),0)::numeric AS qty,
+         COALESCE(SUM(stock_value),0)::numeric AS value,
+         COUNT(*) FILTER (WHERE actual_qty < 0)::integer AS negatives
+  FROM public.bins
+  WHERE org_id='$org_id' AND product_id='$product_id'
+),
+q AS (
+  SELECT COALESCE(SUM((layer->>'qty')::numeric),0)::numeric AS qty,
+         COALESCE(SUM((layer->>'qty')::numeric * (layer->>'rate')::numeric),0)::numeric AS value
+  FROM public.bins bin
+  CROSS JOIN LATERAL jsonb_array_elements(COALESCE(bin.stock_queue,'[]'::jsonb)) AS layer
+  WHERE bin.org_id='$org_id' AND bin.product_id='$product_id'
+),
+s AS (
+  SELECT COUNT(*)::integer AS rows,
+         COALESCE(SUM(actual_qty),0)::numeric AS qty,
+         COALESCE(SUM(stock_value_difference),0)::numeric AS value
+  FROM public.stock_ledger_entries
+  WHERE org_id='$org_id' AND product_id='$product_id'
+)
+SELECT
+  COALESCE((SELECT stock_quantity FROM public.products WHERE id='$product_id' AND org_id='$org_id'),0),
+  b.qty,b.value,q.qty,q.value,s.rows,s.qty,s.value,b.negatives
+FROM b,q,s;"
+}
+
+capture_product_effect() {
+  local key=$1 org_id=$2 product_id=$3
+  local pq bq bv qq qv sr sq sv neg
+  IFS='|' read -r pq bq bv qq qv sr sq sv neg <<<"$(product_effect_state "$org_id" "$product_id")"
+  [[ "$neg" == "0" ]] || fail "$key: negative stock exists before workload"
+  SNAP_PRODUCT_QTY["$key"]=$pq
+  SNAP_BIN_QTY["$key"]=$bq
+  SNAP_BIN_VALUE["$key"]=$bv
+  SNAP_QUEUE_QTY["$key"]=$qq
+  SNAP_QUEUE_VALUE["$key"]=$qv
+  SNAP_SLE_ROWS["$key"]=$sr
+  SNAP_SLE_QTY["$key"]=$sq
+  SNAP_SLE_VALUE["$key"]=$sv
+}
+
+assert_product_effect() {
+  local key=$1 scenario=$2 org_id=$3 product_id=$4 expected_qty=$5 expected_value=$6 expected_rows=$7 allow_projection_gap=${8:-0}
+  local pq bq bv qq qv sr sq sv neg
+  local d_product d_bq d_bv d_qq d_qv d_sr d_sq d_sv projection_gap
+
+  IFS='|' read -r pq bq bv qq qv sr sq sv neg <<<"$(product_effect_state "$org_id" "$product_id")"
+  [[ "$neg" == "0" ]] || fail "$scenario: negative stock exists after workload"
+
+  d_product=$(num_sub "$pq" "${SNAP_PRODUCT_QTY[$key]}")
+  d_bq=$(num_sub "$bq" "${SNAP_BIN_QTY[$key]}")
+  d_bv=$(num_sub "$bv" "${SNAP_BIN_VALUE[$key]}")
+  d_qq=$(num_sub "$qq" "${SNAP_QUEUE_QTY[$key]}")
+  d_qv=$(num_sub "$qv" "${SNAP_QUEUE_VALUE[$key]}")
+  d_sr=$(num_sub "$sr" "${SNAP_SLE_ROWS[$key]}")
+  d_sq=$(num_sub "$sq" "${SNAP_SLE_QTY[$key]}")
+  d_sv=$(num_sub "$sv" "${SNAP_SLE_VALUE[$key]}")
+
+  num_eq "$d_bq" "$expected_qty" || fail "$scenario: bin qty delta=$d_bq expected=$expected_qty"
+  num_eq "$d_bv" "$expected_value" || fail "$scenario: bin value delta=$d_bv expected=$expected_value"
+  num_eq "$d_qq" "$expected_qty" || fail "$scenario: queue qty delta=$d_qq expected=$expected_qty"
+  num_eq "$d_qv" "$expected_value" || fail "$scenario: queue value delta=$d_qv expected=$expected_value"
+  num_eq "$d_sr" "$expected_rows" || fail "$scenario: SLE row delta=$d_sr expected=$expected_rows"
+  num_eq "$d_sq" "$expected_qty" || fail "$scenario: SLE qty delta=$d_sq expected=$expected_qty"
+  num_eq "$d_sv" "$expected_value" || fail "$scenario: SLE value delta=$d_sv expected=$expected_value"
+
+  num_eq "$qq" "$bq" || fail "$scenario: queue qty=$qq <> bin qty=$bq"
+  num_eq "$qv" "$bv" || fail "$scenario: queue value=$qv <> bin value=$bv"
+
+  if [[ "$allow_projection_gap" == "1" ]]; then
+    awk -v d="$d_product" -v e="$expected_qty" 'BEGIN { exit !(d >= 0 && d <= e) }' \
+      || fail "$scenario: pre191 projection delta=$d_product outside [0,$expected_qty]"
+    projection_gap=$(num_sub "$bq" "$pq")
+    printf 'label=%s product_stock_quantity=%s sum_bins=%s projection_gap=%s\n' \
+      "$LABEL" "$pq" "$bq" "$projection_gap" \
+      | tee "$OUT/$scenario/pre191_known_red_projection_gap.txt"
+  else
+    num_eq "$d_product" "$expected_qty" || fail "$scenario: product qty delta=$d_product expected=$expected_qty"
+    num_eq "$pq" "$bq" || fail "$scenario: product qty=$pq <> sum bins=$bq"
+  fi
+
+  echo "M191_PERF_EFFECT_OK scenario=$scenario qty=$d_bq value=$d_bv sle_rows=$d_sr sle_qty=$d_sq sle_value=$d_sv"
+}
+
+record_fixture_size() {
+  local workload=$1 org_id=$2 product_csv=$3
+  local dir="$OUT/$workload"
+  mkdir -p "$dir"
+  "${PSQL[@]}" -c "
+SELECT 'org_products='||COUNT(*) FROM public.products WHERE org_id='$org_id';
+SELECT 'org_bins='||COUNT(*) FROM public.bins WHERE org_id='$org_id';
+SELECT 'target_products='||COUNT(*) FROM public.products
+ WHERE org_id='$org_id' AND id = ANY(string_to_array('$product_csv',',')::uuid[]);
+SELECT 'target_bins='||COUNT(*) FROM public.bins
+ WHERE org_id='$org_id' AND product_id = ANY(string_to_array('$product_csv',',')::uuid[]);
+SELECT 'org_reservations='||COUNT(*) FROM public.material_reservations WHERE org_id='$org_id';
+SELECT 'target_reservations='||COUNT(*) FROM public.material_reservations
+ WHERE org_id='$org_id' AND product_id = ANY(string_to_array('$product_csv',',')::uuid[]);
+SELECT 'org_sle_rows='||COUNT(*) FROM public.stock_ledger_entries WHERE org_id='$org_id';
+SELECT 'target_sle_rows='||COUNT(*) FROM public.stock_ledger_entries
+ WHERE org_id='$org_id' AND product_id = ANY(string_to_array('$product_csv',',')::uuid[]);
+" >"$dir/fixture_size.env"
+  grep -q '^org_products=' "$dir/fixture_size.env" || fail "$workload: fixture size capture failed"
+}
+
+
 run_workload() {
   local name=$1 auth_user=$2 callback=$3 lock_scope=$4
   local dir="$OUT/$name"
@@ -222,33 +349,36 @@ q_manual() {
   printf "SELECT public.rpc_manual_stock_movement_v2(jsonb_build_object('product_id','%s','warehouse_id','%s','movement_type','in','quantity',1,'unit_cost_entered',10));" "$S7_P1" "$S7_W"
 }
 
+record_fixture_size core_hot_same_warehouse "$S7_ORG" "$S7_P1"
+capture_product_effect s7-hot-same "$S7_ORG" "$S7_P1"
 run_workload core_hot_same_warehouse "$S7_ADMIN" q_core_hot_same all_lock_waits
+assert_product_effect s7-hot-same core_hot_same_warehouse "$S7_ORG" "$S7_P1" "$TOTAL_CALLS" "$((TOTAL_CALLS * 10))" "$TOTAL_CALLS"
+
+record_fixture_size core_hot_multiwarehouse "$S7_ORG" "$S7_P2"
+capture_product_effect s7-hot-multi "$S7_ORG" "$S7_P2"
 run_workload core_hot_multiwarehouse "$S7_ADMIN" q_core_hot_multi product_row_proxy_no_shared_bin
+if [[ "$LABEL" == "pre191" ]]; then allow_projection_gap=1; else allow_projection_gap=0; fi
+assert_product_effect s7-hot-multi core_hot_multiwarehouse "$S7_ORG" "$S7_P2" "$TOTAL_CALLS" "$((TOTAL_CALLS * 10))" "$TOTAL_CALLS" "$allow_projection_gap"
+
+dist_csv=$(IFS=,; echo "${S7_DIST_P[*]}")
+record_fixture_size core_distinct_sku "$S7_ORG" "$dist_csv"
+for idx in "${!S7_DIST_P[@]}"; do
+  capture_product_effect "s7-dist-$idx" "$S7_ORG" "${S7_DIST_P[$idx]}"
+done
 run_workload core_distinct_sku "$S7_ADMIN" q_core_distinct parallelism_control
+for idx in "${!S7_DIST_P[@]}"; do
+  assert_product_effect "s7-dist-$idx" "core_distinct_sku_w$((idx + 1))" "$S7_ORG" "${S7_DIST_P[$idx]}" "$CALLS_PER_WORKER" "$((CALLS_PER_WORKER * 10))" "$CALLS_PER_WORKER"
+done
+
+record_fixture_size outgoing_hot_same_warehouse "$S7_ORG" "$S7_P1"
+capture_product_effect s7-outgoing "$S7_ORG" "$S7_P1"
 run_workload outgoing_hot_same_warehouse "$S7_ADMIN" q_outgoing all_lock_waits
+assert_product_effect s7-outgoing outgoing_hot_same_warehouse "$S7_ORG" "$S7_P1" "$((-TOTAL_CALLS))" "$((-TOTAL_CALLS * 10))" "$TOTAL_CALLS"
+
+record_fixture_size manual_movement_hot_same_warehouse "$S7_ORG" "$S7_P1"
+capture_product_effect s7-manual "$S7_ORG" "$S7_P1"
 run_workload manual_movement_hot_same_warehouse "$S7_ADMIN" q_manual all_lock_waits
-
-CURRENT_SCENARIO="m191-perf-$LABEL-reconcile-s7"
-reconcile_product perf-s7-p1 "$S7_ORG" "$S7_P1"
-
-# The pre-191 hot-multiwarehouse shape is the frozen lost-update defect M191
-# fixes: bins are independent, but concurrent product-projection writes may
-# lose one update. A performance run must not require the defective baseline
-# to be GREEN. Record the gap instead; the deterministic RED proof already
-# establishes the defect. Post-191 must reconcile exactly.
-if [[ "$LABEL" == "pre191" ]]; then
-  read -r pq sb neg <<<"$("${PSQL[@]}" -c "
-    SELECT coalesce(stock_quantity,0)||' '||
-           coalesce((SELECT SUM(actual_qty) FROM public.bins WHERE org_id='$S7_ORG' AND product_id='$S7_P2'),0)||' '||
-           (SELECT count(*) FROM public.bins WHERE org_id='$S7_ORG' AND product_id='$S7_P2' AND actual_qty<0)
-    FROM public.products WHERE id='$S7_P2';")"
-  [[ "$neg" == "0" ]] || fail "pre191 hot-multiwarehouse produced unexpected negative stock"
-  awk -v p="$pq" -v b="$sb" 'BEGIN { printf "label=pre191 product_stock_quantity=%s sum_bins=%s projection_gap=%s\n", p,b,b-p }'     | tee "$OUT/core_hot_multiwarehouse/pre191_known_red_projection_gap.txt"
-else
-  reconcile_product perf-s7-p2 "$S7_ORG" "$S7_P2"
-fi
-
-for p in "${S7_DIST_P[@]}"; do reconcile_product perf-s7-dist "$S7_ORG" "$p"; done
+assert_product_effect s7-manual manual_movement_hot_same_warehouse "$S7_ORG" "$S7_P1" "$TOTAL_CALLS" "$((TOTAL_CALLS * 10))" "$TOTAL_CALLS"
 
 # ---- real Goods Receipt representative ---------------------------------------
 # shellcheck source=/dev/null
@@ -265,9 +395,10 @@ SQL
 q_receipt() {
   printf "SELECT public.rpc_post_goods_receipt(jsonb_build_object('tenant_id','%s','vendor_id','%s','warehouse_id','%s','idempotency_key','m191-perf-gr-'||gen_random_uuid()::text,'lines',jsonb_build_array(jsonb_build_object('product_id','%s','qty_entered',1,'unit_cost',10))));" "$S8_ORG" "$S8_VEND" "$S8_W" "$S8_A"
 }
+record_fixture_size goods_receipt_hot_same_warehouse "$S8_ORG" "$S8_A"
+capture_product_effect s8-gr "$S8_ORG" "$S8_A"
 run_workload goods_receipt_hot_same_warehouse "$S8_USR" q_receipt all_lock_waits
-CURRENT_SCENARIO="m191-perf-$LABEL-reconcile-s8"
-reconcile_product perf-s8-a "$S8_ORG" "$S8_A"
+assert_product_effect s8-gr goods_receipt_hot_same_warehouse "$S8_ORG" "$S8_A" "$TOTAL_CALLS" "$((TOTAL_CALLS * 10))" "$TOTAL_CALLS"
 
 # ---- real manufacturing consumption representative ---------------------------
 # shellcheck source=/dev/null
@@ -299,9 +430,18 @@ q_consumption() {
   local w=$1
   printf "SELECT public.rpc_consume_reserved_materials_v2((SELECT mo_id FROM public.zz_m191_perf_mos WHERE worker_id=%s),'%s',jsonb_build_array(jsonb_build_object('item_id','%s','quantity',1,'warehouse_id','%s')));" "$w" "$S9_STAGE" "$S9_I1" "$S9_W"
 }
+record_fixture_size manufacturing_consumption_hot_same_warehouse "$S9_ORG" "$S9_X"
+capture_product_effect s9-consume "$S9_ORG" "$S9_X"
 run_workload manufacturing_consumption_hot_same_warehouse "$S9_ADM" q_consumption all_lock_waits
-CURRENT_SCENARIO="m191-perf-$LABEL-reconcile-s9"
-reconcile_product perf-s9-x "$S9_ORG" "$S9_X"
+assert_product_effect s9-consume manufacturing_consumption_hot_same_warehouse "$S9_ORG" "$S9_X" "$((-TOTAL_CALLS))" "$((-TOTAL_CALLS * 10))" "$TOTAL_CALLS"
+
+read -r consumed released <<<"$("${PSQL[@]}" -c "
+SELECT COALESCE(SUM(quantity_consumed),0)||' '||COALESCE(SUM(quantity_released),0)
+FROM public.material_reservations
+WHERE org_id='$S9_ORG'
+  AND mo_id IN (SELECT mo_id FROM public.zz_m191_perf_mos);")"
+num_eq "$consumed" "$TOTAL_CALLS" || fail "manufacturing consumption: reservation consumed=$consumed expected=$TOTAL_CALLS"
+num_eq "$released" 0 || fail "manufacturing consumption: unexpected released qty=$released"
 "${PSQL[@]}" -c "DROP TABLE public.zz_m191_perf_mos;"
 
 echo "M191_PERF_CHARACTERIZATION_DB_COMPLETE label=$LABEL database=$DB"
