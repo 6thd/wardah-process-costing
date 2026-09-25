@@ -1,18 +1,20 @@
 # Wardah ERP — Documentation Index
 
-**آخر تحديث:** 2026-09-05
+**آخر تحديث:** 2026-09-25
 **الحالة:** فهرس حي — الروابط أدناه تشير فقط إلى موارد موجودة في المستودع وقت التحديث.
 
 > المرجع التشغيلي لقاعدة البيانات وCI هو [`CLAUDE.md`](../CLAUDE.md).  
-> نقطة الاستئناف الحالية أثناء موجة الاستقرار هي [`architecture/CURRENT_STABILIZATION_20260905.md`](./architecture/CURRENT_STABILIZATION_20260905.md).  
+> نقطة الاستئناف الحالية أثناء موجة الاستقرار هي [`architecture/CURRENT_STABILIZATION_20260925.md`](./architecture/CURRENT_STABILIZATION_20260925.md).  
 > يحتفظ [`architecture/EXECUTION_LEDGER.md`](./architecture/EXECUTION_LEDGER.md) بالسجل التنفيذي التاريخي، لكن مرساته العليا ما زالت أقدم من cutoff 189 ويجب ألا تتجاوز نقطة الاستئناف الحالية حتى تتم مصالحة مخصصة له.
 
 ## ابدأ من هنا
 
-- [`architecture/CURRENT_STABILIZATION_20260905.md`](./architecture/CURRENT_STABILIZATION_20260905.md) — نقطة الاستئناف الحالية بعد PR #227 / baseline cutoff 189، مع صف الانتظار المتسلسل وحالة PRs المركونة.
+- [`architecture/CURRENT_STABILIZATION_20260925.md`](./architecture/CURRENT_STABILIZATION_20260925.md) — **نقطة الاستئناف الحالية** لـ#246/#241، انتقال Scanner v2، وبوابة العودة للتصنيع.
+- [`architecture/STABILIZATION_RECONCILIATION_20260925.md`](./architecture/STABILIZATION_RECONCILIATION_20260925.md) — مصالحة الوثائق القديمة مع حالة التنفيذ الحالية والالتزامات التي يجب ألا تضيع.
+- [`architecture/CURRENT_STABILIZATION_20260905.md`](./architecture/CURRENT_STABILIZATION_20260905.md) — checkpoint تاريخي محفوظ للـprovenance؛ ليس نقطة استئناف حالية.
 - [`architecture/ASTRA_ARCHITECTURE_RED_TEAM_AUDIT_20260905.md`](./architecture/ASTRA_ARCHITECTURE_RED_TEAM_AUDIT_20260905.md) — Astra Architecture Red-Team Audit #1؛ مراجعة ساكنة للمصدر عند `05c7c9c` مع F1–F5 وحدود الثقة.
 - [`architecture/ASTRA_REMEDIATION_TODO_20260905.md`](./architecture/ASTRA_REMEDIATION_TODO_20260905.md) — سجل Findings/Status/TODO ومعايير الإغلاق والربط بـ#154/#170/#222/#228/#229/#230.
-- [`architecture/EXECUTION_LEDGER.md`](./architecture/EXECUTION_LEDGER.md) — سجل تنفيذ تاريخي حيّ جزئيًا؛ راجعه للسياق السابق، لكن استخدم Current Stabilization checkpoint للأولوية الحالية حتى تتم مصالحة مرساته القديمة.
+- [`architecture/EXECUTION_LEDGER.md`](./architecture/EXECUTION_LEDGER.md) — سجل تنفيذ تاريخي؛ استخدمه للسياق ولا تتجاوز به checkpoint 2026-09-25.
 - [`architecture/PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md`](./architecture/PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md) — خطة مواءمة خريطة المنتج والتنقّل والمستودع.
 - [`architecture/PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md`](./architecture/PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md) — جرد تاريخي قبل `ALIGN-P1` مع نتيجة PR #193؛ لا يُعامل كقائمة عمل حالية.
 - [`architecture/README.md`](./architecture/README.md) — ADRs والمرجع المعماري.
@@ -42,6 +44,9 @@
 
 - [`features/manufacturing/`](./features/manufacturing/) — التوثيق الحي لمجال التصنيع.
 - [`features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md`](./features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md) — خارطة التصنيع المتقدمة (`MFG-P*`).
+- [`features/manufacturing/CANONICAL_MANUFACTURING_EXECUTION_CONTRACT.md`](./features/manufacturing/CANONICAL_MANUFACTURING_EXECUTION_CONTRACT.md) — العقد الحاكم للعودة إلى #229 → #234 → #230، مع BOM snapshot/backflush/idempotency/completion.
+- [`security/SCANNER_V2_ARCHITECTURE.md`](./security/SCANNER_V2_ARCHITECTURE.md) — معمارية Scanner v2 وحدود استبدال v1.
+- [`reports/GENSPARK_FINAL_REPORTING_PACKAGE.md`](./reports/GENSPARK_FINAL_REPORTING_PACKAGE.md) — عقد الأدلة والتقرير النهائي وبوابات القرار.
 - [`architecture/PROCESS_COSTING_LIMITATIONS.md`](./architecture/PROCESS_COSTING_LIMITATIONS.md) — الحدود المعروفة لمحرك تكلفة المراحل.
 - [`architecture/ADR-003-Process-Costing-Implementation.md`](./architecture/ADR-003-Process-Costing-Implementation.md) — قرار معمارية Process Costing.
 - [`architecture/ASTRA_ARCHITECTURE_RED_TEAM_AUDIT_20260905.md`](./architecture/ASTRA_ARCHITECTURE_RED_TEAM_AUDIT_20260905.md) — مرجع موجة الاستقرار الحالية للمخاطر المتقاطعة بين التصنيع والمخزون والتكلفة وGL.
