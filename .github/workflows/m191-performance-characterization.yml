@@ -11,6 +11,8 @@ on:
     paths:
       - 'scripts/ci/m191_perf_characterization.sh'
       - 'scripts/ci/m191_perf_report.py'
+      - 'scripts/ci/m191_perf_query_start_probe.sh'
+      - 'scripts/ci/test_m191_perf_report.py'
       - '.github/workflows/m191-performance-characterization.yml'
       # Deliberately exclude the durable evidence Markdown: persisting a
       # reviewed run must not recursively create a new benchmark run/ID.
@@ -72,6 +74,23 @@ jobs:
             psql --version
             psql -X -qAt -d postgres -c "SELECT version();"
           } | tee /tmp/m191-perf/environment.txt
+
+      - name: Reporter per-call Lock attribution self-tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/test_m191_perf_report.py 2>&1 | tee /tmp/m191-perf/reporter-selftest.txt
+
+      - name: Validate (pid, query_start) call identity on this PostgreSQL server
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_perf_query_start_probe
+          bash scripts/ci/m191_perf_query_start_probe.sh \
+            wardah_perf_query_start_probe /tmp/m191-perf/query-start-probe \
+            2>&1 | tee /tmp/m191-perf/query-start-probe.txt
+          grep -q '^M191_QUERY_START_PROBE_OK ' /tmp/m191-perf/query-start-probe.txt
+          dropdb wardah_perf_query_start_probe
 
       - name: Resolve cutoff-189 baseline pair
         shell: bash

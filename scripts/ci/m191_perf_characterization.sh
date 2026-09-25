@@ -184,6 +184,16 @@ SELECT 'target_sle_rows='||COUNT(*) FROM public.stock_ledger_entries
 }
 
 
+# Measurement boundary markers. Field 2 (server clock, seconds) is the unchanged
+# throughput boundary. Fields 3-5 give the per-call Lock attribution identity:
+# backend PID, this marker statement's own statement_timestamp() (== its
+# pg_stat_activity.query_start) and the same clock reading in microseconds.
+# Measured RPCs on that backend are exactly the statements whose query_start
+# lies strictly between the START and END marker statements.
+marker_sql() {
+  printf "SELECT 'M191_PERF_MEASURE_%s|' || extract(epoch FROM c)::numeric(20,6) || '|' || pg_backend_pid() || '|' || (extract(epoch FROM s)*1000000)::bigint || '|' || (extract(epoch FROM c)*1000000)::bigint FROM (SELECT clock_timestamp() AS c, statement_timestamp() AS s) x;\n" "$1"
+}
+
 run_workload() {
   local name=$1 auth_user=$2 callback=$3 lock_scope=$4
   local dir="$OUT/$name"
@@ -191,6 +201,7 @@ run_workload() {
   rm -f "$dir"/worker*.ready "$dir"/release "$dir"/measured.worker*.log "$dir"/locks.tsv "$dir"/locks.err
   local w q f pid failed sampler_pid sampler_ready sampler_status wall_s ops
   local ready worker_pid start_epoch end_epoch min_start max_start start_spread_ms
+  local end_us max_end_us sampler_covered
   local -a pids=() starts=() ends=()
 
   # One persistent psql session per worker performs BOTH warm-up and measured
@@ -210,11 +221,11 @@ run_workload() {
       for _ in $(seq 1 "$WARMUP"); do printf '%s\n' "$q"; done
       printf "\\! touch '%s/worker%s.ready'\n" "$dir" "$w"
       printf "\\! bash -c 'while [ ! -f \"%s/release\" ]; do sleep 0.01; done'\n" "$dir"
-      echo "SELECT 'M191_PERF_MEASURE_START|' || extract(epoch FROM clock_timestamp())::numeric(20,6);"
+      marker_sql START
       echo '\timing on'
       for _ in $(seq 1 "$ITERATIONS"); do printf '%s\n' "$q"; done
       echo '\timing off'
-      echo "SELECT 'M191_PERF_MEASURE_END|' || extract(epoch FROM clock_timestamp())::numeric(20,6);"
+      marker_sql END
     } > "$f"
 
     PGAPPNAME="m191perf-$LABEL-$name-w$w" "${PSQL[@]}" \
@@ -240,18 +251,26 @@ run_workload() {
   done
 
   # Start Lock-wait sampling only AFTER warm-up is complete, so lock metrics
-  # describe the measured window rather than excluded warm-up work.
+  # describe the measured window rather than excluded warm-up work. Every
+  # iteration emits one tick row (T) so coverage of the measured window is
+  # provable even when no Lock wait exists, plus one row (L) per Lock-waiting
+  # worker carrying the per-call identity (pid, query_start in microseconds).
+  # Worker application_names may be truncated at NAMEDATALEN; the reporter
+  # therefore identifies workers by the PID in their measurement markers.
   cat >"$dir/sampler.sql" <<SQL
 \pset tuples_only on
 \pset format unaligned
 SELECT 'M191_PERF_SAMPLER_READY';
-SELECT
-  extract(epoch FROM clock_timestamp())::numeric(20,6) || E'\t' ||
+SELECT 'T' || E'\t' || (extract(epoch FROM clock_timestamp())*1000000)::bigint
+UNION ALL
+SELECT 'L' || E'\t' || (extract(epoch FROM clock_timestamp())*1000000)::bigint || E'\t' ||
   application_name || E'\t' || pid::text || E'\t' ||
-  coalesce(wait_event,'') || E'\t' ||
+  coalesce((extract(epoch FROM query_start)*1000000)::bigint::text,'') || E'\t' ||
+  coalesce(wait_event_type,'') || E'\t' || coalesce(wait_event,'') || E'\t' ||
   coalesce(array_to_string(pg_blocking_pids(pid),','),'')
 FROM pg_stat_activity
-WHERE application_name LIKE 'm191perf-$LABEL-$name-%'
+WHERE application_name LIKE 'm191perf-$LABEL-$name-w%'
+  AND pid <> pg_backend_pid()
   AND state='active'
   AND wait_event_type='Lock';
 \watch $SAMPLE_INTERVAL
@@ -262,7 +281,8 @@ SQL
 
   sampler_ready=0
   for _ in $(seq 1 100); do
-    if grep -qx 'M191_PERF_SAMPLER_READY' "$dir/locks.tsv" 2>/dev/null; then
+    if grep -qx 'M191_PERF_SAMPLER_READY' "$dir/locks.tsv" 2>/dev/null \
+      && grep -q $'^T\t' "$dir/locks.tsv" 2>/dev/null; then
       sampler_ready=1
       break
     fi
@@ -291,6 +311,26 @@ SQL
     if ! wait "$pid"; then failed=1; fi
   done
 
+  # Keep sampling until one tick is strictly after the latest measured END so
+  # the reporter can prove the whole measured window was covered.
+  max_end_us=0
+  for w in $(seq 1 "$CONCURRENCY"); do
+    end_us=$(grep -m1 '^M191_PERF_MEASURE_END|' "$dir/measured.worker$w.log" | cut -d'|' -f5 || true)
+    [[ "$end_us" =~ ^[0-9]+$ ]] || continue
+    if (( end_us > max_end_us )); then max_end_us=$end_us; fi
+  done
+  sampler_covered=0
+  if (( max_end_us > 0 )); then
+    for _ in $(seq 1 250); do
+      if awk -F'\t' -v e="$max_end_us" '$1=="T" && $2+0 > e+0 { found=1 } END { exit !found }' "$dir/locks.tsv"; then
+        sampler_covered=1
+        break
+      fi
+      kill -0 "$sampler_pid" 2>/dev/null || break
+      sleep 0.02
+    done
+  fi
+
   if ! kill -0 "$sampler_pid" 2>/dev/null; then
     sampler_status=0
     wait "$sampler_pid" || sampler_status=$?
@@ -310,6 +350,7 @@ SQL
     tail -100 "$dir"/measured.worker*.log >&2 || true
     fail "$name measured workers failed"
   fi
+  [[ "$sampler_covered" -eq 1 ]] || fail "$name lock sampler did not tick after the measured END"
   if grep -qiE '40P01|deadlock detected' "$dir"/measured.worker*.log; then
     fail "$name observed a deadlock"
   fi
@@ -347,6 +388,7 @@ worker_start_spread_ms=$start_spread_ms
 worker_session_model=persistent_same_psql_warmup_then_measure
 measurement_boundary=server_clock_same_session_after_warmup_barrier
 sample_interval_seconds=$SAMPLE_INTERVAL
+lock_sampler_format=v2_tick_and_call_identity
 lock_scope=$lock_scope
 META
   echo "M191_PERF_WORKLOAD_COMPLETE label=$LABEL workload=$name ops=$ops wall_s=$wall_s start_spread_ms=$start_spread_ms"

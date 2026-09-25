@@ -29,37 +29,180 @@ def percentile(values: list[float], p: float) -> float:
     return xs[idx]
 
 
-def parse_lock_samples(path: Path, interval_s: float) -> tuple[float, float, int]:
-    samples: dict[tuple[str, str], list[float]] = {}
-    count = 0
-    if path.exists():
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            parts = raw.split("\t")
-            if len(parts) < 4:
-                continue
-            try:
-                ts = float(parts[0])
-            except ValueError:
-                continue
-            samples.setdefault((parts[1], parts[2]), []).append(ts)
-            count += 1
+SAMPLER_FORMAT = "v2_tick_and_call_identity"
+MARKER_RE = re.compile(
+    r"^M191_PERF_MEASURE_(START|END)\|([0-9]+(?:\.[0-9]+)?)\|([0-9]+)\|([0-9]+)\|([0-9]+)$"
+)
 
-    aggregate_ms = count * interval_s * 1000.0
-    worst_ms = 0.0
-    max_gap = interval_s * 2.5
-    for times in samples.values():
+
+class EvidenceError(SystemExit):
+    """Benchmark evidence is incomplete or inconsistent; fail closed."""
+
+
+@dataclass(frozen=True)
+class WorkerWindow:
+    """One persistent measured worker session, identified by backend PID.
+
+    stmt_us values are the marker statements' statement_timestamp(), which is
+    what pg_stat_activity.query_start reports for them. Every measured RPC on
+    that backend has START.stmt_us < query_start < END.stmt_us, and the two
+    marker statements themselves fall outside the open interval.
+    """
+
+    worker: str
+    pid: int
+    start_stmt_us: int
+    start_clock_us: int
+    end_stmt_us: int
+    end_clock_us: int
+
+
+def parse_worker_windows(workload_dir: Path) -> list[WorkerWindow]:
+    windows: list[WorkerWindow] = []
+    for log in sorted(workload_dir.glob("measured.worker*.log")):
+        found: dict[str, tuple[int, int, int]] = {}
+        for raw in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = MARKER_RE.match(raw.strip())
+            if not match:
+                if raw.startswith("M191_PERF_MEASURE_"):
+                    raise EvidenceError(f"{log}: malformed measurement marker {raw!r}")
+                continue
+            kind = match.group(1)
+            if kind in found:
+                raise EvidenceError(f"{log}: duplicate {kind} marker")
+            found[kind] = (int(match.group(3)), int(match.group(4)), int(match.group(5)))
+        if set(found) != {"START", "END"}:
+            raise EvidenceError(f"{log}: missing call-identity measurement markers")
+        (spid, s_stmt, s_clock), (epid, e_stmt, e_clock) = found["START"], found["END"]
+        if spid != epid:
+            raise EvidenceError(f"{log}: START pid {spid} != END pid {epid}")
+        if not (s_stmt <= s_clock < e_stmt <= e_clock):
+            raise EvidenceError(f"{log}: inconsistent measurement window")
+        windows.append(
+            WorkerWindow(log.name, spid, s_stmt, s_clock, e_stmt, e_clock)
+        )
+    pids = [w.pid for w in windows]
+    if not windows or len(set(pids)) != len(pids):
+        raise EvidenceError(f"{workload_dir}: worker backend PIDs missing or not distinct")
+    return windows
+
+
+def parse_lock_samples(
+    path: Path,
+    interval_s: float,
+    windows: list[WorkerWindow],
+    worker_max_latency_ms: dict[int, float] | None = None,
+) -> dict:
+    """Attribute sampled Lock waits to individual measured RPC calls.
+
+    Call identity is (backend pid, query_start). pid alone would merge
+    sequential calls on one persistent worker; application_name is not used
+    for identity because it may be identical or truncated (NAMEDATALEN).
+    Estimator: every Lock sample of a call contributes one nominal sampling
+    interval, exactly as the aggregate does, so per-call and aggregate
+    estimates are additive and consistent.
+    """
+    if not path.exists():
+        raise EvidenceError(f"{path}: Lock sampler evidence missing")
+    interval_us = interval_s * 1_000_000
+    by_pid = {w.pid: w for w in windows}
+    ticks: list[int] = []
+    ready = 0
+    per_call: dict[tuple[int, int], int] = {}
+    per_pid_samples: dict[int, list[int]] = {}
+    wait_events: dict[str, int] = {}
+    call_span_us: dict[tuple[int, int], int] = {}
+    excluded = 0
+    for lineno, raw in enumerate(
+        path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+    ):
+        if not raw.strip():
+            continue
+        if raw == "M191_PERF_SAMPLER_READY":
+            ready += 1
+            continue
+        parts = raw.split("\t")
+        try:
+            if parts[0] == "T" and len(parts) == 2:
+                ticks.append(int(parts[1]))
+                continue
+            if parts[0] != "L" or len(parts) != 8:
+                raise ValueError("unrecognized sampler row")
+            sample_us, pid, query_start = int(parts[1]), int(parts[3]), int(parts[4])
+        except (ValueError, IndexError) as exc:
+            raise EvidenceError(
+                f"{path}:{lineno}: malformed Lock sample / missing call identity "
+                f"({exc}): {raw!r}"
+            ) from None
+        if parts[5] != "Lock":
+            raise EvidenceError(f"{path}:{lineno}: non-Lock wait sampled: {raw!r}")
+        window = by_pid.get(pid)
+        if window is None:
+            raise EvidenceError(
+                f"{path}:{lineno}: Lock sample from backend {pid} that is not a "
+                "measured worker"
+            )
+        if sample_us < query_start:
+            raise EvidenceError(f"{path}:{lineno}: sample precedes its statement start")
+        if not (window.start_stmt_us < query_start < window.end_stmt_us):
+            # warm-up, sampler start-up or marker/control SQL: never measured
+            excluded += 1
+            continue
+        key = (pid, query_start)
+        per_call[key] = per_call.get(key, 0) + 1
+        call_span_us[key] = max(call_span_us.get(key, 0), sample_us - query_start)
+        per_pid_samples.setdefault(pid, []).append(sample_us)
+        wait_events[parts[6] or "?"] = wait_events.get(parts[6] or "?", 0) + 1
+
+    if ready != 1:
+        raise EvidenceError(f"{path}: expected one sampler readiness marker, got {ready}")
+    first_start = min(w.start_clock_us for w in windows)
+    last_end = max(w.end_clock_us for w in windows)
+    if not ticks or min(ticks) > first_start or max(ticks) < last_end:
+        raise EvidenceError(
+            f"{path}: sampler ticks do not cover the measured window "
+            f"[{first_start}, {last_end}]"
+        )
+    in_window = sorted(t for t in ticks if first_start <= t <= last_end)
+    gaps = [b - a for a, b in zip(in_window, in_window[1:])]
+
+    if worker_max_latency_ms is not None:
+        for (pid, _), span in call_span_us.items():
+            bound_us = (worker_max_latency_ms[pid] * 1000.0) + interval_us
+            if span > bound_us:
+                raise EvidenceError(
+                    f"{path}: attributed call on backend {pid} spans {span} us, "
+                    f"longer than any measured call on that worker; identity merged calls"
+                )
+
+    count = sum(per_call.values())
+    worst_samples = max(per_call.values(), default=0)
+    streak = 0
+    max_gap = interval_us * 2.5
+    for times in per_pid_samples.values():
         times.sort()
-        episode = 0
+        run = 0
         previous = None
         for ts in times:
-            if previous is None or ts - previous <= max_gap:
-                episode += 1
-            else:
-                worst_ms = max(worst_ms, episode * interval_s * 1000.0)
-                episode = 1
+            run = run + 1 if previous is not None and ts - previous <= max_gap else 1
+            streak = max(streak, run)
             previous = ts
-        worst_ms = max(worst_ms, episode * interval_s * 1000.0)
-    return aggregate_ms, worst_ms, count
+    return {
+        "sample_count": count,
+        "aggregate_ms": count * interval_s * 1000.0,
+        "calls_with_lock_samples": len(per_call),
+        "worst_call_samples": worst_samples,
+        "worst_call_estimate_ms": worst_samples * interval_s * 1000.0,
+        "worst_call_observed_span_ms": max(call_span_us.values(), default=0) / 1000.0,
+        "longest_streak_ms": streak * interval_s * 1000.0,
+        "excluded_outside_window_samples": excluded,
+        "wait_events": dict(sorted(wait_events.items())),
+        "sampler_ticks_in_window": len(in_window),
+        "sampler_tick_interval_mean_ms": (
+            sum(gaps) / len(gaps) / 1000.0 if gaps else 0.0
+        ),
+        "sampler_tick_interval_max_ms": max(gaps, default=0) / 1000.0,
+    }
 
 
 @dataclass
@@ -90,10 +233,21 @@ def collect_leaf(workload_dir: Path) -> Leaf:
         raise SystemExit(
             f"{meta.get('label','?')}/{workload}: negative worker start spread"
         )
+    if meta.get("lock_sampler_format") != SAMPLER_FORMAT:
+        raise SystemExit(
+            f"{meta.get('label','?')}/{workload}: Lock sampler evidence lacks "
+            f"per-call identity (format {meta.get('lock_sampler_format')!r})"
+        )
+    windows = parse_worker_windows(workload_dir)
     latencies: list[float] = []
-    for log in sorted(workload_dir.glob("measured.worker*.log")):
-        text = log.read_text(encoding="utf-8", errors="replace")
-        latencies.extend(float(m.group(1)) for m in TIME_RE.finditer(text))
+    worker_max: dict[int, float] = {}
+    for window in windows:
+        text = (workload_dir / window.worker).read_text(
+            encoding="utf-8", errors="replace"
+        )
+        worker_lat = [float(m.group(1)) for m in TIME_RE.finditer(text)]
+        worker_max[window.pid] = max(worker_lat, default=0.0)
+        latencies.extend(worker_lat)
 
     expected = int(meta["operations"])
     if len(latencies) != expected:
@@ -103,8 +257,8 @@ def collect_leaf(workload_dir: Path) -> Leaf:
         )
 
     interval = float(meta["sample_interval_seconds"])
-    agg_lock, worst_lock, sample_count = parse_lock_samples(
-        workload_dir / "locks.tsv", interval
+    locks = parse_lock_samples(
+        workload_dir / "locks.tsv", interval, windows, worker_max
     )
     wall = float(meta["wall_seconds"])
     summary = {
@@ -125,9 +279,19 @@ def collect_leaf(workload_dir: Path) -> Leaf:
         "measurement_boundary": meta["measurement_boundary"],
         "worker_start_spread_ms": start_spread_ms,
         "sample_interval_seconds": interval,
-        "lock_wait_sample_count": sample_count,
-        "lock_wait_aggregate_estimate_ms": agg_lock,
-        "lock_wait_worst_episode_estimate_ms": worst_lock,
+        "lock_wait_sample_count": locks["sample_count"],
+        "lock_wait_aggregate_estimate_ms": locks["aggregate_ms"],
+        "lock_wait_calls_with_samples": locks["calls_with_lock_samples"],
+        "lock_wait_worst_call_samples": locks["worst_call_samples"],
+        "lock_wait_worst_call_estimate_ms": locks["worst_call_estimate_ms"],
+        "lock_wait_worst_call_observed_span_ms": locks["worst_call_observed_span_ms"],
+        "lock_wait_longest_same_backend_streak_ms": locks["longest_streak_ms"],
+        "lock_wait_excluded_outside_window_samples": locks["excluded_outside_window_samples"],
+        "lock_wait_events": locks["wait_events"],
+        "sampler_ticks_in_window": locks["sampler_ticks_in_window"],
+        "sampler_tick_interval_mean_ms": locks["sampler_tick_interval_mean_ms"],
+        "sampler_tick_interval_max_ms": locks["sampler_tick_interval_max_ms"],
+        "lock_sampler_format": meta["lock_sampler_format"],
         "fixture": fixture,
     }
     return Leaf(summary=summary, latencies=latencies)
@@ -165,6 +329,7 @@ def aggregate(repetitions: list[dict[str, Leaf]], workload: str) -> dict:
         item["lock_wait_aggregate_estimate_ms"] for item in summaries
     )
     run_ops = [item["ops_per_second"] for item in summaries]
+    run_p50 = [item["p50_ms"] for item in summaries]
     run_p95 = [item["p95_ms"] for item in summaries]
     fixture = summaries[0]["fixture"]
     session_model = summaries[0]["worker_session_model"]
@@ -185,6 +350,8 @@ def aggregate(repetitions: list[dict[str, Leaf]], workload: str) -> dict:
         "ops_per_second_min": min(run_ops),
         "ops_per_second_max": max(run_ops),
         "p50_ms": percentile(latencies, 0.50),
+        "p50_ms_min_by_run": min(run_p50),
+        "p50_ms_max_by_run": max(run_p50),
         "p95_ms": percentile(latencies, 0.95),
         "p95_ms_min_by_run": min(run_p95),
         "p95_ms_max_by_run": max(run_p95),
@@ -204,8 +371,38 @@ def aggregate(repetitions: list[dict[str, Leaf]], workload: str) -> dict:
         "lock_wait_estimate_ms_per_100_ops": (
             total_lock / total_ops * 100.0 if total_ops else 0.0
         ),
-        "lock_wait_worst_episode_estimate_ms": max(
-            item["lock_wait_worst_episode_estimate_ms"] for item in summaries
+        "lock_wait_calls_with_samples_total": sum(
+            item["lock_wait_calls_with_samples"] for item in summaries
+        ),
+        "lock_wait_worst_call_samples": max(
+            item["lock_wait_worst_call_samples"] for item in summaries
+        ),
+        "lock_wait_worst_call_estimate_ms": max(
+            item["lock_wait_worst_call_estimate_ms"] for item in summaries
+        ),
+        "lock_wait_worst_call_observed_span_ms": max(
+            item["lock_wait_worst_call_observed_span_ms"] for item in summaries
+        ),
+        "lock_wait_longest_same_backend_streak_ms": max(
+            item["lock_wait_longest_same_backend_streak_ms"] for item in summaries
+        ),
+        "lock_wait_excluded_outside_window_samples_total": sum(
+            item["lock_wait_excluded_outside_window_samples"] for item in summaries
+        ),
+        "lock_wait_events": {
+            event: sum(item["lock_wait_events"].get(event, 0) for item in summaries)
+            for event in sorted(
+                {event for item in summaries for event in item["lock_wait_events"]}
+            )
+        },
+        "sampler_ticks_in_window_total": sum(
+            item["sampler_ticks_in_window"] for item in summaries
+        ),
+        "sampler_tick_interval_mean_ms_max_by_run": max(
+            item["sampler_tick_interval_mean_ms"] for item in summaries
+        ),
+        "sampler_tick_interval_max_ms": max(
+            item["sampler_tick_interval_max_ms"] for item in summaries
         ),
         "fixture": fixture,
     }
@@ -295,7 +492,10 @@ def main() -> None:
                 "regression before Production."
             ),
             "lock_wait_method": (
-                "pg_stat_activity Lock-wait sampling; core_hot_multiwarehouse "
+                "pg_stat_activity Lock-wait sampling of measured worker backends; "
+                "per-call identity (pid, query_start) bounded by each worker's "
+                "START/END marker statements; estimator = samples x nominal "
+                "interval for aggregate and per call; core_hot_multiwarehouse "
                 "is the product-row/product-projection proxy because workers "
                 "share no bin."
             ),
@@ -339,19 +539,13 @@ def main() -> None:
         f"- pooled measured operations per workload/state: **{pooled_ops}**",
         f"- lock sampling interval: **{first_leaf['sample_interval_seconds']:.3f}s**",
         "",
-        "Lock-wait values are sampling estimates. The 'longest sampled Lock-wait "
-        "streak' groups consecutive Lock samples for the same backend and may span "
-        "multiple statements, wait events, and blockers; it is NOT the duration of "
-        "one lock wait. core_hot_multiwarehouse is the product-row/product-projection "
-        "proxy: workers share one product but use separate bins.",
+        "## Throughput and latency",
         "",
-        "| Workload | Pre ops/s | Post ops/s | Delta ops/s | Pre p95 ms | "
-        "Post p95 ms | Delta p95 | Pre p99 ms | Post p99 ms | "
-        "Pre lock ms/100 ops | Post lock ms/100 ops | "
-        "Post longest sampled Lock-wait streak ms |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Workload | Pre ops/s | Post ops/s | Delta ops/s | Pre p50 ms | "
+        "Post p50 ms | Delta p50 | Pre p95 ms | Post p95 ms | Delta p95 | "
+        "Pre p99 ms | Post p99 ms | Pre max ms | Post max ms |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
-
     for name in sorted(pre_agg):
         before = pre_agg[name]
         after = post_agg[name]
@@ -359,21 +553,99 @@ def main() -> None:
             f"| {name} | {before['ops_per_second']:.2f} | "
             f"{after['ops_per_second']:.2f} | "
             f"{pct(after['ops_per_second'], before['ops_per_second'])} | "
+            f"{before['p50_ms']:.3f} | {after['p50_ms']:.3f} | "
+            f"{pct(after['p50_ms'], before['p50_ms'])} | "
             f"{before['p95_ms']:.3f} | {after['p95_ms']:.3f} | "
             f"{pct(after['p95_ms'], before['p95_ms'])} | "
             f"{before['p99_ms']:.3f} | {after['p99_ms']:.3f} | "
+            f"{before['max_ms']:.3f} | {after['max_ms']:.3f} |"
+        )
+
+    interval_ms = first_leaf["sample_interval_seconds"] * 1000.0
+    lines += [
+        "",
+        "## Sampled Lock wait: aggregate and worst observed call",
+        "",
+        "All Lock values are **sampling estimates** from pg_stat_activity "
+        "(`wait_event_type='Lock'`) of the measured worker backends only. "
+        f"Estimator: each Lock sample counts one nominal {interval_ms:.0f} ms "
+        "interval, for the aggregate and per call alike.",
+        "",
+        "- **Per-call identity** is `(backend pid, query_start)`. Samples of one "
+        "measured RPC call accumulate across wait events and blockers; sequential "
+        "calls on the same persistent backend never merge; application_name is "
+        "not used for identity. Samples whose query_start falls outside a worker's "
+        "measured START/END marker statements are excluded.",
+        "- **Worst observed per-call sampled Lock-wait estimate** = most Lock "
+        f"samples attributed to one measured call x {interval_ms:.0f} ms. It is "
+        "quantized: one sample means the call was observed Lock-waiting at one "
+        "instant, not that it waited a full interval. A call's true lock wait "
+        "cannot exceed its own measured latency, so the state's **max statement "
+        "latency** is the hard upper bound for any single call.",
+        "- **Longest same-backend sampled Lock-wait streak** groups consecutive "
+        "samples of one backend and may span multiple calls, wait episodes and "
+        "blockers. It is NOT the duration of one lock wait or one call.",
+        "",
+        "| Workload | Pre Lock ms/100 ops | Post Lock ms/100 ops | "
+        "Pre calls w/ Lock samples | Post calls w/ Lock samples | "
+        "Pre worst per-call estimate ms (samples) | "
+        "Post worst per-call estimate ms (samples) | "
+        "Pre max statement latency ms | Post max statement latency ms | "
+        "Pre longest streak ms | Post longest streak ms |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for name in sorted(pre_agg):
+        before = pre_agg[name]
+        after = post_agg[name]
+        lines.append(
+            f"| {name} | "
             f"{before['lock_wait_estimate_ms_per_100_ops']:.1f} | "
             f"{after['lock_wait_estimate_ms_per_100_ops']:.1f} | "
-            f"{after['lock_wait_worst_episode_estimate_ms']:.1f} |"
+            f"{before['lock_wait_calls_with_samples_total']} | "
+            f"{after['lock_wait_calls_with_samples_total']} | "
+            f"{before['lock_wait_worst_call_estimate_ms']:.1f} "
+            f"({before['lock_wait_worst_call_samples']}) | "
+            f"{after['lock_wait_worst_call_estimate_ms']:.1f} "
+            f"({after['lock_wait_worst_call_samples']}) | "
+            f"{before['max_ms']:.3f} | {after['max_ms']:.3f} | "
+            f"{before['lock_wait_longest_same_backend_streak_ms']:.1f} | "
+            f"{after['lock_wait_longest_same_backend_streak_ms']:.1f} |"
         )
+
+    lines += [
+        "",
+        "### Lock wait-event mix and sampler coverage",
+        "",
+        "The sampler records generic `Lock` waits; it does not identify the "
+        "locked relation. `tuple`/`transactionid` are row-lock waits. In "
+        "core_hot_multiwarehouse the workers share one product row and no bin, "
+        "which is why it is the product-row serialization proxy.",
+        "",
+        "| Workload | State | Lock wait events (samples) | Excluded out-of-window samples | "
+        "Sampler ticks in window | Max mean tick interval ms | Max tick gap ms |",
+        "|---|---|---|---:|---:|---:|---:|",
+    ]
+    for name in sorted(pre_agg):
+        for state, agg in (("pre191", pre_agg[name]), ("post191", post_agg[name])):
+            events = ", ".join(
+                f"{event}={count}" for event, count in agg["lock_wait_events"].items()
+            ) or "none"
+            lines.append(
+                f"| {name} | {state} | {events} | "
+                f"{agg['lock_wait_excluded_outside_window_samples_total']} | "
+                f"{agg['sampler_ticks_in_window_total']} | "
+                f"{agg['sampler_tick_interval_mean_ms_max_by_run']:.2f} | "
+                f"{agg['sampler_tick_interval_max_ms']:.2f} |"
+            )
 
     lines += [
         "",
         "## Repeat-to-repeat noise envelope",
         "",
         "| Workload | Pre ops/s range | Post ops/s range | "
+        "Pre p50 range ms | Post p50 range ms | "
         "Pre p95 range ms | Post p95 range ms |",
-        "|---|---:|---:|---:|---:|",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for name in sorted(pre_agg):
         before = pre_agg[name]
@@ -384,6 +656,10 @@ def main() -> None:
             f"{before['ops_per_second_max']:.2f} | "
             f"{after['ops_per_second_min']:.2f}-"
             f"{after['ops_per_second_max']:.2f} | "
+            f"{before['p50_ms_min_by_run']:.3f}-"
+            f"{before['p50_ms_max_by_run']:.3f} | "
+            f"{after['p50_ms_min_by_run']:.3f}-"
+            f"{after['p50_ms_max_by_run']:.3f} | "
             f"{before['p95_ms_min_by_run']:.3f}-"
             f"{before['p95_ms_max_by_run']:.3f} | "
             f"{after['p95_ms_min_by_run']:.3f}-"
