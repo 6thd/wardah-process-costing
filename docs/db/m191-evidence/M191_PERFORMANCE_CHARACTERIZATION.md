@@ -1,8 +1,9 @@
 # M191 — Pre-Production Performance Characterization
 
-**Status:** balanced final characterization pending on this Draft PR. A first
-single-pass pilot succeeded and showed the expected hot-product serialization
-cost, but it is not sufficient by itself to close the gate.
+**Status:** corrected balanced characterization pending on this Draft PR.
+Independent review found that quantity-only reconciliation did not prove
+SLE/value/queue continuity. Earlier runs are diagnostic only and do not close
+the section 8 gate.
 
 **Authority:** docs/F2_M191_IMPLEMENTATION_EVIDENCE_GATES.md section 8.
 
@@ -57,8 +58,17 @@ pg_blocking_pids output.
 ## Fail-closed execution
 
 The harness fails on any RPC/worker error, timeout, 40P01/deadlock, setup
-failure, timed-call count mismatch, or post-191 product/bin reconciliation
-failure.
+failure or timed-call count mismatch.
+
+Every workload now snapshots its target stock state before warm-up and asserts
+after execution the exact expected bin quantity/value delta, stock-queue
+quantity/value delta, SLE row-count delta, SLE quantity delta and SLE
+stock-value-difference delta. Queue totals must equal bin totals for these
+positive rate-10 fixtures. Product projection must equal summed bins except for
+the single explicitly bounded pre-191 hot-multiwarehouse projection defect.
+
+The workflow also records and compares pre/post starting cardinalities for
+products, bins, reservations and SLE rows for every workload.
 
 One baseline exception is deliberate: pre-191 core_hot_multiwarehouse is the
 known lost-product-projection race that M191 fixes. Its product-vs-bin gap is
@@ -66,7 +76,7 @@ recorded rather than required to pass GREEN reconciliation. Negative stock or
 any unrelated invariant failure still fails the run. The deterministic M191 RED
 suite remains the proof; this benchmark does not depend on scheduler luck.
 
-## Pilot evidence — not the final gate
+## Earlier diagnostic evidence — not the final gate
 
 Successful pilot workflow run: 36132439989.
 
@@ -98,3 +108,16 @@ run ID, artifact digest, pooled table and interpretation, then receive
 independent review before section 8 is classified as closed.
 
 This document and workflow do not authorize Production or Staging mutation.
+
+
+## Independent review correction
+
+The first balanced run on `2359d0bd64269a06d4cda1f2fda57536362c644d`
+completed, but an independent reviewer correctly identified a P1 benchmark
+acceptance gap: a workload could have left bins/product projection internally
+consistent while SLE/value/queue effects were incomplete. The same review also
+required durable fixture cardinalities and final-run metadata in this document.
+
+The harness has therefore been hardened before any final rerun. The prior
+balanced numbers remain diagnostic only. A new exact-head run must succeed with
+the stronger effect accounting before section 8 can be considered for closure.
