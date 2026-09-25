@@ -143,7 +143,7 @@ jobs:
             2>&1 | tee /tmp/m191-perf/report-console.txt
           grep -q 'M191_PERF_CHARACTERIZATION_COMPLETE' /tmp/m191-perf/report-console.txt
           grep -q 'repetitions: \*\*4\*\*' /tmp/m191-perf/M191_PERFORMANCE_REPORT.md
-          grep -q 'pooled measured operations per workload/state: \*\*800\*\*' \
+          grep -q 'pooled measured operations per workload/state: \*\*3200\*\*' \
             /tmp/m191-perf/M191_PERFORMANCE_REPORT.md
 
       - name: Upload raw and summarized evidence
