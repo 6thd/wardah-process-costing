@@ -317,9 +317,9 @@ The product-projection concern is also covered fail-closed:
 - every workload validates `products.stock_quantity`;
 - `products.cost_price` is seeded to a deliberately incorrect sentinel before
   each workload and must be restored to the rate freshly derived from bins;
-- incoming/manual-in/Goods Receipt do **not** assert
-  `products.stock_value`, because canonical incoming deliberately does not
-  own that field;
+- incoming/manual-in/Goods Receipt explicitly assert that
+  `products.stock_value` is **preserved unchanged**, because canonical incoming
+  deliberately does not own that field;
 - outgoing and manufacturing consumption assert both the exact
   `products.stock_value` delta and equality with summed bin value;
 - the pre-191 hot-multiwarehouse known-RED exception relaxes only
