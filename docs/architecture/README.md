@@ -1,14 +1,16 @@
 # Wardah ERP — Architecture Index
 
-**آخر تحديث:** 2026-09-05  
+**آخر تحديث:** 2026-09-25  
 **الغرض:** فهرس معماري حي. لا تُستخدم نسب اكتمال أو خطط قديمة كبديل عن قراءة `main` الحالي وحالة Production المتحققة.
 
 ## نقطة الاستئناف الحالية
 
-- [`CURRENT_STABILIZATION_20260905.md`](./CURRENT_STABILIZATION_20260905.md) — **نقطة الاستئناف الحالية** بعد PR #227 وbaseline cutoff 189، مع صف انتظار متسلسل لموجة Astra stabilization.
+- [`CURRENT_STABILIZATION_20260925.md`](./CURRENT_STABILIZATION_20260925.md) — **نقطة الاستئناف الحالية** لـ#246/#241، Scanner v2، والعودة المنظمة للتصنيع.
+- [`STABILIZATION_RECONCILIATION_20260925.md`](./STABILIZATION_RECONCILIATION_20260925.md) — مصالحة F1–F5 والوثائق/المسارات التي تقدّم التنفيذ عليها.
+- [`CURRENT_STABILIZATION_20260905.md`](./CURRENT_STABILIZATION_20260905.md) — snapshot تاريخي؛ ليس restart authority حاليًا.
 - [`ASTRA_ARCHITECTURE_RED_TEAM_AUDIT_20260905.md`](./ASTRA_ARCHITECTURE_RED_TEAM_AUDIT_20260905.md) — Astra Architecture Red-Team Audit #1؛ يثبت F1–F5 ومرساة المراجعة وحدود الثقة.
 - [`ASTRA_REMEDIATION_TODO_20260905.md`](./ASTRA_REMEDIATION_TODO_20260905.md) — سجل Findings/Status/TODO ومعايير الإغلاق والربط بالـIssues.
-- [`EXECUTION_LEDGER.md`](./EXECUTION_LEDGER.md) — سجل التنفيذ التاريخي؛ مرساته العليا ما زالت تعكس مرحلة أقدم من cutoff 189، لذلك يُقرأ للسياق ولا يتجاوز Current Stabilization checkpoint إلى أن تتم مصالحته في PR مستقل.
+- [`EXECUTION_LEDGER.md`](./EXECUTION_LEDGER.md) — سجل التنفيذ التاريخي؛ يقرأ للسياق ولا يتجاوز checkpoint 2026-09-25.
 - [`PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md`](./PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md) — خطة `ALIGN-P*` لمواءمة خريطة المنتج والتنقّل وهيكل المستودع.
 - [`PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md`](./PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md) — snapshot تاريخي قبل `ALIGN-P1` مع توثيق نتيجة PR #193؛ ليس backlog حاليًا.
 
@@ -30,6 +32,7 @@
 ## التصنيع وتكلفة المراحل
 
 - [`../features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md`](../features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md) — خارطة `MFG-P*`; حالتها التنفيذية الحالية تُقرأ من Current Stabilization checkpoint ثم من السجل التاريخي عند الحاجة.
+- [`../features/manufacturing/CANONICAL_MANUFACTURING_EXECUTION_CONTRACT.md`](../features/manufacturing/CANONICAL_MANUFACTURING_EXECUTION_CONTRACT.md) — العقد الحاكم لمسار #229 → #234 → #230 بعد إغلاق موجة #246/#241.
 - [`PROCESS_COSTING_LIMITATIONS.md`](./PROCESS_COSTING_LIMITATIONS.md) — الحدود المعروفة.
 - [`EUP_IMPLEMENTATION_SUMMARY.md`](./EUP_IMPLEMENTATION_SUMMARY.md) — سجل تطبيق EUP.
 - [`FIFO_METHOD_SUMMARY.md`](./FIFO_METHOD_SUMMARY.md) — سجل FIFO.

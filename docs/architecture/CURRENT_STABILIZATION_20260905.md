@@ -1,5 +1,8 @@
 # Wardah ERP — Current Stabilization Checkpoint
 
+> **SUPERSEDED FOR RESTART PURPOSES — 2026-09-25.**
+> This checkpoint is retained as historical evidence. Use [`CURRENT_STABILIZATION_20260925.md`](./CURRENT_STABILIZATION_20260925.md) as the current restart authority. Do not rewrite the historical statuses below to look current.
+
 **Date:** 2026-09-05  
 **Repository anchor:** `main@c1b92e1d03b8e24c2cc6d170ecf7f0d6f02ade36` after PR #227  
 **Production/baseline cutoff:** 189 (`189_hr_read_rbac_alignment`) as published by PR #227  
