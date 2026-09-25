@@ -96,13 +96,14 @@ capture_product_effect() {
 assert_product_effect() {
   local key=$1 scenario=$2 org_id=$3 product_id=$4 expected_qty=$5 expected_value=$6 expected_rows=$7 allow_projection_gap=${8:-0} projection_contract=${9:-incoming}
   local pq pv pc bq bv qq qv sr sq sv neg expected_cost
-  local d_product d_product_value d_bq d_bv d_qq d_qv d_sr d_sq d_sv projection_gap
+  local d_product d_product_value d_product_cost d_bq d_bv d_qq d_qv d_sr d_sq d_sv projection_gap
 
   IFS='|' read -r pq pv pc bq bv qq qv sr sq sv neg <<<"$(product_effect_state "$org_id" "$product_id")"
   [[ "$neg" == "0" ]] || fail "$scenario: negative stock exists after workload"
 
   d_product=$(num_sub "$pq" "${SNAP_PRODUCT_QTY[$key]}")
   d_product_value=$(num_sub "$pv" "${SNAP_PRODUCT_VALUE[$key]}")
+  d_product_cost=$(num_sub "$pc" "${SNAP_PRODUCT_COST[$key]}")
   d_bq=$(num_sub "$bq" "${SNAP_BIN_QTY[$key]}")
   d_bv=$(num_sub "$bv" "${SNAP_BIN_VALUE[$key]}")
   d_qq=$(num_sub "$qq" "${SNAP_QUEUE_QTY[$key]}")
@@ -155,7 +156,7 @@ assert_product_effect() {
       ;;
   esac
 
-  echo "M191_PERF_EFFECT_OK scenario=$scenario qty=$d_bq value=$d_bv sle_rows=$d_sr sle_qty=$d_sq sle_value=$d_sv product_value_contract=$projection_contract product_cost=$pc"
+  echo "M191_PERF_EFFECT_OK scenario=$scenario qty=$d_bq value=$d_bv sle_rows=$d_sr sle_qty=$d_sq sle_value=$d_sv product_value_contract=$projection_contract product_cost=$pc product_cost_delta=$d_product_cost"
 }
 
 record_fixture_size() {
