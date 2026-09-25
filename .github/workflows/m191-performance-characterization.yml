@@ -1,0 +1,135 @@
+name: M191 Pre-Production Performance Characterization
+
+# Section 8 of the M191 evidence gates requires operational-cost evidence
+# before Production. Both states run on the same PostgreSQL 17 service/runner.
+# No Production or Staging connection is used.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/m191_perf_characterization.sh'
+      - 'scripts/ci/m191_perf_report.py'
+      - '.github/workflows/m191-performance-characterization.yml'
+      - 'docs/db/m191-evidence/M191_PERFORMANCE_CHARACTERIZATION.md'
+  workflow_dispatch:
+
+jobs:
+  characterize:
+    name: M191 before/after throughput and lock-wait
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      M191_PERF_CONCURRENCY: 4
+      M191_PERF_ITERATIONS: 30
+      M191_PERF_WARMUP: 5
+      M191_PERF_SAMPLE_INTERVAL: 0.02
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Record same-runner environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p /tmp/m191-perf
+          {
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "kernel=$(uname -a)"
+            echo "nproc=$(nproc)"
+            lscpu | grep -E 'Model name|CPU\(s\)|Thread|Core|Socket' || true
+            free -h || true
+            psql --version
+            psql -X -qAt -d postgres -c "SELECT version();"
+          } | tee /tmp/m191-perf/environment.txt
+
+      - name: Resolve cutoff-189 baseline pair
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          test "$CUTOFF" = "189"
+          echo "CUTOFF=$CUTOFF" >> "$GITHUB_ENV"
+
+      - name: Build identical pre-191 and post-191 databases
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          build() {
+            local db=$1 stop=$2
+            createdb "$db"
+            PGDATABASE="$db" psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+            PGDATABASE="$db" psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+            PGDATABASE="$db" psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+            python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > "/tmp/order-$db.txt"
+            sed -i "/^$stop\$/q" "/tmp/order-$db.txt"
+            grep -qx "$stop" "/tmp/order-$db.txt"
+            REPORT="/tmp/chain-$db.txt" PGDATABASE="$db" \
+              bash scripts/ci/fresh-db/run_chain.sh sql/migrations "/tmp/order-$db.txt"
+          }
+          build wardah_perf_pre191 190_material_consumption_authorization_boundary.sql
+          build wardah_perf_post191 191_f2_stock_write_concurrency_closure.sql
+
+      - name: Characterize pre-191
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/ci/m191_perf_characterization.sh \
+            wardah_perf_pre191 pre191 /tmp/m191-perf \
+            2>&1 | tee /tmp/m191-perf/pre191-run.log
+          grep -q 'M191_PERF_CHARACTERIZATION_DB_COMPLETE label=pre191' /tmp/m191-perf/pre191-run.log
+
+      - name: Characterize post-191
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/ci/m191_perf_characterization.sh \
+            wardah_perf_post191 post191 /tmp/m191-perf \
+            2>&1 | tee /tmp/m191-perf/post191-run.log
+          grep -q 'M191_PERF_CHARACTERIZATION_DB_COMPLETE label=post191' /tmp/m191-perf/post191-run.log
+
+      - name: Build comparison report
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/m191_perf_report.py /tmp/m191-perf \
+            --markdown /tmp/m191-perf/M191_PERFORMANCE_REPORT.md \
+            --json /tmp/m191-perf/M191_PERFORMANCE_REPORT.json \
+            2>&1 | tee /tmp/m191-perf/report-console.txt
+          grep -q 'M191_PERF_CHARACTERIZATION_COMPLETE' /tmp/m191-perf/report-console.txt
+
+      - name: Upload raw and summarized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m191-performance-characterization-\${{ github.run_id }}
+          path: |
+            /tmp/m191-perf/
+            /tmp/chain-wardah_perf_pre191.txt
+            /tmp/chain-wardah_perf_post191.txt
+          retention-days: 90
