@@ -3,14 +3,14 @@
 # Disposable PostgreSQL only. Never connects to Production or Staging.
 set -Eeuo pipefail
 
-DB=\${1:?database name required}
-LABEL=\${2:?label required}
-OUT_ROOT=\${3:?output directory required}
+DB=${1:?database name required}
+LABEL=${2:?label required}
+OUT_ROOT=${3:?output directory required}
 
-CONCURRENCY=\${M191_PERF_CONCURRENCY:-4}
-ITERATIONS=\${M191_PERF_ITERATIONS:-30}
-WARMUP=\${M191_PERF_WARMUP:-5}
-SAMPLE_INTERVAL=\${M191_PERF_SAMPLE_INTERVAL:-0.02}
+CONCURRENCY=${M191_PERF_CONCURRENCY:-4}
+ITERATIONS=${M191_PERF_ITERATIONS:-30}
+WARMUP=${M191_PERF_WARMUP:-5}
+SAMPLE_INTERVAL=${M191_PERF_SAMPLE_INTERVAL:-0.02}
 
 export PGDATABASE="$DB"
 export SCRATCH="docs/db/m191-evidence/harness"
@@ -42,12 +42,12 @@ run_workload() {
       q="$($callback "$w")"
       for _ in $(seq 1 "$WARMUP"); do printf '%s\n' "$q"; done
     } > "$f"
-    PGAPPNAME="m191perf-$LABEL-$name-w$w" "\${PSQL[@]}" -f "$f" \
+    PGAPPNAME="m191perf-$LABEL-$name-w$w" "${PSQL[@]}" -f "$f" \
       >"$dir/warmup.worker$w.log" 2>&1 &
     pids+=("$!")
   done
   failed=0
-  for pid in "\${pids[@]}"; do
+  for pid in "${pids[@]}"; do
     if ! wait "$pid"; then failed=1; fi
   done
   if [[ "$failed" -ne 0 ]]; then
@@ -87,20 +87,20 @@ WHERE application_name LIKE 'm191perf-$LABEL-$name-%'
   AND wait_event_type='Lock';
 \watch $SAMPLE_INTERVAL
 SQL
-  PGAPPNAME="m191perf-$LABEL-$name-sampler" "\${PSQL[@]}" \
+  PGAPPNAME="m191perf-$LABEL-$name-sampler" "${PSQL[@]}" \
     -f "$dir/sampler.sql" >"$dir/locks.tsv" 2>"$dir/locks.err" &
   sampler_pid=$!
 
   start_ns=$(date +%s%N)
   pids=()
   for w in $(seq 1 "$CONCURRENCY"); do
-    PGAPPNAME="m191perf-$LABEL-$name-w$w" "\${PSQL[@]}" \
+    PGAPPNAME="m191perf-$LABEL-$name-w$w" "${PSQL[@]}" \
       -f "$dir/measured.worker$w.sql" >"$dir/measured.worker$w.log" 2>&1 &
     pids+=("$!")
   done
 
   failed=0
-  for pid in "\${pids[@]}"; do
+  for pid in "${pids[@]}"; do
     if ! wait "$pid"; then failed=1; fi
   done
   end_ns=$(date +%s%N)
@@ -155,44 +155,44 @@ S7_DIST_W=(
   "00002294-0000-0000-0000-0000000000e4"
 )
 
-"\${PSQL[@]}" <<SQL
+"${PSQL[@]}" <<SQL
 UPDATE public.bins
 SET actual_qty=100000,reserved_qty=0,valuation_rate=10,stock_value=1000000,
     stock_queue='[{"qty":100000,"rate":10}]'::jsonb
 WHERE org_id='$S7_ORG';
 
 INSERT INTO public.warehouses(id,org_id,code,name) VALUES
- ('\${S7_MULTI_W[1]}','$S7_ORG','PERF-MW2','Perf Multi WH2'),
- ('\${S7_MULTI_W[2]}','$S7_ORG','PERF-MW3','Perf Multi WH3'),
- ('\${S7_MULTI_W[3]}','$S7_ORG','PERF-MW4','Perf Multi WH4');
+ ('${S7_MULTI_W[1]}','$S7_ORG','PERF-MW2','Perf Multi WH2'),
+ ('${S7_MULTI_W[2]}','$S7_ORG','PERF-MW3','Perf Multi WH3'),
+ ('${S7_MULTI_W[3]}','$S7_ORG','PERF-MW4','Perf Multi WH4');
 INSERT INTO public.bins(id,org_id,product_id,warehouse_id,actual_qty,reserved_qty,valuation_rate,stock_value,stock_queue) VALUES
- ('00002294-0000-0000-0000-0000000001c2','$S7_ORG','$S7_P2','\${S7_MULTI_W[1]}',100000,0,10,1000000,'[{"qty":100000,"rate":10}]'),
- ('00002294-0000-0000-0000-0000000001c3','$S7_ORG','$S7_P2','\${S7_MULTI_W[2]}',100000,0,10,1000000,'[{"qty":100000,"rate":10}]'),
- ('00002294-0000-0000-0000-0000000001c4','$S7_ORG','$S7_P2','\${S7_MULTI_W[3]}',100000,0,10,1000000,'[{"qty":100000,"rate":10}]');
+ ('00002294-0000-0000-0000-0000000001c2','$S7_ORG','$S7_P2','${S7_MULTI_W[1]}',100000,0,10,1000000,'[{"qty":100000,"rate":10}]'),
+ ('00002294-0000-0000-0000-0000000001c3','$S7_ORG','$S7_P2','${S7_MULTI_W[2]}',100000,0,10,1000000,'[{"qty":100000,"rate":10}]'),
+ ('00002294-0000-0000-0000-0000000001c4','$S7_ORG','$S7_P2','${S7_MULTI_W[3]}',100000,0,10,1000000,'[{"qty":100000,"rate":10}]');
 
 INSERT INTO public.products(id,org_id,code,name,is_stockable,base_uom_id,cost_price)
 SELECT p.id,'$S7_ORG',p.code,p.name,true,u.id,10
 FROM (VALUES
- ('\${S7_DIST_P[0]}'::uuid,'PERF-D1','Perf Distinct 1'),
- ('\${S7_DIST_P[1]}'::uuid,'PERF-D2','Perf Distinct 2'),
- ('\${S7_DIST_P[2]}'::uuid,'PERF-D3','Perf Distinct 3'),
- ('\${S7_DIST_P[3]}'::uuid,'PERF-D4','Perf Distinct 4')
+ ('${S7_DIST_P[0]}'::uuid,'PERF-D1','Perf Distinct 1'),
+ ('${S7_DIST_P[1]}'::uuid,'PERF-D2','Perf Distinct 2'),
+ ('${S7_DIST_P[2]}'::uuid,'PERF-D3','Perf Distinct 3'),
+ ('${S7_DIST_P[3]}'::uuid,'PERF-D4','Perf Distinct 4')
 ) p(id,code,name)
 CROSS JOIN LATERAL (
  SELECT id FROM public.uoms WHERE org_id IS NULL AND is_active AND NOT is_product_specific LIMIT 1
 ) u;
 INSERT INTO public.warehouses(id,org_id,code,name) VALUES
- ('\${S7_DIST_W[0]}','$S7_ORG','PERF-DW1','Perf Distinct WH1'),
- ('\${S7_DIST_W[1]}','$S7_ORG','PERF-DW2','Perf Distinct WH2'),
- ('\${S7_DIST_W[2]}','$S7_ORG','PERF-DW3','Perf Distinct WH3'),
- ('\${S7_DIST_W[3]}','$S7_ORG','PERF-DW4','Perf Distinct WH4');
+ ('${S7_DIST_W[0]}','$S7_ORG','PERF-DW1','Perf Distinct WH1'),
+ ('${S7_DIST_W[1]}','$S7_ORG','PERF-DW2','Perf Distinct WH2'),
+ ('${S7_DIST_W[2]}','$S7_ORG','PERF-DW3','Perf Distinct WH3'),
+ ('${S7_DIST_W[3]}','$S7_ORG','PERF-DW4','Perf Distinct WH4');
 INSERT INTO public.bins(id,org_id,product_id,warehouse_id,actual_qty,reserved_qty,valuation_rate,stock_value,stock_queue)
 SELECT gen_random_uuid(),'$S7_ORG',pp.p,ww.w,100000,0,10,1000000,'[{"qty":100000,"rate":10}]'::jsonb
 FROM unnest(ARRAY[
- '\${S7_DIST_P[0]}'::uuid,'\${S7_DIST_P[1]}'::uuid,'\${S7_DIST_P[2]}'::uuid,'\${S7_DIST_P[3]}'::uuid
+ '${S7_DIST_P[0]}'::uuid,'${S7_DIST_P[1]}'::uuid,'${S7_DIST_P[2]}'::uuid,'${S7_DIST_P[3]}'::uuid
 ]) WITH ORDINALITY pp(p,n)
 JOIN unnest(ARRAY[
- '\${S7_DIST_W[0]}'::uuid,'\${S7_DIST_W[1]}'::uuid,'\${S7_DIST_W[2]}'::uuid,'\${S7_DIST_W[3]}'::uuid
+ '${S7_DIST_W[0]}'::uuid,'${S7_DIST_W[1]}'::uuid,'${S7_DIST_W[2]}'::uuid,'${S7_DIST_W[3]}'::uuid
 ]) WITH ORDINALITY ww(w,n) USING(n);
 
 UPDATE public.products p
@@ -209,11 +209,11 @@ q_core_hot_same() {
 }
 q_core_hot_multi() {
   local idx=$(( $1 - 1 ))
-  printf "SELECT public.wardah_apply_stock_incoming('%s','%s','%s',1,10,'Goods Receipt',gen_random_uuid(),'PERF-'||gen_random_uuid()::text,CURRENT_DATE);" "$S7_ORG" "$S7_P2" "\${S7_MULTI_W[$idx]}"
+  printf "SELECT public.wardah_apply_stock_incoming('%s','%s','%s',1,10,'Goods Receipt',gen_random_uuid(),'PERF-'||gen_random_uuid()::text,CURRENT_DATE);" "$S7_ORG" "$S7_P2" "${S7_MULTI_W[$idx]}"
 }
 q_core_distinct() {
   local idx=$(( $1 - 1 ))
-  printf "SELECT public.wardah_apply_stock_incoming('%s','%s','%s',1,10,'Goods Receipt',gen_random_uuid(),'PERF-'||gen_random_uuid()::text,CURRENT_DATE);" "$S7_ORG" "\${S7_DIST_P[$idx]}" "\${S7_DIST_W[$idx]}"
+  printf "SELECT public.wardah_apply_stock_incoming('%s','%s','%s',1,10,'Goods Receipt',gen_random_uuid(),'PERF-'||gen_random_uuid()::text,CURRENT_DATE);" "$S7_ORG" "${S7_DIST_P[$idx]}" "${S7_DIST_W[$idx]}"
 }
 q_outgoing() {
   printf "SELECT public.wardah_apply_stock_outgoing('%s','%s','%s',1,'Delivery Note',gen_random_uuid(),'PERF-'||gen_random_uuid()::text,CURRENT_DATE);" "$S7_ORG" "$S7_P1" "$S7_W"
@@ -231,13 +231,13 @@ run_workload manual_movement_hot_same_warehouse "$S7_ADMIN" q_manual all_lock_wa
 CURRENT_SCENARIO="m191-perf-$LABEL-reconcile-s7"
 reconcile_product perf-s7-p1 "$S7_ORG" "$S7_P1"
 reconcile_product perf-s7-p2 "$S7_ORG" "$S7_P2"
-for p in "\${S7_DIST_P[@]}"; do reconcile_product perf-s7-dist "$S7_ORG" "$p"; done
+for p in "${S7_DIST_P[@]}"; do reconcile_product perf-s7-dist "$S7_ORG" "$p"; done
 
 # ---- real Goods Receipt representative ---------------------------------------
 # shellcheck source=/dev/null
 source "$SCRATCH/s8_fixture.sh"
 S8_ORG=$org; S8_USR=$usr; S8_A=$A; S8_W=$W; S8_VEND=$VEND
-"\${PSQL[@]}" <<SQL
+"${PSQL[@]}" <<SQL
 UPDATE public.bins
 SET actual_qty=100000,valuation_rate=10,stock_value=1000000,
     stock_queue='[{"qty":100000,"rate":10}]'::jsonb
@@ -257,7 +257,7 @@ reconcile_product perf-s8-a "$S8_ORG" "$S8_A"
 source "$SCRATCH/s9_fixture.sh"
 reset_fixture
 S9_ORG=$org; S9_ADM=$adm; S9_X=$X; S9_I1=$I1; S9_W=$W; S9_STAGE=$STAGE
-"\${PSQL[@]}" <<SQL
+"${PSQL[@]}" <<SQL
 UPDATE public.bins
 SET actual_qty=100000,reserved_qty=0,valuation_rate=10,stock_value=1000000,
     stock_queue='[{"qty":100000,"rate":10}]'::jsonb
@@ -272,10 +272,10 @@ reserve_qty=$((WARMUP + ITERATIONS + 10))
 for w in $(seq 1 "$CONCURRENCY"); do
   order_no="M191-PERF-$LABEL-MO-$w"
   as_user "$(mo_payload "$order_no" "jsonb_build_array(jsonb_build_object('item_id','$S9_I1','quantity',$reserve_qty))")" >/dev/null
-  mo=$("\${PSQL[@]}" -c "SELECT id FROM public.manufacturing_orders WHERE org_id='$S9_ORG' AND order_number='$order_no'")
+  mo=$("${PSQL[@]}" -c "SELECT id FROM public.manufacturing_orders WHERE org_id='$S9_ORG' AND order_number='$order_no'")
   [[ -n "$mo" ]] || fail "failed to create consumption MO worker=$w"
   mk_wip "$mo"
-  "\${PSQL[@]}" -c "INSERT INTO public.zz_m191_perf_mos(worker_id,mo_id) VALUES ($w,'$mo');"
+  "${PSQL[@]}" -c "INSERT INTO public.zz_m191_perf_mos(worker_id,mo_id) VALUES ($w,'$mo');"
 done
 
 q_consumption() {
@@ -285,6 +285,6 @@ q_consumption() {
 run_workload manufacturing_consumption_hot_same_warehouse "$S9_ADM" q_consumption all_lock_waits
 CURRENT_SCENARIO="m191-perf-$LABEL-reconcile-s9"
 reconcile_product perf-s9-x "$S9_ORG" "$S9_X"
-"\${PSQL[@]}" -c "DROP TABLE public.zz_m191_perf_mos;"
+"${PSQL[@]}" -c "DROP TABLE public.zz_m191_perf_mos;"
 
 echo "M191_PERF_CHARACTERIZATION_DB_COMPLETE label=$LABEL database=$DB"
