@@ -12,7 +12,9 @@ on:
       - 'scripts/ci/m191_perf_characterization.sh'
       - 'scripts/ci/m191_perf_report.py'
       - '.github/workflows/m191-performance-characterization.yml'
-      - 'docs/db/m191-evidence/M191_PERFORMANCE_CHARACTERIZATION.md'
+      # Deliberately exclude the durable evidence Markdown: persisting a
+      # reviewed run must not recursively create a new benchmark run/ID.
+      # Harness/reporter/workflow changes still require fresh characterization.
   workflow_dispatch:
 
 jobs:
