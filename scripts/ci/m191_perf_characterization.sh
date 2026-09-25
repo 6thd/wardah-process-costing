@@ -152,7 +152,7 @@ run_workload() {
   local name=$1 auth_user=$2 callback=$3 lock_scope=$4
   local dir="$OUT/$name"
   mkdir -p "$dir"
-  local w q f pid failed sampler_pid start_ns end_ns wall_s ops
+  local w q f pid failed sampler_pid sampler_ready sampler_status start_ns end_ns wall_s ops
   local -a pids=()
 
   # Warm-up: same clients/query shape, excluded from metrics.
@@ -203,6 +203,7 @@ run_workload() {
   cat >"$dir/sampler.sql" <<SQL
 \pset tuples_only on
 \pset format unaligned
+SELECT 'M191_PERF_SAMPLER_READY';
 SELECT
   extract(epoch FROM clock_timestamp())::numeric(20,6) || E'\t' ||
   application_name || E'\t' || pid::text || E'\t' ||
@@ -218,6 +219,29 @@ SQL
     -f "$dir/sampler.sql" >"$dir/locks.tsv" 2>"$dir/locks.err" &
   sampler_pid=$!
 
+  # Fail closed if the sampling session never becomes live. The ready row is
+  # deliberately not a lock sample (the reporter ignores non-tabbed rows).
+  sampler_ready=0
+  for _ in $(seq 1 100); do
+    if grep -qx 'M191_PERF_SAMPLER_READY' "$dir/locks.tsv" 2>/dev/null; then
+      sampler_ready=1
+      break
+    fi
+    if ! kill -0 "$sampler_pid" 2>/dev/null; then
+      sampler_status=0
+      wait "$sampler_pid" || sampler_status=$?
+      cat "$dir/locks.err" >&2 || true
+      fail "$name lock sampler exited before readiness (status=$sampler_status)"
+    fi
+    sleep 0.02
+  done
+  if [[ "$sampler_ready" -ne 1 ]]; then
+    kill "$sampler_pid" 2>/dev/null || true
+    wait "$sampler_pid" 2>/dev/null || true
+    cat "$dir/locks.err" >&2 || true
+    fail "$name lock sampler did not emit readiness evidence"
+  fi
+
   start_ns=$(date +%s%N)
   pids=()
   for w in $(seq 1 "$CONCURRENCY"); do
@@ -231,6 +255,21 @@ SQL
     if ! wait "$pid"; then failed=1; fi
   done
   end_ns=$(date +%s%N)
+
+  # A zero-wait workload is valid only if the sampler stayed alive throughout
+  # the measured window. An early sampler exit must never become "0 ms wait".
+  if ! kill -0 "$sampler_pid" 2>/dev/null; then
+    sampler_status=0
+    wait "$sampler_pid" || sampler_status=$?
+    cat "$dir/locks.err" >&2 || true
+    fail "$name lock sampler exited during measurement (status=$sampler_status)"
+  fi
+  if grep -qiE '(^|: )(ERROR|FATAL):|could not connect|invalid command|permission denied' "$dir/locks.err"; then
+    cat "$dir/locks.err" >&2 || true
+    kill "$sampler_pid" 2>/dev/null || true
+    wait "$sampler_pid" 2>/dev/null || true
+    fail "$name lock sampler reported an error"
+  fi
   kill "$sampler_pid" 2>/dev/null || true
   wait "$sampler_pid" 2>/dev/null || true
 
