@@ -36,11 +36,11 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
 
-> **Post-snapshot repository reconciliation — 2026-09-25:** the generated block above is intentionally left byte-owned by `scripts/ci/update_baseline_docs.py` and remains a 2026-09-05 live-state snapshot. Current `main@e3869c2f6f7485c423281e42dfc72504edca30e8` contains repository Migration 190 (`190_material_consumption_authorization_boundary.sql`). Do **not** infer that Production is at 190 from repository presence, and do not hand-edit the generated block to say so. Migration 191 remains on open PR #241 rather than `main`. Use `docs/architecture/CURRENT_STABILIZATION_20260925.md` for the current repository/workflow restart point and a fresh live ledger/readback for any Production claim.
-
 الكتلة أعلاه مملوكة بالكامل لـ`scripts/ci/update_baseline_docs.py` وتُستبدل عند كل
 توليد Baseline. أي تحقق أو فجوة لاحقة للّقطة يجب أن تُسجّل في المراجع خارج الماركرين
 حتى لا يمحوها التشغيل التالي بصمت.
+
+> **Post-snapshot repository reconciliation — 2026-09-25:** the generated block above is intentionally left byte-owned by `scripts/ci/update_baseline_docs.py` and remains a 2026-09-05 live-state snapshot. Current `main@e3869c2f6f7485c423281e42dfc72504edca30e8` contains repository Migration 190 (`190_material_consumption_authorization_boundary.sql`). Do **not** infer that Production is at 190 from repository presence, and do not hand-edit the generated block to say so. Migration 191 remains on open PR #241 rather than `main`. Use `docs/architecture/CURRENT_STABILIZATION_20260925.md` for the current repository/workflow restart point and a fresh live ledger/readback for any Production claim.
 
 استثناءات سجل Production التاريخية محفوظة دون تعديل في:
 `sql/migrations/migration_ledger_exceptions.json`:

@@ -6,7 +6,7 @@
 **Document status:** Draft specification — not a final readiness verdict  
 **Purpose:** Define the exact report package, evidence rules, closure gates, and update procedure for the final Genspark presentation/reporting cycle.  
 **Repository:** `6thd/wardah-process-costing`  
-**Current documentation branch:** `docs/manufacturing-canonical-execution-contract`  
+**Origin documentation branch (historical):** `docs/manufacturing-canonical-execution-contract` — imported into `docs/reports/` by the 2026-09-25 reconciliation; the repository copy is the one to update.  
 **Related manufacturing contract:** `docs/features/manufacturing/CANONICAL_MANUFACTURING_EXECUTION_CONTRACT.md`  
 **Primary tracked issues:** `#229`, `#230`, `#234`, `#241`, `#246`, `#247`, `#252`  
 
@@ -508,7 +508,7 @@ Before generating the final Genspark package, replace every draft field below wi
 ### Security / tenancy
 
 - [ ] scanner status final
-- [ ] #243 limitations explicitly listed
+- [ ] closed #243 classes and the open #252 `standard_conforming_strings=off` boundary explicitly listed
 - [ ] RLS/tenant-isolation scope independently assessed
 
 ### Consumers / performance
@@ -549,7 +549,7 @@ Once every required gate is closed, this headline should be rewritten from curre
 
 Repository references that must be re-read before final publication:
 
-- `sql/migrations/191_f2_stock_write_concurrency_closure.sql`
+- `sql/migrations/191_f2_stock_write_concurrency_closure.sql` — exists only on the PR #241 branch as of 2026-09-25, not on `main`; read it at the frozen #241 SHA
 - `docs/F2_M191_IMPLEMENTATION_EVIDENCE_GATES.md`
 - `docs/F2_STOCK_BIN_RACE_FIX_DESIGN.md`
 - `docs/db/MATERIAL_CONSUMPTION_AUTH_190_RUNBOOK.md`
