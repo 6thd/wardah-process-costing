@@ -1,9 +1,8 @@
 # M191 — Pre-Production Performance Characterization
 
-**Status:** corrected balanced characterization pending on this Draft PR.
-Independent review found that quantity-only reconciliation did not prove
-SLE/value/queue continuity. Earlier runs are diagnostic only and do not close
-the section 8 gate.
+**Status:** final corrected balanced characterization collected; independent
+methodology/result closure review pending. Earlier runs are diagnostic only and
+do not close the section 8 gate.
 
 **Authority:** docs/F2_M191_IMPLEMENTATION_EVIDENCE_GATES.md section 8.
 
@@ -121,3 +120,128 @@ required durable fixture cardinalities and final-run metadata in this document.
 The harness has therefore been hardened before any final rerun. The prior
 balanced numbers remain diagnostic only. A new exact-head run must succeed with
 the stronger effect accounting before section 8 can be considered for closure.
+
+## Final corrected characterization — evidence frozen 2026-09-25
+
+The final benchmark bytes were frozen at:
+
+`1b0d4b77a44f2344c0136a145ad1b740144e8406`
+
+That head includes the fail-closed lock-sampler health fix and the workflow
+trigger correction that prevents a later evidence-only Markdown update from
+recursively creating a new benchmark run.
+
+Final workflow:
+
+- run: `36149385284`
+- result: **SUCCESS**
+- artifact: `10869779961`
+- artifact digest:
+  `sha256:06cc4dc025c99caf7d8c72db454f3fb2e3223866a66fc8f72fa4615afa05809a`
+- PostgreSQL server: **17.11**
+- environment: disposable GitHub Actions PostgreSQL only; no Production or
+  Staging access.
+
+The sampler is now fail-closed: the benchmark waits for an explicit
+`M191_PERF_SAMPLER_READY` marker before starting measured workers, requires
+the sampler process to remain alive through the measured window, and rejects
+sampler connection/psql errors. A legitimate zero Lock-wait result is therefore
+distinguishable from a sampler that never ran.
+
+All four repetitions passed the stronger stock-effect accounting. Every
+workload proved its expected bin quantity/value delta, queue quantity/value,
+SLE row-count delta, SLE quantity delta, and SLE
+`stock_value_difference` delta. The reporter also persisted workload-start
+fixture cardinalities and required pre/post cardinality equality.
+
+### Final pooled measurements
+
+| Workload | Pre ops/s | Post ops/s | Delta ops/s | Pre p95 ms | Post p95 ms | Delta p95 | Pre p99 ms | Post p99 ms | Pre Lock ms/100 ops | Post Lock ms/100 ops |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| distinct SKU | 1177.76 | 1154.75 | -2.0% | 3.068 | 3.205 | +4.5% | 13.792 | 14.786 | 0.0 | 0.0 |
+| hot SKU / multiwarehouse | 1004.51 | 672.04 | **-33.1%** | 4.291 | 7.726 | **+80.1%** | 14.906 | 23.076 | 105.0 | 297.5 |
+| hot SKU / same warehouse | 729.21 | 661.73 | -9.3% | 7.061 | 8.742 | +23.8% | 18.898 | 23.512 | 282.5 | 280.0 |
+| Goods Receipt | 138.06 | 135.35 | -2.0% | 38.695 | 40.777 | +5.4% | 90.083 | 93.356 | 2005.0 | 2077.5 |
+| manual movement | 654.42 | 600.99 | -8.2% | 8.122 | 9.749 | +20.0% | 23.236 | 32.067 | 290.0 | 335.0 |
+| manufacturing consumption | 430.75 | 371.33 | -13.8% | 17.765 | 15.944 | -10.3% | 44.171 | 52.517 | 460.0 | 617.5 |
+| outgoing | 674.26 | 630.84 | -6.4% | 7.441 | 8.609 | +15.7% | 25.927 | 27.387 | 315.0 | 320.0 |
+
+The post-191 worst sampled Lock-wait episode in the hot-multiwarehouse proxy
+was **200 ms**.
+
+### Repeat-to-repeat envelope
+
+The dominant hot-multiwarehouse delta was reproducible across all four fresh
+pairs:
+
+- pre throughput: **987.81–1026.53 ops/s**
+- post throughput: **642.50–708.03 ops/s**
+- pre p95: **3.945–4.575 ms**
+- post p95: **6.762–8.833 ms**
+
+The distinct-SKU control retained parallelism:
+
+- pre throughput: **1152.20–1199.50 ops/s**
+- post throughput: **1083.01–1198.17 ops/s**
+- sampled Lock wait: **0 ms/100 operations in both states**
+
+### Fixture cardinalities
+
+| Workload | Org products | Org bins | Target products | Target bins | Org reservations | Target reservations | Org SLE rows | Target SLE rows |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| distinct SKU | 6 | 9 | 4 | 4 | 0 | 0 | 480 | 0 |
+| hot SKU / multiwarehouse | 6 | 9 | 1 | 4 | 0 | 0 | 240 | 0 |
+| hot SKU / same warehouse | 6 | 9 | 1 | 1 | 0 | 0 | 0 | 0 |
+| Goods Receipt | 2 | 2 | 1 | 1 | 0 | 0 | 0 | 0 |
+| manual movement | 6 | 9 | 1 | 1 | 0 | 0 | 960 | 480 |
+| manufacturing consumption | 3 | 2 | 1 | 1 | 4 | 4 | 0 | 0 |
+| outgoing | 6 | 9 | 1 | 1 | 0 | 0 | 720 | 240 |
+
+These are intentionally small deterministic CI fixtures, not a claim to model
+Production cardinality. Their purpose is same-runner before/after lock-cost
+characterization under controlled contention.
+
+### Interpretation requiring independent confirmation
+
+The material regression is concentrated in
+`core_hot_multiwarehouse`: one product is shared while each worker uses a
+different bin. That is precisely the workload M191 intentionally changes from
+warehouse-local concurrency to product-prefix serialization so the shared
+product projection cannot race. The -33.1% throughput and +80.1% p95 are
+therefore a measured cost of the correctness boundary, not an unexplained
+cross-system slowdown.
+
+The controls support that interpretation:
+
+- distinct SKU remains close to baseline and has zero sampled Lock wait;
+- Goods Receipt is close to flat;
+- outgoing is a small/moderate delta;
+- same-bin contention already serialized before M191 and changes much less
+  than the same-product/different-bin proxy;
+- manual movement is moderately slower;
+- manufacturing consumption shows lower throughput but improved p95, with its
+  ordered reservation-universe prepass and product prefix both included in the
+  measured path.
+
+The pre-191 hot-multiwarehouse lost-product-projection condition was observed
+in **1/4** repetitions. This remains observational corroboration only; the
+deterministic RED acceptance suite is the defect proof.
+
+No percentage in this report is a newly invented SLO. The open review question
+is whether the explained serialization cost is operationally acceptable for
+Wardah's expected same-SKU cross-warehouse contention. The correctness lock
+contract must not be weakened merely to improve these measurements.
+
+### Gate disposition
+
+**Evidence collection is complete; independent closure review is still
+required before §8 is classified closed.**
+
+A documentation-only persistence commit follows the benchmark head above. It
+does not alter the harness, reporter, workflow execution logic, Migration 191,
+or the measured artifact, and by design does not trigger a recursive benchmark
+run.
+
+No Production/Staging apply, rollout, or baseline regeneration is authorized
+by this evidence.
+
