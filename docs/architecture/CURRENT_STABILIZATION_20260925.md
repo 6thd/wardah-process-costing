@@ -8,6 +8,19 @@
 > This checkpoint supersedes `CURRENT_STABILIZATION_20260905.md` as the current restart point.  
 > It records repository/PR/Issue state only. It does **not** infer current Production state from repository merges, and it authorizes no merge or Production/Staging mutation.
 
+## 0. Post-merge reconciliation block — 2026-09-25 (anchor `main@0761d567965e7977ea2702166143ea6c2f1dc1da`)
+
+Sections 1–11 below were written at `main@e3869c2f` and remain as that snapshot. Where they differ, the following supersedes them:
+
+- **PR #246 is merged** into the #241 branch (2026-09-25T10:04Z, `a3ab0cb`) and is historical. It is not an open track.
+- **PR #241 is merged to `main`** (2026-09-25T11:43Z, `0761d567`). **Migration 191 is on `main`.** M190 SHA256 `0fa01345…ba2f` and M191 SHA256 `637a81ca…3f40` are unchanged.
+- **PR #258** (Draft/Open) is the active **M191 pre-Production performance and owner-rollout gate** (§3 below). It is not closed by this block, and its four files are not touched by any other workstream.
+- **Repository merge ≠ Production application.** No Production readback was performed for this block. The Production state is whatever a separately authorized live ledger readback shows.
+- **Operational order:** M190 must be present **exactly once** in the live ledger, with its postflight passing, before M191 is considered. M191 is never applied first. Apply only the migrations the live ledger is missing.
+- **Staging trust status: UNVERIFIED / REBUILD RECOMMENDED.** See `MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md` §3 for the acceptance list.
+- **Manufacturing remains unfinished.** #229, #234 and #230 are open, with RED evidence reproduced on a disposable PG17 DB (`docs/db/manufacturing-inventory-red-20260925/`). **MFG-P1 is unfinished**: SQL engine existence ≠ live path completion, and on the cutoff-189 schema the engine entry point itself aborts (#260). A new warehouse-local physical-count contract is tracked in #259.
+- The full reconciliation, the rejected "lock-order M192" claim, the delivery plan (PR-A / PR-B / C1–C7) and the owner decisions are in [`MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md`](./MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md).
+
 ## 1. Truth boundaries
 
 Keep these states separate:

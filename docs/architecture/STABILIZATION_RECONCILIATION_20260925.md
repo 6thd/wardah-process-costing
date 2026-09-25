@@ -41,6 +41,23 @@ Historical documents remain useful for provenance; they are not current restart 
 | Process Costing live-path alignment | Advanced Manufacturing Roadmap MFG-P1 | open |
 | integrated manufacturing simulation | Simulation Lab acceptance | open |
 
+### Post-merge update — 2026-09-25 (anchor `main@0761d567`)
+
+The table above was written at `main@e3869c2f`. Current state of the rows that moved, plus rows added by the manufacturing/inventory re-derivation:
+
+| Obligation | Current source | State |
+|---|---|---|
+| F2 stock concurrency | #241 (merged to `main` as `0761d567`), with #246 merged into it | **repository closed**; Production application not claimed |
+| M191 contention cost | PR #258 (Draft) | evidence collected in #258; independent closure review and owner rollout disposition pending |
+| retry-safe partial consumption | #229 | **RED reproduced** (duplicate replay; cancelled/done/draft/on_hold consumption) |
+| authoritative completion | #230 | **RED reproduced** (no FG SLE/bin; pending-cost contamination; read-only member reaches `done`) |
+| Process Costing live-path alignment | MFG-P1 → **#260** | **RED reproduced**: live service schema-incompatible; `upsert_stage_cost` aborts `42702` |
+| warehouse-local physical count | **#259** (new) | contract gap confirmed |
+| stock transfer submit | #160 | closed `42501` path confirmed; containment in the PR-B branch |
+| Staging environment trust | — | **UNVERIFIED / REBUILD RECOMMENDED** |
+
+Details: `MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md` and `docs/db/manufacturing-inventory-red-20260925/README.md`.
+
 ## Anti-drift rules
 
 - Never infer Production from `main`.

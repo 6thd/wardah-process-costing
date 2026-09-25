@@ -7,6 +7,16 @@
 
 > تمت مراجعة الحالة مقابل `main` عند `85139ae` ودفتر migrations المطبّق على Production حتى `175`.
 
+> **مواءمة 2026-09-25 (`main@0761d567`، بعد دمج M191) — تتقدّم على جدول «REAL اليوم» أدناه حيث يختلفان:**
+> أُعيد اشتقاق المسار على قاعدة PostgreSQL 17 مؤقتة (Baseline cutoff 189 + 190 + 191؛ الأدلة في `docs/db/manufacturing-inventory-red-20260925/`، والتفصيل في `docs/architecture/MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md`). النتائج:
+>
+> - **«محرك EUP/FIFO/Scrap منفَّذ في SQL» ≠ «المسار الحي مدمج ومقبول».** على مخطط cutoff 189، يفشل `upsert_stage_cost` الحقيقي بـ`42702 column reference "costing_method" is ambiguous`، ويقرأ النواة جدولَي `labor_time_logs` و`moh_applied` غير الموجودَين. ويفشل `rpc_cost_of_production_report` على صف `stage_costs` قانوني بـ`record "v_stage" has no field "costing_method"`.
+> - مسار الواجهة الحي (`process-costing-service.ts`) ما زال يحسب `unitCost = totalCost / goodQty` في العميل. ويكتب أيضًا أعمدة غير موجودة في `stage_costs` (`good_quantity`، `material_cost`، …) وجداول غير موجودة، فيفشل بـ`42703`/`42P01`. ويستدعي `events.ts` توقيعات غير موجودة (`42883`).
+> - لذلك **لا يصح افتراض P1-B** («إن كفى التوقيع فلا migration»). P1 يحتاج **DB PR أولًا** لإصلاح المحرك والتقرير، ثم PR واجهة مستقل. التتبّع في **#260**.
+> - صف «إكمال أمر: مواد → WIP → FG + GL» في الجدول أدناه **ليس REAL بالمعنى القانوني**. الإكمال يزيد `products.stock_quantity` بلا SLE/bin للمنتج التام، ويجمع كل صفوف `material_consumption` بما فيها PENDING، ويكتب قيودًا Draft فقط (#230).
+> - صف «MES: بدء/إكمال/إيقاف عملية» كذلك: `start_operation` و`complete_operation` يفشلان لكل مستدعٍ داخل trigger `update_mo_status_from_work_orders` (`completed_quantity` ملتبس). وسلوك ذلك الـtrigger المقصود نفسه تجاوزٌ للإكمال (#230/#154).
+> - MFG-P1 يجب أن يُغلق قبل أن يعامل #230 تكلفة المراحل كمصدر معتمد.
+
 ---
 
 ## 0) الهدف والمعيار الذهبي

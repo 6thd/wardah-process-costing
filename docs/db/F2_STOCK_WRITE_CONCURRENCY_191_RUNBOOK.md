@@ -6,6 +6,30 @@ One page. Design rationale lives in merged PR #236; the acceptance evidence live
 **Status: not applied to Production or Staging. No Production apply without separate
 authorization.**
 
+> **2026-09-25 post-merge note (`main@0761d567`).** PR #241 is merged, so this file
+> and Migration 191 are on `main`. That is repository state only. It is **not**
+> Production or Staging application, and this note makes no claim about either.
+> Before any apply decision:
+>
+> 1. **M191 precondition:** in a separately authorized read-only session,
+>    `190_material_consumption_authorization_boundary` must appear **exactly once**
+>    in `supabase_migrations.schema_migrations`, and its postflight must pass. M191 is
+>    **never** applied first. The "Apply order `190 → 191`" below describes the
+>    repository order. It does not say which of the two a given environment still
+>    needs: read the live ledger, verify every canonical predecessor through cutoff
+>    189, and apply only the missing migrations.
+> 2. **Performance gate:** PR #258 (Draft) carries the §8 contention
+>    characterization. Its independent closure review and owner rollout disposition
+>    remain open.
+> 3. **Projection readback gate:** run
+>    `docs/db/manufacturing-inventory-red-20260925/R_projection_readback.sql`
+>    (READ ONLY) and classify every `products.stock_quantity ≠ SUM(bins.actual_qty)`
+>    row before rollout. Post-M191 canonical writers re-derive the projection from
+>    bins, so the first movement must not become an accidental reconciliation. Any
+>    correction is a separately authorized, audited data change.
+> 4. **Staging** is **UNVERIFIED / REBUILD RECOMMENDED**. See
+>    `docs/architecture/MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md` §3.
+
 ## What it does
 
 Thirteen objects: the twelve stock-write predecessors now acquire a deterministic,
