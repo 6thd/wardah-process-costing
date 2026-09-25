@@ -1,7 +1,8 @@
 name: M191 Pre-Production Performance Characterization
 
-# Section 8 of the M191 evidence gates requires operational-cost evidence
-# before Production. Both states run on the same PostgreSQL 17 service/runner.
+# Section 8 requires operational-cost evidence before Production.
+# Four fresh before/after pairs run on one PostgreSQL 17 service/runner.
+# Measurement order alternates to reduce simple order/cache bias.
 # No Production or Staging connection is used.
 
 on:
@@ -16,9 +17,9 @@ on:
 
 jobs:
   characterize:
-    name: M191 before/after throughput and lock-wait
+    name: M191 balanced before/after throughput and lock-wait
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     services:
       postgres:
@@ -39,9 +40,10 @@ jobs:
       PGHOST: localhost
       PGUSER: postgres
       PGPASSWORD: postgres
+      M191_PERF_REPETITIONS: 4
       M191_PERF_CONCURRENCY: 4
-      M191_PERF_ITERATIONS: 30
-      M191_PERF_WARMUP: 5
+      M191_PERF_ITERATIONS: 50
+      M191_PERF_WARMUP: 10
       M191_PERF_SAMPLE_INTERVAL: 0.02
 
     steps:
@@ -58,6 +60,11 @@ jobs:
             echo "runner_arch=$RUNNER_ARCH"
             echo "kernel=$(uname -a)"
             echo "nproc=$(nproc)"
+            echo "repetitions=$M191_PERF_REPETITIONS"
+            echo "concurrency=$M191_PERF_CONCURRENCY"
+            echo "iterations_per_worker=$M191_PERF_ITERATIONS"
+            echo "warmup_per_worker=$M191_PERF_WARMUP"
+            echo "lock_sample_interval=$M191_PERF_SAMPLE_INTERVAL"
             lscpu | grep -E 'Model name|CPU\(s\)|Thread|Core|Socket' || true
             free -h || true
             psql --version
@@ -76,10 +83,11 @@ jobs:
           test "$CUTOFF" = "189"
           echo "CUTOFF=$CUTOFF" >> "$GITHUB_ENV"
 
-      - name: Build identical pre-191 and post-191 databases
+      - name: Run four fresh balanced before/after repetitions
         shell: bash
         run: |
           set -Eeuo pipefail
+
           build() {
             local db=$1 stop=$2
             createdb "$db"
@@ -92,28 +100,38 @@ jobs:
             REPORT="/tmp/chain-$db.txt" PGDATABASE="$db" \
               bash scripts/ci/fresh-db/run_chain.sh sql/migrations "/tmp/order-$db.txt"
           }
-          build wardah_perf_pre191 190_material_consumption_authorization_boundary.sql
-          build wardah_perf_post191 191_f2_stock_write_concurrency_closure.sql
 
-      - name: Characterize pre-191
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          bash scripts/ci/m191_perf_characterization.sh \
-            wardah_perf_pre191 pre191 /tmp/m191-perf \
-            2>&1 | tee /tmp/m191-perf/pre191-run.log
-          grep -q 'M191_PERF_CHARACTERIZATION_DB_COMPLETE label=pre191' /tmp/m191-perf/pre191-run.log
+          characterize() {
+            local db=$1 label=$2 rep=$3
+            bash scripts/ci/m191_perf_characterization.sh \
+              "$db" "$label" "/tmp/m191-perf/r$rep" \
+              2>&1 | tee "/tmp/m191-perf/r$rep-$label-run.log"
+            grep -q "M191_PERF_CHARACTERIZATION_DB_COMPLETE label=$label" \
+              "/tmp/m191-perf/r$rep-$label-run.log"
+          }
 
-      - name: Characterize post-191
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          bash scripts/ci/m191_perf_characterization.sh \
-            wardah_perf_post191 post191 /tmp/m191-perf \
-            2>&1 | tee /tmp/m191-perf/post191-run.log
-          grep -q 'M191_PERF_CHARACTERIZATION_DB_COMPLETE label=post191' /tmp/m191-perf/post191-run.log
+          for rep in $(seq 1 "$M191_PERF_REPETITIONS"); do
+            pre="wardah_perf_r${rep}_pre191"
+            post="wardah_perf_r${rep}_post191"
+            echo "=== repetition $rep: build fresh pair ==="
+            build "$pre" 190_material_consumption_authorization_boundary.sql
+            build "$post" 191_f2_stock_write_concurrency_closure.sql
 
-      - name: Build comparison report
+            if (( rep % 2 == 1 )); then
+              echo "=== repetition $rep order: pre191 -> post191 ==="
+              characterize "$pre" pre191 "$rep"
+              characterize "$post" post191 "$rep"
+            else
+              echo "=== repetition $rep order: post191 -> pre191 ==="
+              characterize "$post" post191 "$rep"
+              characterize "$pre" pre191 "$rep"
+            fi
+
+            dropdb "$pre"
+            dropdb "$post"
+          done
+
+      - name: Build pooled comparison report
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -122,6 +140,9 @@ jobs:
             --json /tmp/m191-perf/M191_PERFORMANCE_REPORT.json \
             2>&1 | tee /tmp/m191-perf/report-console.txt
           grep -q 'M191_PERF_CHARACTERIZATION_COMPLETE' /tmp/m191-perf/report-console.txt
+          grep -q 'repetitions: \*\*4\*\*' /tmp/m191-perf/M191_PERFORMANCE_REPORT.md
+          grep -q 'pooled measured operations per workload/state: \*\*800\*\*' \
+            /tmp/m191-perf/M191_PERFORMANCE_REPORT.md
 
       - name: Upload raw and summarized evidence
         if: always()
@@ -130,6 +151,5 @@ jobs:
           name: m191-performance-characterization-${{ github.run_id }}
           path: |
             /tmp/m191-perf/
-            /tmp/chain-wardah_perf_pre191.txt
-            /tmp/chain-wardah_perf_post191.txt
+            /tmp/chain-wardah_perf_*.txt
           retention-days: 90

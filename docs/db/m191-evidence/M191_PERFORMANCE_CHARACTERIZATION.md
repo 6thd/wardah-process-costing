@@ -1,21 +1,36 @@
 # M191 — Pre-Production Performance Characterization
 
-**Status:** harness introduced; numeric evidence must come from the dedicated
-GitHub Actions run before this gate is closed.
+**Status:** balanced final characterization pending on this Draft PR. A first
+single-pass pilot succeeded and showed the expected hot-product serialization
+cost, but it is not sufficient by itself to close the gate.
 
 **Authority:** docs/F2_M191_IMPLEMENTATION_EVIDENCE_GATES.md section 8.
 
 **Production/Staging:** not used. Evidence is produced only on disposable
 PostgreSQL 17 databases in one GitHub Actions runner.
 
-## Method
+## Final measurement method
 
-The workflow builds two databases in the same PostgreSQL 17 service:
+The final workflow runs **four repetitions**, each with a new pair of databases
+built in the same PostgreSQL 17 service:
 
 - pre191: baseline 189 + Migration 190;
 - post191: the identical chain plus Migration 191.
 
-It seeds the same fixtures and runs the same workload parameters on both.
+To reduce simple runner/cache ordering bias, the measurement order is balanced:
+
+- repetitions 1 and 3: pre191 -> post191;
+- repetitions 2 and 4: post191 -> pre191.
+
+Each repetition uses:
+
+- 4 persistent psql workers;
+- 50 measured iterations per worker;
+- 10 excluded warm-up iterations per worker;
+- 20 ms Lock-wait sampling.
+
+That yields **800 measured calls per workload per state**, while preserving
+raw results per repetition so runner noise can be inspected.
 
 ## Workloads
 
@@ -27,19 +42,17 @@ It seeds the same fixtures and runs the same workload parameters on both.
 5. manual_movement_hot_same_warehouse — real manual movement RPC.
 6. goods_receipt_hot_same_warehouse — real Goods Receipt RPC.
 7. manufacturing_consumption_hot_same_warehouse — real M190/M191 consumption
-   RPC with one MO/reservation per worker to avoid a shared-MO header bottleneck.
-
-Default CI shape: 4 persistent psql workers, 30 measured iterations per worker,
-5 excluded warm-up iterations per worker, and 20 ms Lock-wait sampling.
+   RPC with one MO/reservation per worker, avoiding a shared-MO header bottleneck.
 
 ## Measurements
 
-For both states and every workload the generated report records operations/sec,
-p50/p95/p99/max latency, sampled aggregate Lock-wait time, and the sampled
-worst Lock-wait episode.
+For both states and every workload the report records pooled operations/sec,
+pooled p50/p95/p99/max latency, per-repetition throughput/p95 ranges, sampled
+Lock-wait time normalized per 100 operations, and the worst sampled episode.
 
-The lock numbers are explicitly sampling estimates. Raw samples retain
-application name, backend PID, wait event and pg_blocking_pids output.
+The lock numbers are sampling estimates, not exact PostgreSQL wait accounting.
+Raw samples retain application name, backend PID, wait event and
+pg_blocking_pids output.
 
 ## Fail-closed execution
 
@@ -49,20 +62,39 @@ failure.
 
 One baseline exception is deliberate: pre-191 core_hot_multiwarehouse is the
 known lost-product-projection race that M191 fixes. Its product-vs-bin gap is
-recorded as raw evidence instead of being required to pass GREEN reconciliation.
-Negative stock or any unrelated invariant failure still fails the run. The
-deterministic M191 RED suite remains the proof of that defect; this performance
-run does not depend on scheduler luck to reproduce it.
+recorded rather than required to pass GREEN reconciliation. Negative stock or
+any unrelated invariant failure still fails the run. The deterministic M191 RED
+suite remains the proof; this benchmark does not depend on scheduler luck.
 
-No arbitrary percentage threshold is invented because Wardah has no
-established SLO for these RPCs. A material regression must instead be
-quantified and reviewed before Production; an unexplained regression remains
-a rollout blocker until understood.
+## Pilot evidence — not the final gate
 
-## Completion procedure
+Successful pilot workflow run: 36132439989.
 
-After the workflow completes, retain the raw artifact, copy exact values and
-workflow run ID into this document, record the interpretation of material
-deltas, obtain independent review, and only then classify section 8 as closed.
+The 120-call/workload pilot showed:
+
+- distinct-SKU throughput essentially unchanged (+0.7%);
+- hot-SKU multiwarehouse throughput -30.4%;
+- hot-SKU multiwarehouse p95 4.257 ms -> 11.651 ms;
+- sampled lock-wait proxy 60 ms -> 300 ms;
+- smaller/moderate deltas on outgoing, manual movement and manufacturing
+  consumption;
+- a noisy Goods Receipt p95 increase despite essentially unchanged throughput.
+
+Those figures justify the larger balanced run; they are not used alone as the
+Production decision.
+
+## Decision semantics
+
+No arbitrary percentage threshold is invented because Wardah has no established
+SLO for these RPCs.
+
+A material regression must be quantified and reviewed before Production. An
+unexplained lock-wait/latency regression remains a rollout blocker until
+understood. The remedy may not be to weaken M191's correctness lock contract
+without a separately reviewed design.
+
+After the final workflow succeeds, this document must be updated with the exact
+run ID, artifact digest, pooled table and interpretation, then receive
+independent review before section 8 is classified as closed.
 
 This document and workflow do not authorize Production or Staging mutation.
