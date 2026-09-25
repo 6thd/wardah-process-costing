@@ -33,7 +33,10 @@ Fixture actors (all active members of one org):
 | consumer | only `manufacturing.material_consumption.consume` |
 | reader | only `manufacturing.orders.read`, so no manufacturing or inventory mutation key |
 
-## Results (captured 2026-09-25, all probes REPRODUCED, runner exit 0)
+## Results (captured 2026-09-25 at `62f9fb2d`, all probes REPRODUCED, runner exit 0)
+
+Raw runner output: [`RED_RUN_20260925.log`](./RED_RUN_20260925.log). The MO and adjustment
+UUIDs in it are generated per run.
 
 | Probe | Track | Verdict | Exact observed result |
 |---|---|---|---|
