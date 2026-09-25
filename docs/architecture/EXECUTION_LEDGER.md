@@ -1,5 +1,8 @@
 # Wardah ERP — Execution Ledger
 
+> **SUPERSEDED FOR RESTART PURPOSES — 2026-09-25.**
+> This ledger is retained as historical evidence. Use [`CURRENT_STABILIZATION_20260925.md`](./CURRENT_STABILIZATION_20260925.md) as the current restart authority. Do not rewrite the historical statuses below to look current.
+
 **Purpose:** durable restart checkpoint for active and unfinished product, security, financial-reporting, manufacturing, and repository-alignment work.
 
 **Current anchor:** `main@21b9bbfc92a00ff29776a4c418f54d6a3ecab97f` (after PR #196; repository cutoff 182, Production cutoff 181)

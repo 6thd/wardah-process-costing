@@ -1,5 +1,8 @@
 # Wardah ERP — Astra Remediation TODO
 
+> **SUPERSEDED FOR RESTART PURPOSES — 2026-09-25.**
+> This tracker is retained as historical evidence. Use [`CURRENT_STABILIZATION_20260925.md`](./CURRENT_STABILIZATION_20260925.md) as the current restart authority. Do not rewrite the historical statuses below to look current.
+
 **Created:** 2026-09-05  
 **Audit source:** [`ASTRA_ARCHITECTURE_RED_TEAM_AUDIT_20260905.md`](./ASTRA_ARCHITECTURE_RED_TEAM_AUDIT_20260905.md)  
 **Current repository anchor at creation:** `main@c1b92e1d03b8e24c2cc6d170ecf7f0d6f02ade36`  
