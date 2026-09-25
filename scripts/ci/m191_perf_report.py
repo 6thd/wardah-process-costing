@@ -75,6 +75,21 @@ def collect_leaf(workload_dir: Path) -> Leaf:
         raise SystemExit(f"missing fixture size evidence: {fixture_path}")
     fixture = {key: int(value) for key, value in read_meta(fixture_path).items()}
     workload = meta["workload"]
+    if meta.get("worker_session_model") != "persistent_same_psql_warmup_then_measure":
+        raise SystemExit(
+            f"{meta.get('label','?')}/{workload}: invalid worker session model "
+            f"{meta.get('worker_session_model')!r}"
+        )
+    if meta.get("measurement_boundary") != "server_clock_same_session_after_warmup_barrier":
+        raise SystemExit(
+            f"{meta.get('label','?')}/{workload}: invalid measurement boundary "
+            f"{meta.get('measurement_boundary')!r}"
+        )
+    start_spread_ms = float(meta["worker_start_spread_ms"])
+    if start_spread_ms < 0:
+        raise SystemExit(
+            f"{meta.get('label','?')}/{workload}: negative worker start spread"
+        )
     latencies: list[float] = []
     for log in sorted(workload_dir.glob("measured.worker*.log")):
         text = log.read_text(encoding="utf-8", errors="replace")
@@ -106,6 +121,9 @@ def collect_leaf(workload_dir: Path) -> Leaf:
         "p99_ms": percentile(latencies, 0.99),
         "max_ms": max(latencies),
         "lock_scope": meta["lock_scope"],
+        "worker_session_model": meta["worker_session_model"],
+        "measurement_boundary": meta["measurement_boundary"],
+        "worker_start_spread_ms": start_spread_ms,
         "sample_interval_seconds": interval,
         "lock_wait_sample_count": sample_count,
         "lock_wait_aggregate_estimate_ms": agg_lock,
@@ -149,6 +167,12 @@ def aggregate(repetitions: list[dict[str, Leaf]], workload: str) -> dict:
     run_ops = [item["ops_per_second"] for item in summaries]
     run_p95 = [item["p95_ms"] for item in summaries]
     fixture = summaries[0]["fixture"]
+    session_model = summaries[0]["worker_session_model"]
+    measurement_boundary = summaries[0]["measurement_boundary"]
+    if any(item["worker_session_model"] != session_model for item in summaries[1:]):
+        raise SystemExit(f"{workload}: worker session model drift across repetitions")
+    if any(item["measurement_boundary"] != measurement_boundary for item in summaries[1:]):
+        raise SystemExit(f"{workload}: measurement boundary drift across repetitions")
     if any(item["fixture"] != fixture for item in summaries[1:]):
         raise SystemExit(f"{workload}: fixture cardinality drift across repetitions")
 
@@ -167,6 +191,11 @@ def aggregate(repetitions: list[dict[str, Leaf]], workload: str) -> dict:
         "p99_ms": percentile(latencies, 0.99),
         "max_ms": max(latencies),
         "lock_scope": summaries[0]["lock_scope"],
+        "worker_session_model": session_model,
+        "measurement_boundary": measurement_boundary,
+        "worker_start_spread_ms_max": max(
+            item["worker_start_spread_ms"] for item in summaries
+        ),
         "sample_interval_seconds": summaries[0]["sample_interval_seconds"],
         "lock_wait_sample_count_total": sum(
             item["lock_wait_sample_count"] for item in summaries
@@ -305,6 +334,8 @@ def main() -> None:
         f"**{first_leaf['iterations_per_worker']}**",
         f"- excluded warm-up per worker/repetition: "
         f"**{first_leaf['warmup_per_worker']}**",
+        "- worker session model: **same persistent psql connection for warm-up and measurement**",
+        "- throughput boundary: **server-side start/end markers after the warm-up barrier**",
         f"- pooled measured operations per workload/state: **{pooled_ops}**",
         f"- lock sampling interval: **{first_leaf['sample_interval_seconds']:.3f}s**",
         "",

@@ -146,6 +146,9 @@ assert_product_effect() {
 
   case "$projection_contract" in
     incoming)
+      # Incoming helpers deliberately do not own products.stock_value. Prove
+      # that the field was preserved rather than simply ignoring it.
+      num_eq "$pv" "${SNAP_PRODUCT_VALUE[$key]}" || fail "$scenario: incoming changed products.stock_value from ${SNAP_PRODUCT_VALUE[$key]} to $pv"
       ;;
     outgoing)
       num_eq "$d_product_value" "$expected_value" || fail "$scenario: product stock_value delta=$d_product_value expected=$expected_value"
@@ -341,6 +344,7 @@ warmup_per_worker=$WARMUP
 operations=$ops
 wall_seconds=$wall_s
 worker_start_spread_ms=$start_spread_ms
+worker_session_model=persistent_same_psql_warmup_then_measure
 measurement_boundary=server_clock_same_session_after_warmup_barrier
 sample_interval_seconds=$SAMPLE_INTERVAL
 lock_scope=$lock_scope

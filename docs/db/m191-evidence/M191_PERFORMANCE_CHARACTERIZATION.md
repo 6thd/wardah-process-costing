@@ -1,7 +1,8 @@
 # M191 — Pre-Production Performance Characterization
 
-**Status:** final corrected balanced characterization collected; independent
-methodology/result closure review pending. Earlier runs are diagnostic only and
+**Status:** remediation rerun pending after a second independent review found
+a P2 measurement-boundary defect in the prior characterization. Runs through
+benchmark head `1b0d4b77a44f2344c0136a145ad1b740144e8406` are diagnostic only and
 do not close the section 8 gate.
 
 **Authority:** docs/F2_M191_IMPLEMENTATION_EVIDENCE_GATES.md section 8.
@@ -121,7 +122,7 @@ The harness has therefore been hardened before any final rerun. The prior
 balanced numbers remain diagnostic only. A new exact-head run must succeed with
 the stronger effect accounting before section 8 can be considered for closure.
 
-## Final corrected characterization — evidence frozen 2026-09-25
+## Superseded characterization — diagnostic evidence only
 
 The final benchmark bytes were frozen at:
 
@@ -234,8 +235,10 @@ contract must not be weakened merely to improve these measurements.
 
 ### Gate disposition
 
-**Evidence collection is complete; independent closure review is still
-required before §8 is classified closed.**
+**SUPERSEDED:** a later independent review found that the prior throughput
+window included client connection/setup overhead and that warm-up occurred in
+different psql sessions. The table above is retained for provenance only and
+must not be used for the owner rollout decision.
 
 A documentation-only persistence commit follows the benchmark head above. It
 does not alter the harness, reporter, workflow execution logic, Migration 191,
@@ -244,4 +247,35 @@ run.
 
 No Production/Staging apply, rollout, or baseline regeneration is authorized
 by this evidence.
+
+## Second independent review remediation
+
+A fresh external review of PR #258 at
+`9399979e945b71b8d1fb87b0725cca817bf6f2b1` found one P2 in the benchmark
+measurement boundary, not in Migration 191 itself. The earlier warm-up used
+different psql connections from the measured calls, and the client wall clock
+included fixed process/connection/session setup cost.
+
+The remediation now uses one persistent psql session per worker for setup,
+warm-up and measurement. After untimed warm-up, every worker waits at a barrier.
+Measured latency starts only after that barrier, and throughput is derived from
+server-side timestamps bracketing the measured SQL window. Lock-wait sampling
+also starts after warm-up.
+
+The product-projection proof is path-aware and discriminating:
+
+- cost_price is seeded to a deliberately wrong sentinel before each workload,
+  so a stale cost projection cannot pass by coincidence;
+- incoming, manual-in and Goods Receipt must restore the derived cost_price and
+  preserve products.stock_value, because incoming does not own that field;
+- outgoing and manufacturing consumption must restore cost_price and reconcile
+  products.stock_value to summed bin value;
+- the known pre-191 hot-multiwarehouse exception relaxes stock_quantity only.
+
+The reporter now fails closed unless the artifact declares the persistent
+same-session model and the corrected server-clock measurement boundary.
+
+A new four-repetition PostgreSQL 17 characterization is required before any
+new numeric result is called final. Production and Staging remain untouched and
+out of scope.
 
