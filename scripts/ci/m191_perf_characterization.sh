@@ -230,7 +230,24 @@ run_workload manual_movement_hot_same_warehouse "$S7_ADMIN" q_manual all_lock_wa
 
 CURRENT_SCENARIO="m191-perf-$LABEL-reconcile-s7"
 reconcile_product perf-s7-p1 "$S7_ORG" "$S7_P1"
-reconcile_product perf-s7-p2 "$S7_ORG" "$S7_P2"
+
+# The pre-191 hot-multiwarehouse shape is the frozen lost-update defect M191
+# fixes: bins are independent, but concurrent product-projection writes may
+# lose one update. A performance run must not require the defective baseline
+# to be GREEN. Record the gap instead; the deterministic RED proof already
+# establishes the defect. Post-191 must reconcile exactly.
+if [[ "$LABEL" == "pre191" ]]; then
+  read -r pq sb neg <<<"$("${PSQL[@]}" -c "
+    SELECT coalesce(stock_quantity,0)||' '||
+           coalesce((SELECT SUM(actual_qty) FROM public.bins WHERE org_id='$S7_ORG' AND product_id='$S7_P2'),0)||' '||
+           (SELECT count(*) FROM public.bins WHERE org_id='$S7_ORG' AND product_id='$S7_P2' AND actual_qty<0)
+    FROM public.products WHERE id='$S7_P2';")"
+  [[ "$neg" == "0" ]] || fail "pre191 hot-multiwarehouse produced unexpected negative stock"
+  awk -v p="$pq" -v b="$sb" 'BEGIN { printf "label=pre191 product_stock_quantity=%s sum_bins=%s projection_gap=%s\n", p,b,b-p }'     | tee "$OUT/core_hot_multiwarehouse/pre191_known_red_projection_gap.txt"
+else
+  reconcile_product perf-s7-p2 "$S7_ORG" "$S7_P2"
+fi
+
 for p in "${S7_DIST_P[@]}"; do reconcile_product perf-s7-dist "$S7_ORG" "$p"; done
 
 # ---- real Goods Receipt representative ---------------------------------------
