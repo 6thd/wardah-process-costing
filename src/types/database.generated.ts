@@ -11721,7 +11721,6 @@ export type Database = {
               p_product: string
               p_qty: number
               p_rate: number
-              p_source_line_id: string
               p_voucher_id: string
               p_voucher_number: string
               p_voucher_type: string
@@ -11736,6 +11735,7 @@ export type Database = {
               p_product: string
               p_qty: number
               p_rate: number
+              p_source_line_id: string
               p_voucher_id: string
               p_voucher_number: string
               p_voucher_type: string
@@ -11797,6 +11797,10 @@ export type Database = {
       wardah_is_sensitive_permission: {
         Args: { p_permission_key: string }
         Returns: boolean
+      }
+      wardah_lock_products_for_stock_write: {
+        Args: { p_org: string; p_product_ids: string[] }
+        Returns: string[]
       }
       wardah_next_voucher_number: {
         Args: { p_kind: string; p_org: string }

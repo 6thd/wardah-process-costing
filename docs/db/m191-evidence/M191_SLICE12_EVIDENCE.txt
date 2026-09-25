@@ -1,0 +1,331 @@
+M191 SLICE 12 — DETERMINISTIC GREEN ACCEPTANCE EVIDENCE BUNDLE
+generated: 2026-09-10T05:42:21Z
+
+== §1 environment and evidence freeze ==
+candidate_git_sha (PR #241 head):      6aa93b083a68bd47c90ea47aaeb3df6a147095d6
+assembly source head (file header):    e5f2908ab27ebf0077a503682f63d81d49870c17
+candidate file:                        docs/db/M191_CANDIDATE_ASSEMBLED.sql
+candidate sha256:                      7654adf2d24eb10f0dd611dd6896e5a21b066bbbe1ac6c42aeab3b425e1932a4
+  slice sha256: 1f0540c56ab64c42953c6887ffd9f5a6a7692e4e419d806c87f9f1cb32d5e6f2  01_incoming_fix_a_b.sql
+  slice sha256: a01d61aa417df47ea6e6fac0ca48f59d917f8cacac937e3d71d17737a8053d62  02_outgoing_8_9.sql
+  slice sha256: 543531a7c307f045959d9c43b37300aa0e71e6a614513c70df4a591861a64d0d  03_cancel_fix_c.sql
+  slice sha256: 25ce424da1591429a5a959c6ae5fa5f1dee4fea0556113c8d7cf474aa9c11e14  04_manual_movement_fix_d.sql
+  slice sha256: 6cd564bfecc5b47b72f05fe36af70c662329a03c4eecc7040206a8a487e70fa2  05_goods_receipt_fix_e.sql
+  slice sha256: 0892caa4b1e2ec67298e5035f67142503097da99abcb926082c162af8d7a3c6c  06_delivery_note_fix_e.sql
+  slice sha256: 11177a7667a46e82eaca35c1430fe5de5caee148ef644af843bc40a91c9a6185  07_submit_stock_adjustment_fix_e.sql
+  slice sha256: 194da2b579bc7451ababe04beb130922a042fd95f4407ac85fc176594683a3d5  08_consume_reserved_materials_fix_e.sql
+  slice sha256: a19eb8eb85d6b670b02c03c1ced297c67a5ca7de0148fe6f837d923b5a299c6d  09_release_expired_reservations_fix_f.sql
+  slice sha256: d287729917e186881d1ab1a15a9569b1fc37f3e622065d4154ce3efeada0f5cd  10_create_mo_with_reservation_fix_g.sql
+  slice sha256: 8368c6cca0028888f5dc3064cebe1429bdd6797609b98d5685711d7042387a24  11_acl_security_postflight.sql
+PostgreSQL version:                    PostgreSQL 17.11 (Ubuntu 17.11-1.pgdg24.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+standard_conforming_strings:           on
+default_transaction_isolation:         read committed   [§1/§10.3-10.5 precondition, asserted live]
+baseline pair:                         000_schema_baseline_20260905_184634.sql + 001_system_reference_data_20260905_184634.sql (cutoff 189)
+highest prerequisite migration:        190_material_consumption_authorization_boundary.sql (chain PASS=1 FAIL=0)
+roles present:                         anon,authenticated,service_role
+production advisory gate in candidate: NONE (verified over all 13 objects)
+
+== §11 security/S1 evidence (emitted by the candidate transaction itself) ==
+candidate transaction order: BEGIN(18) -> preflight(30) -> Slice 11/A(90) -> helper(170) -> slices 01-10(228-237) -> Slice 11/B(240) -> COMMIT(519)
+Slice 11 is fail-closed (RAISE EXCEPTION only, no NOTICE on success).
+candidate apply: exit 0, empty stderr, reached COMMIT => 11/A capture assertion + all seven 11/B groups passed.
+
+== catalog reconciliation vs an independent pre-M191 twin database ==
+functions 262 -> 263; exactly one added:
+  wardah_lock_products_for_stock_write(uuid,uuid[]) | SECURITY INVOKER | search_path=public, pg_temp | ACL: postgres=X/postgres,service_role=X/postgres
+exactly 12 bodies changed (the 12 predecessors); zero drift in signature/prosecdef/proacl/proconfig elsewhere
+RLS policies: 714 pre == 714 post, byte-identical; relation ACLs identical
+after the FULL runtime battery: all 263 bodies byte-identical to the post-apply snapshot (battery did not mutate the candidate)
+
+== §3 aggregate static gate (verdict = psql exit code), run twice ==
+before battery: selftest exit 0 / static exit 0
+after  battery: selftest exit 0 / static exit 0
+NOTICE:  M191_GATE_SELFTEST_PASS: positive=7 mutants=15
+NOTICE:  M191_ACCEPTANCE_STATIC_PASS: objects=13/closed s1_regex=positive+pattern_regression fks=2 helper=ordered_no_key_update prefix_order=11 bodies fix_g=captured_exact m190_guard=present
+
+== §4-§10 runtime battery ==
+----- red_pre191 -----
+--- RED-A: first-bin race, single (product, warehouse) key ---
+STOCK_F2_REDA_REPRODUCED_OK bin_qty=7.000000 bin_value=70.0000 product_qty=7.000000 product_cost=10.00 (correct sum would be qty=12/value=120; both SLE rows survived with correct qty/value; both calls reported success)
+--- Static contract: both wardah_apply_stock_incoming overloads share the vulnerable pattern ---
+NOTICE:  STOCK_F2_STATIC_CONTRACT_BOTH_OVERLOADS_OK: 9-arg and 10-arg wardah_apply_stock_incoming both carry the unlocked bin-creation upsert (RED-A) and unlocked product-aggregate update (RED-B) patterns
+--- Control 1 (bounds RED-A): existing-bin race, single (product, warehouse) key ---
+STOCK_F2_CONTROL1_EXISTING_BIN_OK bin_qty=27.000000
+--- RED-B: product-aggregate race, two warehouses, one product ---
+STOCK_F2_REDB_REPRODUCED_OK bin_1=6.000000/60.0000 bin_2=9.000000/180.0000 product_qty=9.000000 product_cost=20.00 (both bins individually correct; correct combined would be qty=15/value=240/rate=16; both SLE rows survived with correct qty/value; both calls reported success)
+--- Control 2 (bounds RED-A): incoming vs outgoing lock ordering, existing bin ---
+STOCK_F2_CONTROL2_INCOMING_VS_OUTGOING_OK bin_qty=48.000000 statuses=0,0
+STOCK_F2_RED_PROOF_PASS reda_bin=7.000000/70.0000 reda_product=7.000000/10.00 ctl1_bin=27.000000 redb_bin1=6.000000/60.0000 redb_bin2=9.000000/180.0000 redb_product=9.000000/20.00 ctl2_bin=48.000000
+
+----- s4 -----
+=== G-A: first-bin incoming 5@10 + 7@10 ===
+  EVIDENCE[g-a] waiter=g-a-2 pid=7772 wait=Lock:transactionid blocked_by=7760 rel=-
+  STATUS[g-a] backend1=0 backend2=0
+  RECON[G-A] wh=00002291-0000-0000-0000-0000000000a2 bin_qty=12.000000 bin_val=120.0000 bin_rate=10.0000 queue=[{"qty": 12.000000, "rate": 10.0000000000000000}] sle_qty=12.000000 sle_val=120.0000 sle_rows=2
+    product_stock_quantity=12.000000 product_cost_price=10.00 sum_bins=12.000000 negatives=0
+  G-A PASS bin=12.000000/120.0000 sle=12.000000/120.0000 product=12.000000/10.00
+=== G-B: one product, two warehouses 6@10 + 9@20 ===
+  EVIDENCE[g-b] waiter=g-b-2 pid=7820 wait=Lock:transactionid blocked_by=7808 rel=-
+  STATUS[g-b] backend1=0 backend2=0
+  RECON[G-B] wh=00002291-0000-0000-0000-0000000000b2 bin_qty=6.000000 bin_val=60.0000 bin_rate=10.0000 queue=[{"qty": 6, "rate": 10.0000000000000000}] sle_qty=6.000000 sle_val=60.0000 sle_rows=1
+    wh=00002291-0000-0000-0000-0000000000b3 bin_qty=9.000000 bin_val=180.0000 bin_rate=20.0000 queue=[{"qty": 9, "rate": 20.0000000000000000}] sle_qty=9.000000 sle_val=180.0000 sle_rows=1
+    product_stock_quantity=15.000000 product_cost_price=16.00 sum_bins=15.000000 negatives=0
+  G-B PASS bins=6.000000/60.0000 + 9.000000/180.0000 product=15.000000/16.00
+=== G-C1: existing bin 20 + 3 + 4 ===
+  EVIDENCE[g-c1] waiter=g-c1-2 pid=7875 wait=Lock:transactionid blocked_by=7862 rel=-
+  STATUS[g-c1] backend1=0 backend2=0
+  RECON[G-C1] wh=00002291-0000-0000-0000-0000000000c2 bin_qty=27.000000 bin_val=270.0000 bin_rate=10.0000 queue=[{"qty": 27.000000, "rate": 10.0000000000000000}] sle_qty=7.000000 sle_val=70.0000 sle_rows=2
+    product_stock_quantity=27.000000 product_cost_price=10.00 sum_bins=27.000000 negatives=0
+  G-C1 PASS bin=27.000000
+=== G-C2: existing bin 50 + 8 - 10 ===
+  EVIDENCE[g-c2] waiter=g-c2-2 pid=7922 wait=Lock:transactionid blocked_by=7910 rel=-
+  STATUS[g-c2] backend1=0 backend2=0
+  RECON[G-C2] wh=00002291-0000-0000-0000-0000000000d2 bin_qty=48.000000 bin_val=480.0000 bin_rate=10.0000 queue=[{"qty": 48.000000, "rate": 10.0000000000000000}] sle_qty=-2.000000 sle_val=-20.0000 sle_rows=2
+    product_stock_quantity=48.000000 product_cost_price=10.00 sum_bins=48.000000 negatives=0
+  G-C2 PASS bin=48.000000/480.0000
+=== G-FB: first-bin incoming vs outgoing ===
+  EVIDENCE[G-FB] waiter=g-fb-2 pid=7967 wait=Lock:transactionid blocked_by=7955 rel=-
+  G-FB PASS (outgoing serialized after bin creation) bin=6.000000 sle=2
+  RECON[G-FB] wh=00002291-0000-0000-0000-0000000000e2 bin_qty=6.000000 bin_val=60.0000 bin_rate=10.0000 queue=[{"qty": 6.000000, "rate": 10.0000000000000000}] sle_qty=6.000000 sle_val=60.0000 sle_rows=2
+    product_stock_quantity=6.000000 product_cost_price=10.00 sum_bins=6.000000 negatives=0
+SLICE12_S4_PASS
+
+----- s5 -----
+=== FIFO forced-concurrency: bin 10@10, +5@20, -12 ===
+  EVIDENCE[fifo] waiter=fifo-2 pid=8055 wait=Lock:transactionid blocked_by=8044 rel=-
+  STATUS[fifo] incoming=0 outgoing=0 result=00002292-f2f2-0000-0000-000000000002
+{"cogs": 140.000000, "method": "FIFO", "applied": true, "new_qty": 3.000000, "new_rate": 20.000000, "new_value": 60.000000}
+  FIFO PASS bin=3.000000/60.0000 rate=20.0000 queue=[{"qty": 3, "rate": 20}] cogs=140 outgoing_rate=11.6667
+  RECON[FIFO] wh=00002292-0000-0000-0000-0000000000a2 bin_qty=3.000000 bin_val=60.0000 bin_rate=20.0000 queue=[{"qty": 3, "rate": 20}] sle_qty=-7.000000 sle_val=-40.0000 sle_rows=2
+    product_stock_quantity=3.000000 product_cost_price=20.00 sum_bins=3.000000 negatives=0
+=== LIFO forced-concurrency: bin 10@10, +5@20, -12 ===
+  EVIDENCE[lifo] waiter=lifo-2 pid=8110 wait=Lock:transactionid blocked_by=8099 rel=-
+  STATUS[lifo] incoming=0 outgoing=0 result=00002292-f2f2-0000-0000-000000000002
+{"cogs": 170.000000, "method": "LIFO", "applied": true, "new_qty": 3.000000, "new_rate": 10.000000, "new_value": 30.000000}
+  LIFO PASS bin=3.000000/30.0000 rate=10.0000 queue=[{"qty": 3, "rate": 10}] cogs=170
+  RECON[LIFO] wh=00002292-0000-0000-0000-0000000000b2 bin_qty=3.000000 bin_val=30.0000 bin_rate=10.0000 queue=[{"qty": 3, "rate": 10}] sle_qty=-7.000000 sle_val=-70.0000 sle_rows=2
+    product_stock_quantity=3.000000 product_cost_price=10.00 sum_bins=3.000000 negatives=0
+SLICE12_S5_PASS
+
+----- s6 -----
+  PRECONDITION A<B = t  (A=00002293-0000-0000-0000-00000000000a  B=00002293-0000-0000-0000-00000000000b)
+=== 6.1 RED: ordering-removed mutant, crossed arrays ===
+  EVIDENCE[6.1-barrier] waiter=s61-1 pid=8725 wait=Lock:advisory blocked_by=8712,8726 rel=- || waiter=s61-2 pid=8726 wait=Lock:advisory blocked_by=8712 rel=-
+  6.1 RED CONFIRMED: genuine symmetric deadlock (40P01) in s61-2.err statuses=0,3
+    ERROR:  deadlock detected
+=== 6.2 GREEN: real helper, two independent blockers, input ARRAY[B,A] ===
+  blockers: A holds only product A (pid=8769), B holds only product B (pid=8780)
+  STEP1 caller blocked_by=[8769] (expect exactly A pid=8769)
+  STEP2 caller blocked_by=[8780] (expect exactly B pid=8780)
+  STEP3 caller completed without deadlock; returned={00002293-0000-0000-0000-00000000000a,00002293-0000-0000-0000-00000000000b}
+  6.2 PASS: real helper acquired A then B (canonical ascending) despite ARRAY[B,A] input
+SLICE12_S6_PASS
+
+----- s7 -----
+=== 7.1 cancellation vs cancellation, two overlapping multi-product adjustments ===
+  after two submits bins=110.000000,110.000000 (expect 110,110)
+  EVIDENCE[c-vs-c] waiter=c-vs-c-2 pid=9018 wait=Lock:transactionid blocked_by=9007 rel=-
+  STATUS[c-vs-c] b1=0 b2=3 err2=ERROR:  LATER_STOCK_MOVEMENT_EXISTS: product=00002294-0000-0000-0000-0000000000a2 warehouse=00002294-0000-0000-0000-0000000000a9CONTEXT:  PL/pgSQL function rpc_cancel_stock_adjustment(uuid,text) line 55 at RAISE
+  7.1 PASS EXPECTED_BUSINESS_FAIL LATER_STOCK_MOVEMENT_EXISTS, zero partial reversal, bins=105.000000,105.000000
+  RECON[7.1-P1] wh=00002294-0000-0000-0000-0000000000a9 bin_qty=105.000000 bin_val=1050.0000 bin_rate=10.0000 queue=[{"qty": 105.000000, "rate": 10.0000000000000000}] sle_qty=5.000000 sle_val=50.0000 sle_rows=3
+    product_stock_quantity=105.000000 product_cost_price=10.00 sum_bins=105.000000 negatives=0
+  RECON[7.1-P2] wh=00002294-0000-0000-0000-0000000000a9 bin_qty=105.000000 bin_val=1050.0000 bin_rate=10.0000 queue=[{"qty": 105.000000, "rate": 10.0000000000000000}] sle_qty=5.000000 sle_val=50.0000 sle_rows=3
+    product_stock_quantity=105.000000 product_cost_price=10.00 sum_bins=105.000000 negatives=0
+=== 7.2 incoming vs cancellation, existing bin ===
+  EVIDENCE[in-vs-c] waiter=in-vs-c-2 pid=9083 wait=Lock:transactionid blocked_by=9072 rel=-
+  STATUS[in-vs-c] b1=0 b2=3 err2=ERROR:  LATER_STOCK_MOVEMENT_EXISTS: product=00002294-0000-0000-0000-0000000000a1 warehouse=00002294-0000-0000-0000-0000000000a9CONTEXT:  PL/pgSQL function rpc_cancel_stock_adjustment(uuid,text) line 55 at RAISE
+  7.2 PASS EXPECTED_BUSINESS_FAIL LATER_STOCK_MOVEMENT_EXISTS, zero partial reversal
+  RECON[7.2] wh=00002294-0000-0000-0000-0000000000a9 bin_qty=115.000000 bin_val=1150.0000 bin_rate=10.0000 queue=[{"qty": 115.000000, "rate": 10.0000000000000000}] sle_qty=15.000000 sle_val=150.0000 sle_rows=5
+    product_stock_quantity=115.000000 product_cost_price=10.00 sum_bins=115.000000 negatives=0
+=== 7.3 outgoing vs cancellation, existing bin ===
+  EVIDENCE[out-vs-c] waiter=out-vs-c-2 pid=9139 wait=Lock:transactionid blocked_by=9128 rel=-
+  STATUS[out-vs-c] b1=0 b2=3 err2=ERROR:  LATER_STOCK_MOVEMENT_EXISTS: product=00002294-0000-0000-0000-0000000000a2 warehouse=00002294-0000-0000-0000-0000000000a9CONTEXT:  PL/pgSQL function rpc_cancel_stock_adjustment(uuid,text) line 55 at RAISE
+  7.3 PASS EXPECTED_BUSINESS_FAIL LATER_STOCK_MOVEMENT_EXISTS, zero partial reversal
+  RECON[7.3] wh=00002294-0000-0000-0000-0000000000a9 bin_qty=107.000000 bin_val=1070.0000 bin_rate=10.0000 queue=[{"qty": 107.000000, "rate": 10.0000000000000000}] sle_qty=7.000000 sle_val=70.0000 sle_rows=5
+    product_stock_quantity=107.000000 product_cost_price=10.00 sum_bins=107.000000 negatives=0
+=== 7.4 manual movement vs incoming ===
+  EVIDENCE[man-vs-in] waiter=man-vs-in-2 pid=9185 wait=Lock:transactionid blocked_by=9174 rel=-
+  STATUS[man-vs-in] b1=0 b2=0 
+  7.4 PASS bin 115.000000 -> 125.000000 (+4 manual, +6 incoming)
+  RECON[7.4] wh=00002294-0000-0000-0000-0000000000a9 bin_qty=125.000000 bin_val=1250.0000 bin_rate=10.0000 queue=[{"qty": 125.000000, "rate": 10.0000000000000000}] sle_qty=25.000000 sle_val=250.0000 sle_rows=7
+    product_stock_quantity=125.000000 product_cost_price=10.00 sum_bins=125.000000 negatives=0
+=== 7.5 manual movement vs outgoing ===
+  EVIDENCE[man-vs-out] waiter=man-vs-out-2 pid=9226 wait=Lock:transactionid blocked_by=9215 rel=-
+  STATUS[man-vs-out] b1=0 b2=0 
+  7.5 PASS bin 107.000000 -> 112.000000 (+7 manual, -2 outgoing)
+  RECON[7.5] wh=00002294-0000-0000-0000-0000000000a9 bin_qty=112.000000 bin_val=1120.0000 bin_rate=10.0000 queue=[{"qty": 112.000000, "rate": 10.0000000000000000}] sle_qty=12.000000 sle_val=120.0000 sle_rows=7
+    product_stock_quantity=112.000000 product_cost_price=10.00 sum_bins=112.000000 negatives=0
+=== 7.6 manual movement vs cancellation ===
+  EVIDENCE[man-vs-c] waiter=man-vs-c-2 pid=9279 wait=Lock:transactionid blocked_by=9268 rel=-
+  STATUS[man-vs-c] b1=0 b2=3 err2=ERROR:  LATER_STOCK_MOVEMENT_EXISTS: product=00002294-0000-0000-0000-0000000000a1 warehouse=00002294-0000-0000-0000-0000000000a9CONTEXT:  PL/pgSQL function rpc_cancel_stock_adjustment(uuid,text) line 55 at RAISE
+  7.6 PASS EXPECTED_BUSINESS_FAIL LATER_STOCK_MOVEMENT_EXISTS, zero partial reversal
+  RECON[7.6] wh=00002294-0000-0000-0000-0000000000a9 bin_qty=132.000000 bin_val=1320.0000 bin_rate=10.0000 queue=[{"qty": 132.000000, "rate": 10.0000000000000000}] sle_qty=32.000000 sle_val=320.0000 sle_rows=9
+    product_stock_quantity=132.000000 product_cost_price=10.00 sum_bins=132.000000 negatives=0
+SLICE12_S7_PASS
+
+----- s8 -----
+=== 8.1a Goods Receipt [A,B] vs Delivery Note [B,A] ===
+  EVIDENCE[gr-vs-dn] waiter=gr-vs-dn-2 pid=9846 wait=Lock:transactionid blocked_by=9834 rel=-
+  STATUS[gr-vs-dn] b1=0 b2=0  
+  8.1a PASS bins A=102.000000 B=102.000000, no 40P01, crossed product order serialized at the shared prefix
+  RECON[8.1a-A] wh=00002295-0000-0000-0000-0000000000c9 bin_qty=102.000000 bin_val=1020.0000 bin_rate=10.0000 queue=[{"qty": 102.000000, "rate": 10.0000000000000000000000}] sle_qty=2.000000 sle_val=20.0000 sle_rows=2
+    product_stock_quantity=102.000000 product_cost_price=10.00 sum_bins=102.000000 negatives=0
+  RECON[8.1a-B] wh=00002295-0000-0000-0000-0000000000c9 bin_qty=102.000000 bin_val=1020.0000 bin_rate=10.0000 queue=[{"qty": 102.000000, "rate": 10.0000000000000000000000}] sle_qty=2.000000 sle_val=20.0000 sle_rows=2
+    product_stock_quantity=102.000000 product_cost_price=10.00 sum_bins=102.000000 negatives=0
+
+----- s8red -----
+=== 8.1a RED control (pre-M191 bodies): GR[A,B] vs DN[B,A] crossed bin order ===
+  RED step1 GR waiting: waiter=gr pid=9926 wait=Lock:transactionid blocked_by=9912 rel=-
+  RED step2 DN waiting:  waiter=dn pid=9941 wait=Lock:tuple blocked_by=9926 rel=bins
+  8.1a RED CONFIRMED on pre-M191 bodies: genuine 40P01 (statuses gr=0 dn=3)
+    /var/tmp/pg17/rt/s8red-dn.err:ERROR:  deadlock detected
+
+----- s8b -----
+00002296-f2f2-0000-0000-000000000002
+{"sub":"00002296-f2f2-0000-0000-000000000002","role":"authenticated"}
+=== 8.1b Stock Adjustment [Y,X] vs Consumption {X,Y} ===
+  EVIDENCE[8.1b] waiter=s8b-con pid=844 wait=Lock:transactionid blocked_by=829 rel=-
+  HELD-BY-CONSUMER material_reservations:RowShareLock,products:ExclusiveLock,products:RowShareLock
+  STATUS[8.1b] adjustment=0 consumption=0
+  8.1b PASS bins X=101.000000 Y=101.000000 consumption_rows=2, no 40P01
+  RECON[8.1b-X] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=101.000000 bin_val=1010.0000 bin_rate=10.0000 queue=[{"qty": 101.000000, "rate": 10.0000000000000000000000}] sle_qty=1.000000 sle_val=10.0000 sle_rows=2
+    product_stock_quantity=101.000000 product_cost_price=10.00 sum_bins=101.000000 negatives=0
+  RECON[8.1b-Y] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=101.000000 bin_val=1010.0000 bin_rate=10.0000 queue=[{"qty": 101.000000, "rate": 10.0000000000000000000000}] sle_qty=1.000000 sle_val=10.0000 sle_rows=2
+    product_stock_quantity=101.000000 product_cost_price=10.00 sum_bins=101.000000 negatives=0
+SLICE12_S8B_PASS
+
+----- s82 -----
+00002296-f2f2-0000-0000-000000000002
+{"sub":"00002296-f2f2-0000-0000-000000000002","role":"authenticated"}
+=== 8.2(3) real full per-MO superset + guard: GREEN, no guard error, no deadlock ===
+  8.2(3) PASS bins X=98.000000 Y=98.000000 consumption(rows/COGS)=2/40.0000 stage_wip cost_material=40.000000
+  RECON[8.2-3-X] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=98.000000 bin_val=980.0000 bin_rate=10.0000 queue=[{"qty": 98.000000, "rate": 10.0000000000000000000000}] sle_qty=-2.000000 sle_val=-20.0000 sle_rows=1
+    product_stock_quantity=98.000000 product_cost_price=10.00 sum_bins=98.000000 negatives=0
+  RECON[8.2-3-Y] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=98.000000 bin_val=980.0000 bin_rate=10.0000 queue=[{"qty": 98.000000, "rate": 10.0000000000000000000000}] sle_qty=-2.000000 sle_val=-20.0000 sle_rows=1
+    product_stock_quantity=98.000000 product_cost_price=10.00 sum_bins=98.000000 negatives=0
+=== 8.2(1) narrowed superset + guard retained => PRODUCT_NOT_PRELOCKED ===
+  8.2(1) PASS narrowed superset is caught by the guard: PRODUCT_NOT_PRELOCKED:
+
+----- s82b -----
+00002296-f2f2-0000-0000-000000000002
+{"sub":"00002296-f2f2-0000-0000-000000000002","role":"authenticated"}
+=== 8.2(2) narrowed superset + guard REMOVED, crossed MOs => deterministic 40P01 ===
+  mutant built (narrowed prefix + guard removed + barrier), verified by three anchor assertions
+  crossed pair: MO narrowing to X=8d3bf763-eef7-4c47-a145-ff8a7252b3b1 ; MO narrowing to Y=b0a5b5a4-19e3-4b6b-843d-f5b79a018e41
+  barrier: waiter=ca pid=1077 wait=Lock:advisory blocked_by=1065 rel=- || waiter=cb pid=1078 wait=Lock:advisory blocked_by=1065,1077 rel=-
+  8.2(2) RED CONFIRMED: narrowed superset without the guard deadlocks (40P01) ca=3 cb=0
+    /var/tmp/pg17/rt/s82b-ca.err:ERROR:  deadlock detected
+SLICE12_S82_2_PASS
+
+----- s82c1 -----
+00002296-f2f2-0000-0000-000000000002
+{"sub":"00002296-f2f2-0000-0000-000000000002","role":"authenticated"}
+=== 8.2 C1: an unrelated unresolvable reserved row must not poison a valid consumption ===
+  seeded: 1 unrelated reserved row with product_id IS NULL and an item with no mapping
+--- C1(a) consuming the VALID named reservation must still succeed ---
+  C1(a) PASS valid consumption succeeded, X bin=98.000000
+  RECON[C1a-X] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=98.000000 bin_val=980.0000 bin_rate=10.0000 queue=[{"qty": 98.000000, "rate": 10.0000000000000000000000}] sle_qty=-2.000000 sle_val=-20.0000 sle_rows=1
+    product_stock_quantity=98.000000 product_cost_price=10.00 sum_bins=98.000000 negatives=0
+--- C1(b) NAMING the unresolved reservation must still raise the predecessor error ---
+  C1(b) PASS predecessor resolver error preserved: ITEM_PRODUCT_MAP_MISSING: org=00002296-f2f2-0000-0000-000000000001, item=00002296-0000-0000-0000-000000000103
+  C1(b) zero partial effect, X bin unchanged=98.000000
+SLICE12_C1_PASS
+
+----- s9 -----
+00002296-f2f2-0000-0000-000000000002
+{"sub":"00002296-f2f2-0000-0000-000000000002","role":"authenticated"}
+=== 9.1 RED: reversed reservation-lock order vs ascending order => 40P01 ===
+  barrier: waiter=s9f-desc pid=26500 wait=Lock:advisory blocked_by=26488 rel=- || waiter=s9f-asc pid=26501 wait=Lock:advisory blocked_by=26488,26500 rel=-
+  9.1 RED CONFIRMED: reversed vs ascending reservation locking deadlocks (40P01) desc=3 asc=0
+=== 9.2 GREEN: real release_expired_reservations vs consumption ===
+00002296-f2f2-0000-0000-000000000002
+{"sub":"00002296-f2f2-0000-0000-000000000002","role":"authenticated"}
+  mo=2f484292-b7ef-4484-9f0d-4783bfd7a56d stage=00002296-0000-0000-0000-000000000401 reservations=2
+  EVIDENCE[9.2] waiter=s9f-con pid=26551 wait=Lock:transactionid blocked_by=26540 rel=-
+  STATUS[9.2] release=0(returned 00002296-f2f2-0000-0000-0000000000022) consumption=3
+  9.2 PASS release wins => ACTIVE_RESERVATION_NOT_FOUND, zero partial consumption/SLE
+  released semantics: expired reserved=5.000000 consumed=0.000000 released=5.000000 | expired reserved=5.000000 consumed=0.000000 released=5.000000
+  RECON[9.2-X] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=100.000000 bin_val=1000.0000 bin_rate=10.0000 queue=[{"qty": 100, "rate": 10}] sle_qty=0 sle_val=0 sle_rows=0
+    product_stock_quantity=100.000000 product_cost_price=10.00 sum_bins=100.000000 negatives=0
+=== 9.3 GREEN: consumption exhausts first, then release returns 0 for that row ===
+00002296-f2f2-0000-0000-000000000002
+{"sub":"00002296-f2f2-0000-0000-000000000002","role":"authenticated"}
+  after full consumption I1 reservation=consumed/5.000000
+  release_expired_reservations returned=1 (only the still-'reserved' I2 row qualifies)
+  9.3 PASS exhausted reservation untouched by the sweep: consumed/5.000000/0.000000
+  RECON[9.3-X] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=95.000000 bin_val=950.0000 bin_rate=10.0000 queue=[{"qty": 95.000000, "rate": 10.0000000000000000000000}] sle_qty=-5.000000 sle_val=-50.0000 sle_rows=1
+    product_stock_quantity=95.000000 product_cost_price=10.00 sum_bins=95.000000 negatives=0
+SLICE12_S9_PASS
+
+----- s10_1 -----
+=== 10.1 Control A: reservation [X,Y] vs Goods Receipt [Y,X] ===
+  EVIDENCE[ctlA] waiter=ctlA-w pid=10040 wait=Lock:transactionid blocked_by=10029 rel=-
+  HELD-BY-WRITER[ctlA] products:AccessShareLock,products:ExclusiveLock,products:RowShareLock
+  STATUS[ctlA] reservation=0 writer=0
+  10.1A PASS reservation and crossed GR both completed, writer serialized at prefix before any bin
+  RECON[10.1A-X] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=104.000000 bin_val=1040.0000 bin_rate=10.0000 queue=[{"qty": 104.000000, "rate": 10.0000000000000000}] sle_qty=4.000000 sle_val=40.0000 sle_rows=1
+    product_stock_quantity=104.000000 product_cost_price=10.00 sum_bins=104.000000 negatives=0
+  RECON[10.1A-Y] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=104.000000 bin_val=1040.0000 bin_rate=10.0000 queue=[{"qty": 104.000000, "rate": 10.0000000000000000}] sle_qty=4.000000 sle_val=40.0000 sle_rows=1
+    product_stock_quantity=104.000000 product_cost_price=10.00 sum_bins=104.000000 negatives=0
+=== 10.1 Control B: reservation [X,Y] vs outgoing [Y,X] ===
+  EVIDENCE[ctlB] waiter=ctlB-w pid=10092 wait=Lock:transactionid blocked_by=10081 rel=-
+  HELD-BY-WRITER[ctlB] products:AccessShareLock,products:ExclusiveLock,products:RowShareLock
+  STATUS[ctlB] reservation=0 writer=0
+  10.1B PASS reservation and crossed outgoing both completed
+  RECON[10.1B-X] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=102.000000 bin_val=1020.0000 bin_rate=10.0000 queue=[{"qty": 102.000000, "rate": 10.0000000000000000}] sle_qty=2.000000 sle_val=20.0000 sle_rows=2
+    product_stock_quantity=102.000000 product_cost_price=10.00 sum_bins=102.000000 negatives=0
+  RECON[10.1B-Y] wh=00002296-0000-0000-0000-0000000000c9 bin_qty=102.000000 bin_val=1020.0000 bin_rate=10.0000 queue=[{"qty": 102.000000, "rate": 10.0000000000000000}] sle_qty=2.000000 sle_val=20.0000 sle_rows=2
+    product_stock_quantity=102.000000 product_cost_price=10.00 sum_bins=102.000000 negatives=0
+SLICE12_S10_1_PASS
+
+----- s10red -----
+=== 10.1 RED control (pre-Fix-G bodies): reservation [X,Y] vs GR [Y,X] ===
+  RED step1 reservation waiting: waiter=res pid=10157 wait=Lock:transactionid blocked_by=10145 rel=-
+  RED step2 GR waiting:          waiter=gr pid=10173 wait=Lock:tuple blocked_by=10157 rel=bins
+  10.1 RED CONFIRMED on pre-Fix-G bodies: genuine 40P01 (res=0 gr=3)
+    /var/tmp/pg17/rt/s10red-gr.err:ERROR:  deadlock detected
+
+----- s10_2 -----
+=== 10.2 real helper (FOR NO KEY UPDATE): FK child insert must NOT block ===
+  reservation state: waiter=p102-res pid=10223 wait=Lock:transactionid blocked_by=10211 rel=-
+  reservation holds: bins:AccessExclusiveLock,bins:RowShareLock,products:RowShareLock
+  10.2 PASS(a): FK child insert completed while the reservation held product X FOR NO KEY UPDATE
+  reservation final status=0
+=== 10.2 FOR UPDATE mutant: the same FK child insert MUST block ===
+  10.2 PASS(b): the same FK child insert blocked against FOR UPDATE: waiter=p102-probe2 pid=10260 wait=Lock:transactionid blocked_by=10249 rel=-
+  10.2 PASS: KEY SHARE compatibility (real) vs blocking (FOR UPDATE mutant) is the discriminator, both observed
+SLICE12_S10_2_PASS
+
+----- s10d -----
+00002296-f2f2-0000-0000-000000000002
+{"sub":"00002296-f2f2-0000-0000-000000000002","role":"authenticated"}
+  ISOLATION ASSERTED immediately before Drift A: default_transaction_isolation=read committed
+  gated mutant built from the live body; both gate anchors matched exactly once; drift guard intact
+=== 10.3 Mapping drift A: gate after snapshot+prefix, before first bins query ===
+  candidate gated at A; its mapping timestamp (xact_start) = 2026-09-10 05:40:53.003086+00
+  mapper committed in-place remap I1: X -> Y, eligible at the candidate's own timestamp (resolver now returns Y)
+  candidate finished while the Y-bin blocker was STILL held (status=3)
+  10.3 PASS(a) candidate never acquired Y's bin (it completed against a held Y-bin lock) => bins work stayed on captured X
+  10.3 PASS(b) drift detected: ITEM_PRODUCT_MAPPING_DRIFT
+  10.3 PASS(c) whole-RPC rollback: 0 MO, 0 reservation
+=== 10.4 Mapping drift B: gate after MO creation, before first reservation INSERT ===
+  candidate gated at B; mapping timestamp = 2026-09-10 05:40:53.299123+00
+  mapper committed in-place remap I1: X -> Y with an already-eligible valid_from
+  10.4 PASS drift detected at the RETURNING comparison: ITEM_PRODUCT_MAPPING_DRIFT
+  10.4 PASS whole-RPC rollback: zero surviving MO and zero reservation
+=== 10.5 Mapping drift C: uniqueness-preserving swap I1<->I2 at the persistence gate ===
+  candidate gated; captured I1->X, I2->Y; prefix {X,Y}; mapping timestamp = 2026-09-10 05:40:53.51949+00
+  proved at the candidate's mapping timestamp: I1 -> Y and I2 -> X (uniqueness preserved, both directions swapped)
+  10.5 PASS ITEM_PRODUCT_MAPPING_DRIFT (not MAP_MISSING)
+  10.5 PASS whole-RPC rollback: 0 MO, 0 reservation
+=== 10.6 Fix G timestamp reject-list invariants (recorded) ===
+  INVARIANT-1 recorded: reservation trigger resolution uses COALESCE(NEW.created_at, now()).
+    Captured-vs-trigger identity assumes a normal INSERT does not inject a
+    materially different historical/future created_at. A future migration that
+    does so must re-review Fix G.
+  INVARIANT-2 recorded: every drift fixture above used an EXPLICIT valid_from <=
+    the candidate transaction's own mapping timestamp (asserted live via the
+    resolver before releasing each gate). A valid_from newer than that timestamp
+    does not prove resolver drift and is rejected as a fixture failure.
+SLICE12_S10_DRIFT_PASS
+
