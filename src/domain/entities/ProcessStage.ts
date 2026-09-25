@@ -46,9 +46,24 @@ export class ProcessStage {
     return new ProcessStage(id, name, sequence, StageStatus.NOT_STARTED, Quantity.of(unitsStarted), Quantity.of(0), 0, Money.zero(currency));
   }
 
+  /**
+   * Hydrates persisted/raw data. Fails closed on data the entity could never
+   * reach through its own transitions, instead of hydrating an inconsistent
+   * entity that only throws later when a derived value (unitsInProgress, WIP,
+   * equivalent units) is read. Nothing is clamped.
+   */
   static fromRawData(data: ProcessStageData): ProcessStage {
+    const unitsStarted = Quantity.of(data.unitsStarted);
+    const unitsCompleted = Quantity.of(data.unitsCompleted);
+    if (unitsCompleted.value > unitsStarted.value) {
+      throw new Error('Invalid ProcessStage data: completed units cannot exceed started units');
+    }
+    if (!Number.isFinite(data.completionPercentage)
+        || data.completionPercentage < 0 || data.completionPercentage > 100) {
+      throw new Error('Invalid ProcessStage data: completion percentage must be between 0 and 100');
+    }
     return new ProcessStage(data.id, data.name, data.sequence, data.status,
-      Quantity.of(data.unitsStarted), Quantity.of(data.unitsCompleted),
+      unitsStarted, unitsCompleted,
       data.completionPercentage, Money.of(data.accumulatedCost, data.currency || 'SAR'));
   }
 
