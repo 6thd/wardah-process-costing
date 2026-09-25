@@ -25,6 +25,8 @@ CALLS_PER_WORKER=$((WARMUP + ITERATIONS))
 TOTAL_CALLS=$((CONCURRENCY * CALLS_PER_WORKER))
 
 declare -A SNAP_PRODUCT_QTY=()
+declare -A SNAP_PRODUCT_VALUE=()
+declare -A SNAP_PRODUCT_COST=()
 declare -A SNAP_BIN_QTY=()
 declare -A SNAP_BIN_VALUE=()
 declare -A SNAP_QUEUE_QTY=()
@@ -64,16 +66,24 @@ s AS (
 )
 SELECT
   COALESCE((SELECT stock_quantity FROM public.products WHERE id='$product_id' AND org_id='$org_id'),0),
+  COALESCE((SELECT stock_value FROM public.products WHERE id='$product_id' AND org_id='$org_id'),0),
+  COALESCE((SELECT cost_price FROM public.products WHERE id='$product_id' AND org_id='$org_id'),0),
   b.qty,b.value,q.qty,q.value,s.rows,s.qty,s.value,b.negatives
 FROM b,q,s;"
 }
 
+# cost_price may be seeded to a sentinel immediately before a workload. Because
+# warm-up and measurement now share the same connection, the excluded warm-up
+# must repair that projection before measured calls begin; the final fresh-bin
+# reconciliation below makes a missing cost projection write fail closed.
 capture_product_effect() {
   local key=$1 org_id=$2 product_id=$3
-  local pq bq bv qq qv sr sq sv neg
-  IFS='|' read -r pq bq bv qq qv sr sq sv neg <<<"$(product_effect_state "$org_id" "$product_id")"
+  local pq pv pc bq bv qq qv sr sq sv neg
+  IFS='|' read -r pq pv pc bq bv qq qv sr sq sv neg <<<"$(product_effect_state "$org_id" "$product_id")"
   [[ "$neg" == "0" ]] || fail "$key: negative stock exists before workload"
   SNAP_PRODUCT_QTY["$key"]=$pq
+  SNAP_PRODUCT_VALUE["$key"]=$pv
+  SNAP_PRODUCT_COST["$key"]=$pc
   SNAP_BIN_QTY["$key"]=$bq
   SNAP_BIN_VALUE["$key"]=$bv
   SNAP_QUEUE_QTY["$key"]=$qq
@@ -84,14 +94,15 @@ capture_product_effect() {
 }
 
 assert_product_effect() {
-  local key=$1 scenario=$2 org_id=$3 product_id=$4 expected_qty=$5 expected_value=$6 expected_rows=$7 allow_projection_gap=${8:-0}
-  local pq bq bv qq qv sr sq sv neg
-  local d_product d_bq d_bv d_qq d_qv d_sr d_sq d_sv projection_gap
+  local key=$1 scenario=$2 org_id=$3 product_id=$4 expected_qty=$5 expected_value=$6 expected_rows=$7 allow_projection_gap=${8:-0} projection_contract=${9:-incoming}
+  local pq pv pc bq bv qq qv sr sq sv neg expected_cost
+  local d_product d_product_value d_bq d_bv d_qq d_qv d_sr d_sq d_sv projection_gap
 
-  IFS='|' read -r pq bq bv qq qv sr sq sv neg <<<"$(product_effect_state "$org_id" "$product_id")"
+  IFS='|' read -r pq pv pc bq bv qq qv sr sq sv neg <<<"$(product_effect_state "$org_id" "$product_id")"
   [[ "$neg" == "0" ]] || fail "$scenario: negative stock exists after workload"
 
   d_product=$(num_sub "$pq" "${SNAP_PRODUCT_QTY[$key]}")
+  d_product_value=$(num_sub "$pv" "${SNAP_PRODUCT_VALUE[$key]}")
   d_bq=$(num_sub "$bq" "${SNAP_BIN_QTY[$key]}")
   d_bv=$(num_sub "$bv" "${SNAP_BIN_VALUE[$key]}")
   d_qq=$(num_sub "$qq" "${SNAP_QUEUE_QTY[$key]}")
@@ -113,7 +124,7 @@ assert_product_effect() {
 
   if [[ "$allow_projection_gap" == "1" ]]; then
     awk -v d="$d_product" -v e="$expected_qty" 'BEGIN { exit !(d >= 0 && d <= e) }' \
-      || fail "$scenario: pre191 projection delta=$d_product outside [0,$expected_qty]"
+      || fail "$scenario: pre191 quantity projection delta=$d_product outside [0,$expected_qty]"
     projection_gap=$(num_sub "$bq" "$pq")
     printf 'label=%s product_stock_quantity=%s sum_bins=%s projection_gap=%s\n' \
       "$LABEL" "$pq" "$bq" "$projection_gap" \
@@ -123,7 +134,28 @@ assert_product_effect() {
     num_eq "$pq" "$bq" || fail "$scenario: product qty=$pq <> sum bins=$bq"
   fi
 
-  echo "M191_PERF_EFFECT_OK scenario=$scenario qty=$d_bq value=$d_bv sle_rows=$d_sr sle_qty=$d_sq sle_value=$d_sv"
+  # Cost price is owned by both canonical incoming and outgoing helpers when
+  # stock remains positive. Validate it from fresh bin totals rather than from
+  # its prior product value. Incoming deliberately does NOT own
+  # products.stock_value; outgoing does.
+  if awk -v q="$bq" 'BEGIN { exit !(q != 0) }'; then
+    expected_cost=$(awk -v q="$bq" -v v="$bv" 'BEGIN { printf "%.12g", v/q }')
+    num_eq "$pc" "$expected_cost" || fail "$scenario: product cost_price=$pc expected derived=$expected_cost"
+  fi
+
+  case "$projection_contract" in
+    incoming)
+      ;;
+    outgoing)
+      num_eq "$d_product_value" "$expected_value" || fail "$scenario: product stock_value delta=$d_product_value expected=$expected_value"
+      num_eq "$pv" "$bv" || fail "$scenario: product stock_value=$pv <> sum bins=$bv"
+      ;;
+    *)
+      fail "$scenario: unknown projection contract $projection_contract"
+      ;;
+  esac
+
+  echo "M191_PERF_EFFECT_OK scenario=$scenario qty=$d_bq value=$d_bv sle_rows=$d_sr sle_qty=$d_sq sle_value=$d_sv product_value_contract=$projection_contract product_cost=$pc"
 }
 
 record_fixture_size() {
@@ -152,12 +184,16 @@ run_workload() {
   local name=$1 auth_user=$2 callback=$3 lock_scope=$4
   local dir="$OUT/$name"
   mkdir -p "$dir"
-  local w q f pid failed sampler_pid sampler_ready sampler_status start_ns end_ns wall_s ops
-  local -a pids=()
+  rm -f "$dir"/worker*.ready "$dir"/release "$dir"/measured.worker*.log "$dir"/locks.tsv "$dir"/locks.err
+  local w q f pid failed sampler_pid sampler_ready sampler_status wall_s ops
+  local ready worker_pid start_epoch end_epoch min_start max_start start_spread_ms
+  local -a pids=() starts=() ends=()
 
-  # Warm-up: same clients/query shape, excluded from metrics.
+  # One persistent psql session per worker performs BOTH warm-up and measured
+  # calls. This preserves connection/catalog/PLpgSQL cache warm-up while
+  # excluding warm-up calls from timing. Workers then stop at a barrier.
   for w in $(seq 1 "$CONCURRENCY"); do
-    f="$dir/warmup.worker$w.sql"
+    f="$dir/measured.worker$w.sql"
     {
       echo '\set ON_ERROR_STOP on'
       echo '\pset tuples_only on'
@@ -168,38 +204,39 @@ run_workload() {
       echo '\timing off'
       q="$($callback "$w")"
       for _ in $(seq 1 "$WARMUP"); do printf '%s\n' "$q"; done
+      printf "\\! touch '%s/worker%s.ready'\n" "$dir" "$w"
+      printf "\\! bash -c 'while [ ! -f \"%s/release\" ]; do sleep 0.01; done'\n" "$dir"
+      echo "SELECT 'M191_PERF_MEASURE_START|' || extract(epoch FROM clock_timestamp())::numeric(20,6);"
+      echo '\timing on'
+      for _ in $(seq 1 "$ITERATIONS"); do printf '%s\n' "$q"; done
+      echo '\timing off'
+      echo "SELECT 'M191_PERF_MEASURE_END|' || extract(epoch FROM clock_timestamp())::numeric(20,6);"
     } > "$f"
-    PGAPPNAME="m191perf-$LABEL-$name-w$w" "${PSQL[@]}" -f "$f" \
-      >"$dir/warmup.worker$w.log" 2>&1 &
+
+    PGAPPNAME="m191perf-$LABEL-$name-w$w" "${PSQL[@]}" \
+      -f "$f" >"$dir/measured.worker$w.log" 2>&1 &
     pids+=("$!")
   done
-  failed=0
-  for pid in "${pids[@]}"; do
-    if ! wait "$pid"; then failed=1; fi
-  done
-  if [[ "$failed" -ne 0 ]]; then
-    tail -100 "$dir"/warmup.worker*.log >&2 || true
-    fail "$name warm-up failed"
-  fi
 
+  # Fail closed unless every measured connection itself completed warm-up and
+  # reached the barrier while remaining alive.
   for w in $(seq 1 "$CONCURRENCY"); do
-    f="$dir/measured.worker$w.sql"
-    {
-      echo '\set ON_ERROR_STOP on'
-      echo '\pset tuples_only on'
-      echo '\pset format unaligned'
-      echo "SET statement_timeout='30s';"
-      echo "SELECT set_config('request.jwt.claim.sub','$auth_user',false);"
-      echo "SELECT set_config('request.jwt.claims','{\"sub\":\"$auth_user\",\"role\":\"authenticated\"}',false);"
-      echo '\timing on'
-      q="$($callback "$w")"
-      for _ in $(seq 1 "$ITERATIONS"); do printf '%s\n' "$q"; done
-    } > "$f"
+    ready="$dir/worker$w.ready"
+    worker_pid="${pids[$((w - 1))]}"
+    for _ in $(seq 1 3000); do
+      [[ -f "$ready" ]] && break
+      if ! kill -0 "$worker_pid" 2>/dev/null; then
+        wait "$worker_pid" 2>/dev/null || true
+        tail -100 "$dir/measured.worker$w.log" >&2 || true
+        fail "$name worker $w exited before warm-up barrier"
+      fi
+      sleep 0.01
+    done
+    [[ -f "$ready" ]] || fail "$name worker $w did not reach warm-up barrier"
   done
 
-  # Real Lock-wait samples from benchmark backends. For hot-multiwarehouse
-  # workers share the product but not a bin, making it the product-row /
-  # product-projection contention proxy.
+  # Start Lock-wait sampling only AFTER warm-up is complete, so lock metrics
+  # describe the measured window rather than excluded warm-up work.
   cat >"$dir/sampler.sql" <<SQL
 \pset tuples_only on
 \pset format unaligned
@@ -219,8 +256,6 @@ SQL
     -f "$dir/sampler.sql" >"$dir/locks.tsv" 2>"$dir/locks.err" &
   sampler_pid=$!
 
-  # Fail closed if the sampling session never becomes live. The ready row is
-  # deliberately not a lock sample (the reporter ignores non-tabbed rows).
   sampler_ready=0
   for _ in $(seq 1 100); do
     if grep -qx 'M191_PERF_SAMPLER_READY' "$dir/locks.tsv" 2>/dev/null; then
@@ -242,22 +277,16 @@ SQL
     fail "$name lock sampler did not emit readiness evidence"
   fi
 
-  start_ns=$(date +%s%N)
-  pids=()
-  for w in $(seq 1 "$CONCURRENCY"); do
-    PGAPPNAME="m191perf-$LABEL-$name-w$w" "${PSQL[@]}" \
-      -f "$dir/measured.worker$w.sql" >"$dir/measured.worker$w.log" 2>&1 &
-    pids+=("$!")
-  done
+  # Release all already-warmed persistent connections together. Throughput is
+  # later derived from server-side timestamps bracketing measured SQL only;
+  # process spawn, connection setup, auth SETs and warm-up are excluded.
+  touch "$dir/release"
 
   failed=0
   for pid in "${pids[@]}"; do
     if ! wait "$pid"; then failed=1; fi
   done
-  end_ns=$(date +%s%N)
 
-  # A zero-wait workload is valid only if the sampler stayed alive throughout
-  # the measured window. An early sampler exit must never become "0 ms wait".
   if ! kill -0 "$sampler_pid" 2>/dev/null; then
     sampler_status=0
     wait "$sampler_pid" || sampler_status=$?
@@ -281,7 +310,25 @@ SQL
     fail "$name observed a deadlock"
   fi
 
-  wall_s=$(awk -v a="$start_ns" -v b="$end_ns" 'BEGIN { printf "%.6f", (b-a)/1000000000 }')
+  # Extract one start/end marker from each persistent worker. No client-process
+  # startup or connection/auth setup contributes to wall_seconds.
+  for w in $(seq 1 "$CONCURRENCY"); do
+    start_epoch=$(grep -m1 '^M191_PERF_MEASURE_START|' "$dir/measured.worker$w.log" | cut -d'|' -f2 || true)
+    end_epoch=$(grep -m1 '^M191_PERF_MEASURE_END|' "$dir/measured.worker$w.log" | cut -d'|' -f2 || true)
+    [[ -n "$start_epoch" && -n "$end_epoch" ]] || fail "$name worker $w missing measurement boundary marker"
+    awk -v a="$start_epoch" -v b="$end_epoch" 'BEGIN { exit !(b > a) }' \
+      || fail "$name worker $w invalid measurement boundary $start_epoch -> $end_epoch"
+    starts+=("$start_epoch")
+    ends+=("$end_epoch")
+  done
+
+  min_start=$(printf '%s\n' "${starts[@]}" | sort -n | head -1)
+  max_start=$(printf '%s\n' "${starts[@]}" | sort -n | tail -1)
+  end_epoch=$(printf '%s\n' "${ends[@]}" | sort -n | tail -1)
+  wall_s=$(awk -v a="$min_start" -v b="$end_epoch" 'BEGIN { printf "%.6f", b-a }')
+  start_spread_ms=$(awk -v a="$min_start" -v b="$max_start" 'BEGIN { printf "%.3f", (b-a)*1000 }')
+  awk -v w="$wall_s" 'BEGIN { exit !(w > 0) }' || fail "$name non-positive measured wall time"
+
   ops=$((CONCURRENCY * ITERATIONS))
   cat >"$dir/meta.env" <<META
 workload=$name
@@ -292,10 +339,12 @@ iterations_per_worker=$ITERATIONS
 warmup_per_worker=$WARMUP
 operations=$ops
 wall_seconds=$wall_s
+worker_start_spread_ms=$start_spread_ms
+measurement_boundary=server_clock_same_session_after_warmup_barrier
 sample_interval_seconds=$SAMPLE_INTERVAL
 lock_scope=$lock_scope
 META
-  echo "M191_PERF_WORKLOAD_COMPLETE label=$LABEL workload=$name ops=$ops wall_s=$wall_s"
+  echo "M191_PERF_WORKLOAD_COMPLETE label=$LABEL workload=$name ops=$ops wall_s=$wall_s start_spread_ms=$start_spread_ms"
 }
 
 # ---- core stock/manual fixture ------------------------------------------------
@@ -388,11 +437,13 @@ q_manual() {
   printf "SELECT public.rpc_manual_stock_movement_v2(jsonb_build_object('product_id','%s','warehouse_id','%s','movement_type','in','quantity',1,'unit_cost_entered',10));" "$S7_P1" "$S7_W"
 }
 
+"${PSQL[@]}" -c "UPDATE public.products SET cost_price=987654.321 WHERE id='$S7_P1' AND org_id='$S7_ORG';"
 record_fixture_size core_hot_same_warehouse "$S7_ORG" "$S7_P1"
 capture_product_effect s7-hot-same "$S7_ORG" "$S7_P1"
 run_workload core_hot_same_warehouse "$S7_ADMIN" q_core_hot_same all_lock_waits
 assert_product_effect s7-hot-same core_hot_same_warehouse "$S7_ORG" "$S7_P1" "$TOTAL_CALLS" "$((TOTAL_CALLS * 10))" "$TOTAL_CALLS"
 
+"${PSQL[@]}" -c "UPDATE public.products SET cost_price=987654.321 WHERE id='$S7_P2' AND org_id='$S7_ORG';"
 record_fixture_size core_hot_multiwarehouse "$S7_ORG" "$S7_P2"
 capture_product_effect s7-hot-multi "$S7_ORG" "$S7_P2"
 run_workload core_hot_multiwarehouse "$S7_ADMIN" q_core_hot_multi product_row_proxy_no_shared_bin
@@ -400,6 +451,7 @@ if [[ "$LABEL" == "pre191" ]]; then allow_projection_gap=1; else allow_projectio
 assert_product_effect s7-hot-multi core_hot_multiwarehouse "$S7_ORG" "$S7_P2" "$TOTAL_CALLS" "$((TOTAL_CALLS * 10))" "$TOTAL_CALLS" "$allow_projection_gap"
 
 dist_csv=$(IFS=,; echo "${S7_DIST_P[*]}")
+"${PSQL[@]}" -c "UPDATE public.products SET cost_price=987654.321 WHERE org_id='$S7_ORG' AND id = ANY(string_to_array('$dist_csv',',')::uuid[]);"
 record_fixture_size core_distinct_sku "$S7_ORG" "$dist_csv"
 for idx in "${!S7_DIST_P[@]}"; do
   capture_product_effect "s7-dist-$idx" "$S7_ORG" "${S7_DIST_P[$idx]}"
@@ -409,11 +461,28 @@ for idx in "${!S7_DIST_P[@]}"; do
   assert_product_effect "s7-dist-$idx" "core_distinct_sku_w$((idx + 1))" "$S7_ORG" "${S7_DIST_P[$idx]}" "$CALLS_PER_WORKER" "$((CALLS_PER_WORKER * 10))" "$CALLS_PER_WORKER"
 done
 
+# Incoming paths above intentionally do not own products.stock_value. Re-sync
+# the outgoing workload's starting projection from bins so its stock_value
+# delta is independently meaningful.
+"${PSQL[@]}" -c "
+UPDATE public.products p
+SET stock_quantity=x.q,
+    stock_value=x.v,
+    cost_price=CASE WHEN x.q<>0 THEN x.v/x.q ELSE p.cost_price END
+FROM (
+  SELECT product_id,COALESCE(SUM(actual_qty),0) q,COALESCE(SUM(stock_value),0) v
+  FROM public.bins
+  WHERE org_id='$S7_ORG' AND product_id='$S7_P1'
+  GROUP BY product_id
+) x
+WHERE p.id=x.product_id AND p.org_id='$S7_ORG';"
+"${PSQL[@]}" -c "UPDATE public.products SET cost_price=987654.321 WHERE id='$S7_P1' AND org_id='$S7_ORG';"
 record_fixture_size outgoing_hot_same_warehouse "$S7_ORG" "$S7_P1"
 capture_product_effect s7-outgoing "$S7_ORG" "$S7_P1"
 run_workload outgoing_hot_same_warehouse "$S7_ADMIN" q_outgoing all_lock_waits
-assert_product_effect s7-outgoing outgoing_hot_same_warehouse "$S7_ORG" "$S7_P1" "$((-TOTAL_CALLS))" "$((-TOTAL_CALLS * 10))" "$TOTAL_CALLS"
+assert_product_effect s7-outgoing outgoing_hot_same_warehouse "$S7_ORG" "$S7_P1" "$((-TOTAL_CALLS))" "$((-TOTAL_CALLS * 10))" "$TOTAL_CALLS" 0 outgoing
 
+"${PSQL[@]}" -c "UPDATE public.products SET cost_price=987654.321 WHERE id='$S7_P1' AND org_id='$S7_ORG';"
 record_fixture_size manual_movement_hot_same_warehouse "$S7_ORG" "$S7_P1"
 capture_product_effect s7-manual "$S7_ORG" "$S7_P1"
 run_workload manual_movement_hot_same_warehouse "$S7_ADMIN" q_manual all_lock_waits
@@ -434,6 +503,7 @@ SQL
 q_receipt() {
   printf "SELECT public.rpc_post_goods_receipt(jsonb_build_object('tenant_id','%s','vendor_id','%s','warehouse_id','%s','idempotency_key','m191-perf-gr-'||gen_random_uuid()::text,'lines',jsonb_build_array(jsonb_build_object('product_id','%s','qty_entered',1,'unit_cost',10))));" "$S8_ORG" "$S8_VEND" "$S8_W" "$S8_A"
 }
+"${PSQL[@]}" -c "UPDATE public.products SET cost_price=987654.321 WHERE id='$S8_A' AND org_id='$S8_ORG';"
 record_fixture_size goods_receipt_hot_same_warehouse "$S8_ORG" "$S8_A"
 capture_product_effect s8-gr "$S8_ORG" "$S8_A"
 run_workload goods_receipt_hot_same_warehouse "$S8_USR" q_receipt all_lock_waits
@@ -469,10 +539,11 @@ q_consumption() {
   local w=$1
   printf "SELECT public.rpc_consume_reserved_materials_v2((SELECT mo_id FROM public.zz_m191_perf_mos WHERE worker_id=%s),'%s',jsonb_build_array(jsonb_build_object('item_id','%s','quantity',1,'warehouse_id','%s')));" "$w" "$S9_STAGE" "$S9_I1" "$S9_W"
 }
+"${PSQL[@]}" -c "UPDATE public.products SET cost_price=987654.321 WHERE id='$S9_X' AND org_id='$S9_ORG';"
 record_fixture_size manufacturing_consumption_hot_same_warehouse "$S9_ORG" "$S9_X"
 capture_product_effect s9-consume "$S9_ORG" "$S9_X"
 run_workload manufacturing_consumption_hot_same_warehouse "$S9_ADM" q_consumption all_lock_waits
-assert_product_effect s9-consume manufacturing_consumption_hot_same_warehouse "$S9_ORG" "$S9_X" "$((-TOTAL_CALLS))" "$((-TOTAL_CALLS * 10))" "$TOTAL_CALLS"
+assert_product_effect s9-consume manufacturing_consumption_hot_same_warehouse "$S9_ORG" "$S9_X" "$((-TOTAL_CALLS))" "$((-TOTAL_CALLS * 10))" "$TOTAL_CALLS" 0 outgoing
 
 read -r consumed released <<<"$("${PSQL[@]}" -c "
 SELECT COALESCE(SUM(quantity_consumed),0)||' '||COALESCE(SUM(quantity_released),0)
