@@ -44,8 +44,15 @@ application name, backend PID, wait event and pg_blocking_pids output.
 ## Fail-closed execution
 
 The harness fails on any RPC/worker error, timeout, 40P01/deadlock, setup
-failure, timed-call count mismatch, or post-workload product/bin
-reconciliation failure.
+failure, timed-call count mismatch, or post-191 product/bin reconciliation
+failure.
+
+One baseline exception is deliberate: pre-191 core_hot_multiwarehouse is the
+known lost-product-projection race that M191 fixes. Its product-vs-bin gap is
+recorded as raw evidence instead of being required to pass GREEN reconciliation.
+Negative stock or any unrelated invariant failure still fails the run. The
+deterministic M191 RED suite remains the proof of that defect; this performance
+run does not depend on scheduler luck to reproduce it.
 
 No arbitrary percentage threshold is invented because Wardah has no
 established SLO for these RPCs. A material regression must instead be
