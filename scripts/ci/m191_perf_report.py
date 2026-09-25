@@ -339,13 +339,16 @@ def main() -> None:
         f"- pooled measured operations per workload/state: **{pooled_ops}**",
         f"- lock sampling interval: **{first_leaf['sample_interval_seconds']:.3f}s**",
         "",
-        "Lock-wait values are sampling estimates. core_hot_multiwarehouse is "
-        "the product-row/product-projection proxy: workers share one product "
-        "but use separate bins.",
+        "Lock-wait values are sampling estimates. The 'longest sampled Lock-wait "
+        "streak' groups consecutive Lock samples for the same backend and may span "
+        "multiple statements, wait events, and blockers; it is NOT the duration of "
+        "one lock wait. core_hot_multiwarehouse is the product-row/product-projection "
+        "proxy: workers share one product but use separate bins.",
         "",
         "| Workload | Pre ops/s | Post ops/s | Delta ops/s | Pre p95 ms | "
         "Post p95 ms | Delta p95 | Pre p99 ms | Post p99 ms | "
-        "Pre lock ms/100 ops | Post lock ms/100 ops | Post worst episode ms |",
+        "Pre lock ms/100 ops | Post lock ms/100 ops | "
+        "Post longest sampled Lock-wait streak ms |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
 
