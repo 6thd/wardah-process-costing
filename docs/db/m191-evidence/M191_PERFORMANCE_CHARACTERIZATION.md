@@ -49,11 +49,14 @@ raw results per repetition so runner noise can be inspected.
 
 For both states and every workload the report records pooled operations/sec,
 pooled p50/p95/p99/max latency, per-repetition throughput/p95 ranges, sampled
-Lock-wait time normalized per 100 operations, and the worst sampled episode.
+Lock-wait time normalized per 100 operations, and the longest consecutive
+same-backend sampled Lock-wait streak.
 
 The lock numbers are sampling estimates, not exact PostgreSQL wait accounting.
-Raw samples retain application name, backend PID, wait event and
-pg_blocking_pids output.
+The streak metric groups consecutive Lock samples for one backend and may span
+multiple statements, wait-event types and blocking backends. It is **not** the
+duration of one lock wait or one SQL statement. Raw samples retain application
+name, backend PID, wait event and pg_blocking_pids output.
 
 ## Fail-closed execution
 
@@ -167,8 +170,10 @@ fixture cardinalities and required pre/post cardinality equality.
 | manufacturing consumption | 430.75 | 371.33 | -13.8% | 17.765 | 15.944 | -10.3% | 44.171 | 52.517 | 460.0 | 617.5 |
 | outgoing | 674.26 | 630.84 | -6.4% | 7.441 | 8.609 | +15.7% | 25.927 | 27.387 | 315.0 | 320.0 |
 
-The post-191 worst sampled Lock-wait episode in the hot-multiwarehouse proxy
-was **200 ms**.
+The superseded run's longest consecutive same-backend sampled Lock-wait streak
+for the post-191 hot-multiwarehouse proxy was **200 ms**. This was a sampling
+streak that could span multiple statements/blockers, **not** a single 200 ms
+lock wait.
 
 ### Repeat-to-repeat envelope
 
@@ -337,8 +342,16 @@ The product-projection concern is also covered fail-closed:
 | manufacturing consumption | 747.11 | 650.68 | -12.9% | 10.144 | 8.250 | -18.7% | 16.150 | 10.817 | 334.4 | 406.2 |
 | outgoing | 1172.24 | 1185.11 | +1.1% | 4.393 | 4.165 | -5.2% | 5.938 | 5.064 | 228.1 | 208.1 |
 
-The post-191 worst sampled Lock-wait episode for the hot-multiwarehouse proxy
-was **400 ms**.
+The post-191 hot-multiwarehouse proxy's **longest consecutive same-backend
+sampled Lock-wait streak was 400 ms**. This streak comprised consecutive
+20 ms Lock samples and may span multiple statements, wait-event types and
+blocking backends; it is **not a single 400 ms lock wait**.
+
+For context, the largest single measured statement latency in that frozen
+post-191 hot-multiwarehouse evidence was **11.866 ms**. A statement's measured
+latency includes any lock waiting incurred by that call, so this is the
+appropriate scale for a single measured operation. The 400 ms streak remains
+useful only as a contention-persistence sampling signal.
 
 ### Repeat-to-repeat envelope
 
