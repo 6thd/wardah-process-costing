@@ -70,6 +70,10 @@ class Leaf:
 
 def collect_leaf(workload_dir: Path) -> Leaf:
     meta = read_meta(workload_dir / "meta.env")
+    fixture_path = workload_dir / "fixture_size.env"
+    if not fixture_path.exists():
+        raise SystemExit(f"missing fixture size evidence: {fixture_path}")
+    fixture = {key: int(value) for key, value in read_meta(fixture_path).items()}
     workload = meta["workload"]
     latencies: list[float] = []
     for log in sorted(workload_dir.glob("measured.worker*.log")):
@@ -106,6 +110,7 @@ def collect_leaf(workload_dir: Path) -> Leaf:
         "lock_wait_sample_count": sample_count,
         "lock_wait_aggregate_estimate_ms": agg_lock,
         "lock_wait_worst_episode_estimate_ms": worst_lock,
+        "fixture": fixture,
     }
     return Leaf(summary=summary, latencies=latencies)
 
@@ -143,6 +148,9 @@ def aggregate(repetitions: list[dict[str, Leaf]], workload: str) -> dict:
     )
     run_ops = [item["ops_per_second"] for item in summaries]
     run_p95 = [item["p95_ms"] for item in summaries]
+    fixture = summaries[0]["fixture"]
+    if any(item["fixture"] != fixture for item in summaries[1:]):
+        raise SystemExit(f"{workload}: fixture cardinality drift across repetitions")
 
     return {
         "workload": workload,
@@ -170,6 +178,7 @@ def aggregate(repetitions: list[dict[str, Leaf]], workload: str) -> dict:
         "lock_wait_worst_episode_estimate_ms": max(
             item["lock_wait_worst_episode_estimate_ms"] for item in summaries
         ),
+        "fixture": fixture,
     }
 
 
@@ -236,9 +245,16 @@ def main() -> None:
             "post191": {name: leaf.summary for name, leaf in post.items()},
         }
 
-    assert expected
+    if expected is None:
+        raise SystemExit("no workload set discovered")
     pre_agg = {name: aggregate(pre_reps, name) for name in sorted(expected)}
     post_agg = {name: aggregate(post_reps, name) for name in sorted(expected)}
+    for name in sorted(expected):
+        if pre_agg[name]["fixture"] != post_agg[name]["fixture"]:
+            raise SystemExit(
+                f"{name}: pre/post fixture cardinalities differ: "
+                f"{pre_agg[name]['fixture']} != {post_agg[name]['fixture']}"
+            )
     red_count, red_details = known_red_observations(rep_paths)
 
     payload = {
@@ -338,6 +354,22 @@ def main() -> None:
             f"{before['p95_ms_max_by_run']:.3f} | "
             f"{after['p95_ms_min_by_run']:.3f}-"
             f"{after['p95_ms_max_by_run']:.3f} |"
+        )
+
+    lines += [
+        "",
+        "## Fixture cardinalities at workload start",
+        "",
+        "| Workload | Org products | Org bins | Target products | Target bins | Org reservations | Target reservations | Org SLE rows | Target SLE rows |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for name in sorted(pre_agg):
+        fixture = pre_agg[name]["fixture"]
+        lines.append(
+            f"| {name} | {fixture['org_products']} | {fixture['org_bins']} | "
+            f"{fixture['target_products']} | {fixture['target_bins']} | "
+            f"{fixture['org_reservations']} | {fixture['target_reservations']} | "
+            f"{fixture['org_sle_rows']} | {fixture['target_sle_rows']} |"
         )
 
     lines += [
