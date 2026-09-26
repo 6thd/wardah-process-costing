@@ -80,6 +80,18 @@ BEGIN
                                        'complete_operation_error', v_call ->> 'error',
                                        'complete_operation_state', v_call ->> 'sqlstate');
 
+  -- The documented failure applies to the org admin too, not only the reader.
+  v_call := pg_temp.try_as(pg_temp.admin(), format(
+    $q$SELECT to_jsonb(public.start_operation(%L::uuid, NULL::uuid, false))$q$, v_wo));
+  v_map := v_map || jsonb_build_object('admin_start_operation', v_call ->> 'ok',
+                                       'admin_start_state', v_call ->> 'sqlstate',
+                                       'admin_start_error', v_call ->> 'error');
+  v_call := pg_temp.try_as(pg_temp.admin(), format(
+    $q$SELECT to_jsonb(public.complete_operation(%L::uuid, 5, 0, NULL))$q$, v_wo));
+  v_map := v_map || jsonb_build_object('admin_complete_operation', v_call ->> 'ok',
+                                       'admin_complete_state', v_call ->> 'sqlstate',
+                                       'admin_complete_error', v_call ->> 'error');
+
   -- D5. Definer search_path posture of the reviewed boundaries.
   FOR r IN
     SELECT p.oid::regprocedure::text AS sig, p.prosecdef, p.proconfig
@@ -105,7 +117,15 @@ BEGIN
      OR position('completed_quantity' in coalesce(v_map ->> 'start_operation_error', '')) = 0
      OR position('is ambiguous' in coalesce(v_map ->> 'start_operation_error', '')) = 0
      OR position('completed_quantity' in coalesce(v_map ->> 'complete_operation_error', '')) = 0
-     OR position('is ambiguous' in coalesce(v_map ->> 'complete_operation_error', '')) = 0 THEN
+     OR position('is ambiguous' in coalesce(v_map ->> 'complete_operation_error', '')) = 0
+     OR v_map ->> 'admin_start_operation' IS DISTINCT FROM 'false'
+     OR v_map ->> 'admin_complete_operation' IS DISTINCT FROM 'false'
+     OR v_map ->> 'admin_start_state' IS DISTINCT FROM '42702'
+     OR v_map ->> 'admin_complete_state' IS DISTINCT FROM '42702'
+     OR position('completed_quantity' in coalesce(v_map ->> 'admin_start_error', '')) = 0
+     OR position('is ambiguous' in coalesce(v_map ->> 'admin_start_error', '')) = 0
+     OR position('completed_quantity' in coalesce(v_map ->> 'admin_complete_error', '')) = 0
+     OR position('is ambiguous' in coalesce(v_map ->> 'admin_complete_error', '')) = 0 THEN
     RAISE EXCEPTION 'MFG_RED_D_OPERATION_POSTURE_NOT_REPRODUCED: %', v_map;
   END IF;
 
