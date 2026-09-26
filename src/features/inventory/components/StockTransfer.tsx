@@ -35,12 +35,21 @@ interface StockTransfer {
   items: StockTransferItem[]
 }
 
+// تأكيد التحويل يحرّك المخزون بين مستودعين. المسار السابق كان يقرأ تقييم الرصيد
+// في المتصفح، ويبني قيدَي stock_ledger_entries (خروج/دخول) ويدرجهما مباشرة — وهو
+// سطح أغلقته Migration 185 عمدًا (INSERT مرفوض بـ42501)، ولا توجد بعد RPC ذرّية
+// معتمدة للتحويل (#160). لذلك الإجراء معطّل صراحةً (fail-closed) بدل محاولة محكوم
+// عليها بالفشل، ولا يُعاد فتح الكتابة المباشرة على الدفتر لإنجاحه.
+const TRANSFER_SUBMIT_UNSUPPORTED_MESSAGE =
+  'تأكيد التحويل غير متاح حاليًا: لا يوجد بعد مسار خادم ذرّي معتمد لتحويل المخزون (#160). ' +
+  'يمكن حفظ التحويل كمسودة، ولن يتغير المخزون حتى يتوفر هذا المسار.'
+
 export default function StockTransferManagement() {
   const { hasPermissionKey } = usePermissions()
   const canRead = hasPermissionKey('inventory.stock_moves.read')
-  // التحويل يكتب stock_ledger_entries تمامًا كما تفعل تسويات المخزون —
-  // إنشاء المسودة يقابل .create، وتأكيد التحويل (الفعل المؤثر على الرصيد
-  // والدفتر) يقابل .approve، اتساقًا مع StockAdjustments.
+  // تأكيد التحويل فعل مؤثر على الرصيد والدفتر تمامًا كترحيل تسويات المخزون —
+  // إنشاء المسودة يقابل .create، والتأكيد يقابل .approve، اتساقًا مع
+  // StockAdjustments. التأكيد نفسه معطّل حتى يتوفر مسار خادم ذرّي (#160).
   const canCreate = hasPermissionKey('inventory.stock_moves.create')
   const canApprove = hasPermissionKey('inventory.stock_moves.approve')
   const canReadWarehouses = hasPermissionKey('inventory.warehouses.read')
@@ -373,140 +382,6 @@ export default function StockTransferManagement() {
     } catch (error: any) {
       console.error('Error saving transfer:', error)
       toast.error(error.message || 'خطأ في حفظ التحويل')
-    }
-  }
-
-  const handleSubmitTransfer = async (transferId: string) => {
-    if (!canApprove) {
-      toast.error('لا تملك صلاحية تأكيد تحويلات المخزون')
-      return
-    }
-    try {
-      const supabase = getSupabase()
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      if (!user) {
-        toast.error('الرجاء تسجيل الدخول')
-        return
-      }
-
-      const { data: userOrg } = await supabase
-        .from('user_organizations')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (!userOrg) {
-        toast.error('لم يتم العثور على المؤسسة')
-        return
-      }
-
-      // Get transfer with items
-      const { data: transfer, error: transferError } = await supabase
-        .from('stock_transfers')
-        .select('*')
-        .eq('id', transferId)
-        .single()
-
-      if (transferError || !transfer) {
-        toast.error('لم يتم العثور على التحويل')
-        return
-      }
-
-      if (transfer.status !== 'DRAFT') {
-        toast.error('يمكن فقط تأكيد التحويلات بحالة مسودة')
-        return
-      }
-
-      // Get transfer items
-      const { data: items, error: itemsError } = await supabase
-        .from('stock_transfer_items')
-        .select('*')
-        .eq('transfer_id', transferId)
-
-      if (itemsError || !items || items.length === 0) {
-        toast.error('لم يتم العثور على بنود التحويل')
-        return
-      }
-
-      // Create stock ledger entries (OUT from source, IN to destination)
-      const stockLedgerEntries = []
-
-      for (const item of items) {
-        // Get current rate from bins
-        const { data: bin } = await supabase
-          .from('bins')
-          .select('valuation_rate')
-          .eq('product_id', item.product_id)
-          .eq('warehouse_id', transfer.from_warehouse_id)
-          .single()
-
-        const valuationRate = bin?.valuation_rate || 0
-
-        const postingTime = new Date().toTimeString().split(' ')[0];
-        const commonFields = {
-          org_id: userOrg.org_id,
-          posting_date: transfer.transfer_date,
-          posting_time: postingTime,
-          voucher_type: 'Stock Transfer',
-          voucher_id: transferId,
-          voucher_number: transfer.reference_number,
-          product_id: item.product_id,
-          is_cancelled: false,
-          created_by: user.id
-        };
-
-        // OUT from source warehouse and IN to destination warehouse
-        const outEntry = {
-          ...commonFields,
-          warehouse_id: transfer.from_warehouse_id,
-          actual_qty: -item.quantity, // Negative for OUT
-          incoming_rate: 0,
-          outgoing_rate: valuationRate,
-          valuation_rate: valuationRate,
-          stock_value_difference: -item.quantity * valuationRate
-        };
-        const inEntry = {
-          ...commonFields,
-          warehouse_id: transfer.to_warehouse_id,
-          actual_qty: item.quantity, // Positive for IN
-          incoming_rate: valuationRate,
-          outgoing_rate: 0,
-          valuation_rate: valuationRate,
-          stock_value_difference: item.quantity * valuationRate
-        };
-        // Push both entries at once (intentional - both entries are created together)
-        stockLedgerEntries.push(outEntry, inEntry)
-      }
-
-      const { error: ledgerError } = await supabase
-        .from('stock_ledger_entries')
-        .insert(stockLedgerEntries)
-
-      if (ledgerError) {
-        console.error('Error creating stock ledger entries:', ledgerError)
-        throw new Error('فشل في إنشاء قيود المخزون: ' + ledgerError.message)
-      }
-
-      // Update transfer status
-      const { error: updateError } = await supabase
-        .from('stock_transfers')
-        .update({
-          status: 'SUBMITTED',
-          submitted_at: new Date().toISOString(),
-          submitted_by: user.id
-        })
-        .eq('id', transferId)
-
-      if (updateError) throw updateError
-
-      toast.success('✅ تم تأكيد التحويل وتحديث المخزون بنجاح')
-      
-      loadTransfers()
-
-    } catch (error: any) {
-      console.error('Error submitting transfer:', error)
-      toast.error(error.message || 'خطأ في تأكيد التحويل')
     }
   }
 
@@ -907,17 +782,23 @@ export default function StockTransferManagement() {
                       {transfer.total_items} منتج
                     </div>
                     {transfer.status === 'DRAFT' && canApprove && (
-                      <Button
-                        size="sm"
-                        className="mt-2 gap-2"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleSubmitTransfer(transfer.id)
-                        }}
-                      >
-                        <Send className="w-4 h-4" />
-                        تأكيد التحويل
-                      </Button>
+                      <>
+                        <Button
+                          size="sm"
+                          className="mt-2 gap-2"
+                          disabled
+                          aria-describedby={`transfer-submit-unsupported-${transfer.id}`}
+                        >
+                          <Send className="w-4 h-4" />
+                          تأكيد التحويل
+                        </Button>
+                        <span
+                          id={`transfer-submit-unsupported-${transfer.id}`}
+                          className="mt-1 block max-w-xs text-xs text-muted-foreground"
+                        >
+                          {TRANSFER_SUBMIT_UNSUPPORTED_MESSAGE}
+                        </span>
+                      </>
                     )}
                   </div>
                 </div>

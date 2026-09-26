@@ -88,12 +88,14 @@ BEGIN
     $q$SELECT public.rpc_cost_of_production_report(%L::uuid, NULL, %L::uuid)$q$, v_mo, pg_temp.org()));
   RAISE NOTICE 'I5 rpc_cost_of_production_report on canonical row -> ok=% %', v_call ->> 'ok',
     left(coalesce(v_call ->> 'error', (v_call -> 'result')::text), 700);
-  v_errors := v_errors || jsonb_build_object('I5_ok', v_call ->> 'ok');
+  v_errors := v_errors || jsonb_build_object('I5_ok', v_call ->> 'ok', 'I5_error', v_call ->> 'error');
 
   RAISE NOTICE 'I summary: %', v_errors;
   IF v_errors ->> 'I1a' IS NULL OR v_errors ->> 'I1b' IS NULL
      OR v_errors ->> 'I2a' IS NULL OR v_errors ->> 'I2b' IS NULL
-     OR v_errors ->> 'I3' IS NULL OR v_errors ->> 'I4a' IS NULL THEN
+     OR v_errors ->> 'I3' IS NULL OR v_errors ->> 'I4a' IS NULL
+     OR v_errors ->> 'I4b' IS NULL OR v_errors ->> 'I5_error' IS NULL
+     OR v_errors ->> 'I5_ok' IS DISTINCT FROM 'false' THEN
     RAISE EXCEPTION 'MFG_RED_I_SCHEMA_MISMATCH_NOT_REPRODUCED: %', v_errors;
   END IF;
 

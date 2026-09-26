@@ -15,6 +15,7 @@ DECLARE
   v_wo uuid;
   v_map jsonb := '{}'::jsonb;
   r record;
+  v_posture_count int := 0;
 BEGIN
   -- Precondition: the actor really lacks every manufacturing mutation key.
   -- has_permission() binds to the caller identity (Migration 170), so it is
@@ -88,7 +89,19 @@ BEGIN
     ORDER BY 1
   LOOP
     RAISE NOTICE 'D5 % security_definer=% proconfig=%', r.sig, r.prosecdef, r.proconfig;
+    v_posture_count := v_posture_count + 1;
+    IF NOT r.prosecdef OR r.proconfig IS DISTINCT FROM ARRAY['search_path=public']::text[] THEN
+      RAISE EXCEPTION 'MFG_RED_D5_SEARCH_PATH_NOT_REPRODUCED: % %', r.sig, r.proconfig;
+    END IF;
   END LOOP;
+
+  IF v_posture_count <> 4
+     OR (v_map ->> 'start_operation') IS DISTINCT FROM 'false'
+     OR (v_map ->> 'complete_operation') IS DISTINCT FROM 'false'
+     OR position('completed_quantity' in coalesce(v_map ->> 'start_operation_error', '')) = 0
+     OR position('completed_quantity' in coalesce(v_map ->> 'complete_operation_error', '')) = 0 THEN
+    RAISE EXCEPTION 'MFG_RED_D_OPERATION_POSTURE_NOT_REPRODUCED: %', v_map;
+  END IF;
 
   RAISE NOTICE 'D authorization map (true = read-only member succeeded): %', v_map;
   IF NOT ((v_map ->> 'direct_update_done')::boolean

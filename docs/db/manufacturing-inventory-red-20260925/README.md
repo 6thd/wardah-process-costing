@@ -33,10 +33,14 @@ Fixture actors (all active members of one org):
 | consumer | only `manufacturing.material_consumption.consume` |
 | reader | only `manufacturing.orders.read`, so no manufacturing or inventory mutation key |
 
-## Results (captured 2026-09-25 at `62f9fb2d`, all probes REPRODUCED, runner exit 0)
+## Observations recorded during local review
 
-Raw runner output: [`RED_RUN_20260925.log`](./RED_RUN_20260925.log). The MO and adjustment
-UUIDs in it are generated per run.
+The table below records previously observed behavior. This repository does not
+contain raw PostgreSQL runner output for that review; therefore the table is not
+an independently inspectable execution result. Run `run_red.sh` against a
+new disposable PostgreSQL 17.11 cluster and retain its raw output before using
+these probes as acceptance evidence. The runner reports the checkout and server
+version; record a SHA-256 digest of the raw output alongside it.
 
 | Probe | Track | Verdict | Exact observed result |
 |---|---|---|---|
@@ -51,8 +55,9 @@ UUIDs in it are generated per run.
 
 `R_projection_readback.sql` is a **read-only** rollout gate. It classifies
 `products.stock_quantity ≠ SUM(bins.actual_qty)` rows and projection-without-bin rows.
-Negative control on the fixture: a seeded `3500` projection with no bin is reported as
-`no_bin_truth`, and a `90 vs 100` row as `projection_mismatch`. It was **not** run
+The proposed negative-control examples (a projection of 3500 without a bin,
+and 90 vs 100 with bins) have no committed seed or output and are **not
+verified by this artifact**. It was **not** run
 against any live environment.
 
 ## What these probes do not claim

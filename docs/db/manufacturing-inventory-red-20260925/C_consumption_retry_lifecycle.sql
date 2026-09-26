@@ -98,7 +98,8 @@ BEGIN
   RAISE NOTICE 'C2 on_hold MO consume -> % | state=%', v_call, pg_temp.consumption_state(v_mo);
 
   RAISE NOTICE 'C2 lifecycle acceptance map (true = consumption accepted): %', v_lifecycle;
-  IF NOT ((v_lifecycle ->> 'cancelled')::boolean AND (v_lifecycle ->> 'done')::boolean) THEN
+  IF NOT ((v_lifecycle ->> 'cancelled')::boolean AND (v_lifecycle ->> 'done')::boolean
+          AND (v_lifecycle ->> 'draft')::boolean AND (v_lifecycle ->> 'on_hold')::boolean) THEN
     RAISE EXCEPTION 'MFG_RED_C2_LIFECYCLE_BYPASS_NOT_REPRODUCED: %', v_lifecycle;
   END IF;
 
