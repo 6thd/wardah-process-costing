@@ -8,6 +8,16 @@
 > This checkpoint supersedes `CURRENT_STABILIZATION_20260905.md` as the current restart point.  
 > It records repository/PR/Issue state only. It does **not** infer current Production state from repository merges, and it authorizes no merge or Production/Staging mutation.
 
+## 0A. Post-#258 closure update — 2026-09-26 (anchor `main@3c43f3d460ce499bab29dd78e1355ca645dd9a06`)
+
+This update supersedes older workflow-status statements below where they differ:
+
+- **PR #258 is merged to `main`** as `3c43f3d4`. Its authoritative benchmark implementation head is `260b540d`, run `36191681776`, artifact `10888402016`, PostgreSQL 17.11.
+- The final independent closure review found **no current P1/P2 blocker** and classified **M191 §8 performance characterization as technically complete for owner review**.
+- The measured same-product/different-bin cost remains documented rather than hidden (hot multiwarehouse throughput about **-31.4%**, p50 **+54.4%**); distinct-SKU remains near baseline with zero post-M191 sampled Lock wait.
+- Statements below saying #258 is Draft/Open, that the §8 report is missing, or that M191 remains unmerged are historical snapshot text and are superseded by the dated reconciliation blocks.
+- **Repository closure is not live rollout.** No Production or Staging application is implied. A live migration-ledger/readback preflight and separate explicit authorization remain required before any M190/M191 Production action.
+
 ## 0. Post-merge reconciliation block — 2026-09-25 (anchor `main@0761d567965e7977ea2702166143ea6c2f1dc1da`)
 
 Sections 1–11 below were written at `main@e3869c2f` and remain as that snapshot. Where they differ, the following supersedes them:
