@@ -18,9 +18,11 @@ authorization.**
 >    repository order. It does not say which of the two a given environment still
 >    needs: read the live ledger, verify every canonical predecessor through cutoff
 >    189, and apply only the missing migrations.
-> 2. **Performance gate:** PR #258 (Draft) carries the §8 contention
->    characterization. Its independent closure review and owner rollout disposition
->    remain open.
+> 2. **Performance gate:** PR #258 is merged to `main` as `3c43f3d4`.
+>    Its independently reviewed §8 characterization is **technically complete for
+>    owner review** (authoritative run `36191681776`, PostgreSQL 17.11). This closes
+>    the repository evidence obligation only; it does not authorize Production or
+>    Staging rollout.
 > 3. **Projection readback gate:** run
 >    `docs/db/manufacturing-inventory-red-20260925/R_projection_readback.sql`
 >    (READ ONLY) and classify every `products.stock_quantity ≠ SUM(bins.actual_qty)`
