@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 357,
-  "signature_count": 330,
-  "signature_sha256": "bcb65cb3e9d4a171be08b0b5c36cc62527400bd064d37f1fcbc741c339d8359f",
-  "note": "Reviewed PR #255 staging E2E closure: auth-store removed its legacy direct INSERT into public.users while switching auth hydration to read-only public.user_profiles. No new table mutation, RPC target, or edge-function call was introduced; the net reduction is one candidate and one signature."
+  "candidate_count": 355,
+  "signature_count": 328,
+  "signature_sha256": "6e6986088e6294362743702b437a1d23e7add7a0d6ce442ec5e55703d708a8bd",
+  "note": "Reviewed PR #262 containment change: two legacy Stock Transfer browser mutation signatures were intentionally removed. No new mutation/RPC/invoke signature was introduced."
 }
