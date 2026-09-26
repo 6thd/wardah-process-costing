@@ -1,5 +1,23 @@
 # سجل تدقيق دوال SECURITY DEFINER
 
+> **حالة الوثيقة (2026-09-25): لقطة تاريخية مُستبدَلة — ليست قائمة ثغرات حالية.**
+> الجداول أدناه لقطة حية بتاريخ 2026-07-16، **قبل** Migration 120 التي أضافت حراس
+> المؤسسة لكثير من دوال الفئة C (مثل `upsert_stage_cost` و`complete_operation` و
+> `start_operation`)، وقبل 170–191. لذلك لا تُقرأ الأعداد (28 في الفئة C…) كحالة
+> راهنة، ولا يُعاد تشغيل استنتاجاتها كثغرات دون دليل جديد. ولم تُعدَّل الأرقام الأصلية
+> حفاظًا على الأثر.
+>
+> **المرجع الحالي:**
+> - البوابة الإلزامية للـmigrations الأحدث من cutoff: `scripts/ci/check_definer_guards.py`
+>   (Scanner v1) و`scripts/ci/fresh-db/acceptance_definer_guard_contract.sql`؛
+> - معمارية Scanner v2 وشروط استبداله للبوابة: `docs/security/SCANNER_V2_ARCHITECTURE.md` و#247؛
+> - حدود الصلاحيات الدقيقة لكل مجال: قضايا SEC المفتوحة (#153/#154/#157/#158/#160/#170/#174).
+>
+> أي عدد «حالي» جديد لا يُنشر إلا من دليل حي أو Fresh DB جديد مؤرَّخ ومحدد المصدر. وقد
+> أعادت مواءمة 2026-09-25 إثبات حالات محددة فقط على Fresh DB
+> (`docs/db/manufacturing-inventory-red-20260925/` — مثل `search_path=public` بلا `pg_temp`
+> على `rpc_complete_manufacturing_order`)، لا جردًا كاملًا.
+
 **القاعدة:** Supabase `uutfztmqvajmsxnrqeiv` (Manufacturing Process) — فحص مباشر بتاريخ 2026-07-16
 **الإجمالي:** 80 دالة SECURITY DEFINER في مخطط public
 

@@ -1,5 +1,7 @@
 # Canonical Manufacturing Execution Contract
 
+> **2026-09-25 post-M191 reconciliation (anchor `main@0761d567`):** PR #241 is merged, so Migration 191 is on `main`. PR #246 was merged into the #241 branch first. Repository presence is **not** Production application. §22 below records observations previously reported from a disposable PostgreSQL 17 database (raw output is not committed), plus the explicit #229/#230 contract statements, the current-vs-required lifecycle matrix, and the worked #230 numerical case with its open decision points. Full findings: `docs/architecture/MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md`. Nothing here implements #229/#230/#234 or authorizes Production/Staging changes.
+
 > **2026-09-25 repository reconciliation:** imported from the side documentation branch into current documentation. The design-time baseline named below is historical; re-entry must start from current `main@e3869c2f6f7485c423281e42dfc72504edca30e8` and re-verify #229/#230/#234 plus M190/M191 state. The design decisions and sequencing remain the governing contract; this import does not implement them or authorize Production/Staging changes.
 
 
@@ -742,3 +744,205 @@ When returning to this work:
 10. require explicit Production authorization later, as a separate step.
 
 This checklist exists so the design can survive the temporary focus on #246/#241 without being reconstructed from memory.
+
+---
+
+## 22. Addendum — 2026-09-25 RED evidence and contract hardening
+
+**Anchor:** `main@0761d567965e7977ea2702166143ea6c2f1dc1da`. **Evidence:** `docs/db/manufacturing-inventory-red-20260925/` (disposable PostgreSQL 17.11: cutoff-189 baseline pair + M190 + M191). This addendum does not implement #229/#230/#234, and does not change M190/M191. The earlier local RED run has no committed raw output; the revised probes require a new run with retained output before these observations can be used as PR acceptance evidence.
+
+### 22.1 Previously observed behavior on the anchored checkout
+
+| Behavior | Evidence |
+|---|---|
+| An identical consumption replay duplicates the SLE, bin qty/value, `material_consumption`, `quantity_consumed` and stage WIP material; a client-sent `event_id` is ignored | probe C1/C1b |
+| Consumption is accepted on `cancelled`, `done`, `draft` and `on_hold` MOs; an explicit `work_order_id` skips the WO status filter that auto-resolution applies | probe C2/C3 |
+| Completion sums **every** `material_consumption` row: 10 canonical + 40 PENDING client row → 50. A fabricated `status='POSTED'` direct insert is also accepted by RLS | probe B |
+| Completion increments `products.stock_quantity` / rewrites `cost_price` with **no** FG bin/SLE; the next canonical movement erases the completed units from the projection | probe A |
+| Completion writes **draft** `MATERIAL_ISSUE` (Dr WIP / Cr RM) and `FG_RECEIPT` (Dr FG / Cr WIP) entries only at completion, while the material value already left stock at consumption time | probes A/B |
+| A same-org member with only `manufacturing.orders.read` reaches `done` via direct UPDATE, `rpc_transition_mo_status`, or `rpc_complete_manufacturing_order` | probe D |
+| `update_mo_status_from_work_orders` aborts every work-order status change (`42702 completed_quantity ambiguous`, plus a write to the absent `actual_end_date`). Its intended effect is an MO `COMPLETED` bypass | probe D4 / reconciliation X1 |
+| Completion quantity comes from the client payload, or defaults to the **planned** MO quantity | `rpc_complete_manufacturing_order` body (186) |
+
+The third-party "lock-order M192" claim is **rejected**: completion does not call `wardah_apply_stock_outgoing`. See the reconciliation document, §6.
+
+### 22.2 #229 — material consumption contract (explicit)
+
+1. Every consumption business event carries a **stable event ID**. The consumer generates it **once** and reuses it across retries; it never regenerates it per attempt.
+2. Same ID + same canonical payload → stable replay: the previously accepted result is returned with **no** second SLE, bin, valuation, `material_consumption`, reservation or WIP effect.
+3. Same ID + changed payload → **fail closed**.
+4. A distinct legitimate partial-consumption event for the same reservation → allowed. `reservation_id` alone is **never** the event identity.
+5. The MO lifecycle, and the explicitly supplied work-order state, are checked **before** any stock mutation. Cancelled and done MOs reject new consumption. The auto-resolved and explicit `work_order_id` branches enforce the **same** work-order state rule.
+6. The canonical accepted consumption is the only source of material cost. It is the valued stock effect written by the canonical core (the SLE `stock_value_difference`, equal to the stage WIP material increment), recorded as a POSTED event produced by that core.
+7. Client-provided monetary fields (`unit_cost`, `total_cost`) are **never** accounting authority.
+8. Reservation decrement + SLE + bin + valuation queue + product projection + stage WIP material cost commit **atomically**, under the M191 products-first lock prefix.
+9. There is **no** fallback to a direct `material_consumption` INSERT, and no fallback to an older non-idempotent endpoint. `mesService.consumeMaterial()` (a direct PENDING insert with client cost) is not a supported path. The direct INSERT surface that RLS still allows to `consume` holders must be closed, or bound to the canonical core, before #230 may read the table as a cost source.
+10. The forced-overlap race list in §16 remains required for GREEN.
+
+### 22.3 #230 — completion contract (explicit)
+
+1. **One terminal authorization boundary.** `done` is reachable only through one guarded completion orchestrator. Direct `manufacturing_orders.status` UPDATE, `rpc_transition_mo_status(…,'done')` and any work-order-driven trigger must not be able to set the terminal state. The permission key is an **owner decision** (D-PERM); no key is invented here.
+2. **FG destination warehouse is required** and must be same-org. Today `manufacturing_orders` has no such column (D-FG-WH).
+3. **Canonical FG receipt required:** a FG SLE + bin + valuation-queue effect through the canonical incoming helper, under the M191 products-first prefix. The product projection is re-derived from bins.
+4. A direct `products.stock_quantity` / `cost_price` mutation is **not** an FG receipt.
+5. **Completed quantity** comes from accepted good output of the final stage. It is never the planned MO quantity by default, and never a free client number.
+6. **Cost sources are enumerated**, and nothing else enters accepted cost:
+   - direct material: canonical accepted consumption value (§22.2 item 6);
+   - direct labor: the approved labor source × the approved rate (D-LAB);
+   - applied overhead: the approved OH policy (D-OH);
+   - normal scrap: absorbed by good output; abnormal scrap: period loss (D-SCRAP);
+   - approved adjustments: explicit audited adjustment records only;
+   - transferred-in: the previous stage's transferred-out cost, counted **once**;
+   - beginning WIP: per the approved method (D-METHOD).
+7. **Excluded:** unposted/PENDING rows, rows not written by the canonical core, client-supplied monetary fields, and `stage_costs` values produced by the simplified client path (until #260 / MFG-P1 closes).
+8. **Ending WIP stays valued.** WIP is relieved only for the cost of completed output.
+9. **No transferred-in double counting.** The invariant is `FG + Σ ending WIP (all stages) + abnormal loss = Σ incremental inputs`. Choose whether `stage_costs` rows are incremental or cumulative (D-STAGE) before any SQL is written.
+10. **Draft vs Posted GL is an explicit owner decision** (D-GL-POST), together with material GL timing (D-GL-TIME). Either way, the stock subledger and GL must reconcile.
+11. **The same completion event is idempotent.** A replay produces no second FG SLE/bin or GL. The same event ID with a changed payload fails closed.
+12. **One atomic success condition:** stock + MO state + completion cost snapshot + WIP relief + GL either all commit or none do. There is no "cleanup later".
+13. The definer posture complies with the repository scanner contract, with `search_path` including `pg_temp` (today's `{search_path=public}` does not).
+
+### 22.4 Lifecycle matrix — current vs required
+
+| MO state | New consumption today | Required |
+|---|---|---|
+| draft | accepted (probe C2) | D-LIFE |
+| pending | accepted (no lifecycle check in body; not separately probed) | D-LIFE |
+| confirmed | accepted (no lifecycle check in body; not separately probed) | D-LIFE |
+| in_progress | accepted | allowed |
+| on_hold | accepted (probe C2) | D-LIFE (must be explicit) |
+| quality_check | accepted (no lifecycle check in body; not separately probed) | D-LIFE |
+| done | **accepted** (probe C2) | **reject**; only the completion orchestrator's own final event, inside the same transaction and before the terminal commit, may consume |
+| cancelled | **accepted** (probe C2) | **reject** |
+
+| Path to `done` | Today | Required |
+|---|---|---|
+| direct `UPDATE manufacturing_orders SET status='done'` | read-only member succeeds | impossible |
+| `rpc_transition_mo_status(…,'done')` | read-only member succeeds; no FG/cost/GL | refuses the terminal state |
+| `rpc_complete_manufacturing_order` | read-only member succeeds; illegal FG | the one guarded orchestrator |
+| work orders all `COMPLETED` → trigger | aborts today (X1) | may signal readiness only; never terminal |
+
+### 22.5 Worked numerical acceptance case (#230)
+
+**Status: CONTRACT EXAMPLE, not implemented.** The numbers are exact *given* assumption
+set **AS-1**. Every assumption is an owner decision point (§22.6). An approved change to
+any assumption changes the expected numbers, and must be re-derived here before any SQL.
+
+**AS-1:** weighted average; scrap inspected at the **end** of stage 1 (scrap units 100%
+complete); normal scrap absorbed by good output; abnormal scrap expensed as a period
+loss; material added at the start of each stage; labor and OH given as applied amounts
+from their approved sources; one WIP control account with a per-stage subledger;
+amounts in the org currency with 2-decimal display (no intermediate rounding).
+
+#### Case 1 — terminal completion, two stages, transferred-in, scrap
+
+Starting inventory (canonical bins, W1): RM 1,000 u @ 10.00 = 10,000.00; PK 500 u @ 1.00 = 500.00. FG: no bin.
+
+**Stage 1 (Mixing)**, beginning WIP 0:
+
+| Input | Source | Amount |
+|---|---|---|
+| RM consumed | events E1 = 60 u, E2 = 40 u; canonical AVCO issue value | 1,000.00 |
+| Direct labor | D-LAB | 200.00 |
+| Applied OH | D-OH | 100.00 |
+| **Stage 1 inputs** | | **1,300.00** |
+
+Units: started 100 → good 90, normal scrap 8, abnormal scrap 2, ending WIP 0.
+EUP (DM) = 90 + 8 + 2 = 100 → 10.00/EU. EUP (CC) = 100 → 3.00/EU. Cost per EU = 13.00.
+
+| Allocation | Units | Amount |
+|---|---|---|
+| Good output 90 × 13.00 | 90 | 1,170.00 |
+| + normal scrap 8 × 13.00 (absorbed) | — | 104.00 |
+| **Transferred-out to stage 2** | 90 | **1,274.00** |
+| Abnormal scrap 2 × 13.00 → period loss | 2 | 26.00 |
+| Ending WIP | 0 | 0.00 |
+| Check | | 1,274.00 + 26.00 = 1,300.00 ✓ |
+
+**Stage 2 (Packing):**
+
+| Input | Source | Amount |
+|---|---|---|
+| Transferred-in (90 u) | stage 1 transferred-out, **counted once** | 1,274.00 |
+| PK consumed 90 u | canonical AVCO issue value | 90.00 |
+| Direct labor | D-LAB | 160.00 |
+| Applied OH | D-OH | 96.00 |
+| **Stage 2 cumulative** | | **1,620.00** (incremental own cost 346.00) |
+
+Units: 90 in → 90 completed; no scrap; ending WIP 0.
+
+**Completion result:** FG 90 u, **FG unit cost 18.00**, FG value 1,620.00.
+Invariant check: FG 1,620.00 + ending WIP 0 + abnormal loss 26.00 = Σ incremental inputs (1,000 + 200 + 100 + 90 + 160 + 96 = 1,646.00) ✓.
+Double-count guard: Σ stage totals (1,300 + 1,620 = 2,920) is **wrong**, and so is stage 2 incremental alone (346). If `stage_costs` stores incremental rows, then FG = 1,646 − 26 − 0 = 1,620. If it stores cumulative rows, then FG = the last stage's cumulative cost for completed units = 1,620.
+
+**Legal stock effects:**
+
+| Warehouse/bin | Effect | After |
+|---|---|---|
+| W1 RM | SLE −60 (−600.00), SLE −40 (−400.00) | 900 u / 9,000.00 |
+| W1 PK | SLE −90 (−90.00) | 410 u / 410.00 |
+| **FG warehouse (D-FG-WH)** | **SLE +90 @ 18.00 (+1,620.00)**, voucher = the completion event | 90 u / 1,620.00 |
+| `products` projections | re-derived from bins by the canonical helper | RM 900, PK 410, FG 90 |
+
+**Journal (per AS-1 and pending D-GL-TIME / D-GL-POST):**
+
+| # | Event | Dr | Cr | Amount |
+|---|---|---|---|---|
+| J1 | RM issue E1 | WIP | RM inventory | 600.00 |
+| J2 | RM issue E2 | WIP | RM inventory | 400.00 |
+| J3 | Stage 1 labor | WIP | payroll/labor clearing | 200.00 |
+| J4 | Stage 1 OH | WIP | OH applied | 100.00 |
+| J5 | Abnormal scrap | abnormal manufacturing loss | WIP | 26.00 |
+| J6 | Stage 1 → 2 transfer | — (single WIP control, subledger only) or WIP-S2 / WIP-S1 per D-WIP-ACCT | | (1,274.00) |
+| J7 | PK issue | WIP | PK inventory | 90.00 |
+| J8 | Stage 2 labor | WIP | payroll/labor clearing | 160.00 |
+| J9 | Stage 2 OH | WIP | OH applied | 96.00 |
+| J10 | FG receipt | FG inventory | WIP | 1,620.00 |
+
+WIP balance after J10: 600 + 400 + 200 + 100 − 26 + 90 + 160 + 96 − 1,620 = **0.00** ✓.
+**Final MO state:** `done`; completed_quantity 90; scrap 10 (normal 8, abnormal 2); total_cost 1,620.00; unit_cost 18.00.
+
+**What current `main` would produce from the same inputs (RED contrast):** total_cost = Σ `material_consumption` = 1,090.00. Labor, OH and scrap are ignored. unit_cost = 1,090 / 90 = 12.11 (or ÷ 100 if the client omits `completed_quantity`). The FG projection is +90 with **no** bin/SLE. Draft `MATERIAL_ISSUE` 1,090 + draft `FG_RECEIPT` 1,090 are written only at completion. FG is understated by 530.00, and the abnormal loss is never recognized.
+
+#### Case 2 — partial completion with ending WIP, then beginning WIP
+
+Single stage, MO planned 100 u. **Requires D-PARTIAL = multiple FG receipt events per open MO.**
+
+Period P1: RM 100 u @ 10.00 = 1,000.00 at start; DL 180.00; OH 90.00 (CC 270.00). Completed 80; ending WIP 20 @ DM 100%, CC 50%.
+EUP DM = 100 → 10.00; EUP CC = 80 + 10 = 90 → 3.00; cost/unit 13.00.
+FG receipt event #1: 80 u × 13.00 = **1,040.00**. Ending WIP = 20 × 10.00 + 10 × 3.00 = **230.00**, which remains in WIP. Check: 1,040 + 230 = 1,270 ✓.
+GL P1: Dr WIP 1,000 / Cr RM 1,000; Dr WIP 180 / Cr labor 180; Dr WIP 90 / Cr OH 90; Dr FG 1,040 / Cr WIP 1,040 → WIP **230.00**.
+MO after P1: **in_progress**, completed_quantity 80. The MO is **not** `done`.
+
+Period P2: beginning WIP 20 u (DM 200.00, CC 30.00). Remaining 50% CC added: DL 20.00 + OH 10.00. 20 u completed.
+FIFO: 230.00 + 10 EU × 3.00 = 260.00 → 13.00/u. WA gives the same 260.00 here only because the P1 and P2 rates are equal. A differing P2 rate separates them (D-METHOD).
+FG receipt event #2: 20 u, 260.00. WIP → 0.00. MO → `done`; completed 100; total cost 1,300.00 (1,000 + 270 + 30).
+
+RED contrast: today a P1-end completion call with `completed_quantity=80` books 1,000 / 80 = 12.50 per unit, zeroes WIP (loses the 230 ending WIP) and sets the MO `done`. The remaining 20 units can never be received, because a second call returns `already_done`.
+
+#### Retry rows required in the GREEN harness
+
+- replay of FG receipt event #1 with the same ID and payload → same result; FG bin stays 80 u / 1,040.00; no second J10;
+- same event ID with quantity 81 → fail closed;
+- completion racing a late consumption (§16 item 6) → deterministic serialization or fail-closed conflict.
+
+### 22.6 Owner decision register (open)
+
+| ID | Decision |
+|---|---|
+| D-PERM | terminal completion permission (is `manufacturing.orders.update` sufficient, or is a first-class completion action needed?) |
+| D-FG-WH | FG destination warehouse source and validation |
+| D-GL-POST | Draft vs Posted manufacturing GL at completion |
+| D-GL-TIME | material GL at each consumption event vs at completion |
+| D-WIP-ACCT | single WIP control + subledger vs per-stage WIP accounts |
+| D-LAB / D-OH | authoritative labor and overhead sources and rates (see #260) |
+| D-SCRAP | inspection point, normal-scrap absorption method, abnormal-loss account |
+| D-STAGE | incremental vs cumulative `stage_costs` semantics |
+| D-METHOD | WA vs FIFO default and per-MO override |
+| D-LIFE | consumption in draft/pending/confirmed/on_hold/quality_check |
+| D-PARTIAL | partial FG receipts per open MO vs single terminal completion |
+
+### 22.7 #234 and MFG-P1 dependencies
+
+- #234 still delegates into the #229 core. Backflush is an input/orchestration mode, never a second consumption, inventory or costing engine. Manual and automatic backflush share the stable event identity, the immutable BOM snapshot, canonical reservation consumption, SLE/bin valuation, stage WIP material cost and the M191 lock order. The legacy `manufacturing_orders.auto_backflush` column defaults to `true`; that default is **not** policy (§4.1 default stays `disabled`). `backflush_materials` remains retired (`0A000`) and `auto_backflush_materials()` remains unattached.
+- **MFG-P1 (#260) must close before #230 treats stage/process cost as authoritative.** On the cutoff-189 schema, the real `upsert_stage_cost` aborts (`42702`), `rpc_cost_of_production_report` aborts on a canonical row, and the live service writes columns and tables that do not exist. Having the SQL engine in migrations 66–69/120 is **not** the same as having the live path integrated and accepted.

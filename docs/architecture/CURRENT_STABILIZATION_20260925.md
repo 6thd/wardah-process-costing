@@ -8,6 +8,29 @@
 > This checkpoint supersedes `CURRENT_STABILIZATION_20260905.md` as the current restart point.  
 > It records repository/PR/Issue state only. It does **not** infer current Production state from repository merges, and it authorizes no merge or Production/Staging mutation.
 
+## 0A. Post-#258 closure update — 2026-09-26 (anchor `main@3c43f3d460ce499bab29dd78e1355ca645dd9a06`)
+
+This update supersedes older workflow-status statements below where they differ:
+
+- **PR #258 is merged to `main`** as `3c43f3d4`. Its authoritative benchmark implementation head is `260b540d`, run `36191681776`, artifact `10888402016`, PostgreSQL 17.11.
+- The final independent closure review found **no current P1/P2 blocker** and classified **M191 §8 performance characterization as technically complete for owner review**.
+- The measured same-product/different-bin cost remains documented rather than hidden (hot multiwarehouse throughput about **-31.4%**, p50 **+54.4%**); distinct-SKU remains near baseline with zero post-M191 sampled Lock wait.
+- Statements below saying #258 is Draft/Open, that the §8 report is missing, or that M191 remains unmerged are historical snapshot text and are superseded by the dated reconciliation blocks.
+- **Repository closure is not live rollout.** No Production or Staging application is implied. A live migration-ledger/readback preflight and separate explicit authorization remain required before any M190/M191 Production action.
+
+## 0. Post-merge reconciliation block — 2026-09-25 (anchor `main@0761d567965e7977ea2702166143ea6c2f1dc1da`)
+
+Sections 1–11 below were written at `main@e3869c2f` and remain as that snapshot. Where they differ, the following supersedes them:
+
+- **PR #246 is merged** into the #241 branch (2026-09-25T10:04Z, `a3ab0cb`) and is historical. It is not an open track.
+- **PR #241 is merged to `main`** (2026-09-25T11:43Z, `0761d567`). **Migration 191 is on `main`.** M190 SHA256 `0fa01345…ba2f` and M191 SHA256 `637a81ca…3f40` are unchanged.
+- **PR #258** (Draft/Open) is the active **M191 pre-Production performance and owner-rollout gate** (§3 below). It is not closed by this block, and its four files are not touched by any other workstream.
+- **Repository merge ≠ Production application.** No Production readback was performed for this block. The Production state is whatever a separately authorized live ledger readback shows.
+- **Operational order:** M190 must be present **exactly once** in the live ledger, with its postflight passing, before M191 is considered. M191 is never applied first. Apply only the migrations the live ledger is missing.
+- **Staging trust status: UNVERIFIED / REBUILD RECOMMENDED.** See `MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md` §3 for the acceptance list.
+- **Manufacturing remains unfinished.** #229, #234 and #230 are open, with RED probes under review (`docs/db/manufacturing-inventory-red-20260925/`); the previous local PG17 reproduction has no raw log committed here and is not final acceptance evidence. **MFG-P1 is unfinished**: SQL engine existence ≠ live path completion, and on the cutoff-189 schema the engine entry point itself aborts (#260). A new warehouse-local physical-count contract is tracked in #259.
+- The full reconciliation, the rejected "lock-order M192" claim, the delivery plan (PR-A / PR-B / C1–C7) and the owner decisions are in [`MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md`](./MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md).
+
 ## 1. Truth boundaries
 
 Keep these states separate:

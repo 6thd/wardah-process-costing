@@ -3,6 +3,12 @@
 > **SUPERSEDED FOR RESTART PURPOSES — 2026-09-25.**
 > This ledger is retained as historical evidence. Use [`CURRENT_STABILIZATION_20260925.md`](./CURRENT_STABILIZATION_20260925.md) as the current restart authority. Do not rewrite the historical statuses below to look current.
 
+> **Dated addendum — 2026-09-25 (`main@0761d567`, after the PR #241 / M191 merge).** The rows below are unchanged history. This addendum records a previously reported local PostgreSQL 17 run; its raw output is not committed, and the revised probes require a fresh run before use as acceptance evidence (probe sources: `docs/db/manufacturing-inventory-red-20260925/`; summary: [`MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md`](./MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md)):
+>
+> - `MFG-P1`: still **NOT DONE**, and now tracked as **#260**. The simplified client formula and the direct `stage_costs` UPSERT are confirmed. On the cutoff-189 schema the UPSERT fails (`42703`: its columns do not exist), the real `upsert_stage_cost` aborts (`42702 costing_method ambiguous`), and `rpc_cost_of_production_report` aborts on a canonical row. The engine must be repaired DB-first before a UI can adopt it.
+> - `MFG-P3`: the row's premise that `labor_time_logs` / `moh_applied` "are still written" needs correcting. The service *attempts* those writes, but both relations are absent from the cutoff-189 baseline (`42P01`). Choosing labor/OH sources is an owner decision under #260/#230.
+> - Manufacturing completion (#230), consumption retry/lifecycle (#229) and backflush (#234) remain open with RED reproduced. Warehouse-local physical count is new issue **#259**.
+
 **Purpose:** durable restart checkpoint for active and unfinished product, security, financial-reporting, manufacturing, and repository-alignment work.
 
 **Current anchor:** `main@21b9bbfc92a00ff29776a4c418f54d6a3ecab97f` (after PR #196; repository cutoff 182, Production cutoff 181)
