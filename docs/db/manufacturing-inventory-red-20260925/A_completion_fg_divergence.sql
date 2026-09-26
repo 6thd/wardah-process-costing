@@ -58,9 +58,7 @@ BEGIN
   WHERE e.org_id = pg_temp.org() AND e.reference_number = v_mo::text;
   RAISE NOTICE 'A3 GL written by completion: %', v_gl;
 
-  IF (SELECT count(*) FROM public.gl_entries e
-      WHERE e.org_id = pg_temp.org() AND e.reference_number = v_mo::text
-        AND e.status = 'draft' AND e.total_debit = 100) <> 2 THEN
+  IF NOT pg_temp.completion_gl_matches(v_mo, 100) THEN
     RAISE EXCEPTION 'MFG_RED_A_DRAFT_GL_NOT_REPRODUCED: %', v_gl;
   END IF;
 

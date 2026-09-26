@@ -149,3 +149,35 @@ RETURNS jsonb LANGUAGE sql AS $fn$
                           FROM public.stage_wip_log WHERE mo_id = p_mo),
     'mo_status', (SELECT status FROM public.manufacturing_orders WHERE id = p_mo));
 $fn$;
+
+-- The two completion journals must retain their distinct event identities,
+-- exact debit/credit accounts, draft status and matching header/line totals.
+CREATE FUNCTION pg_temp.completion_gl_matches(p_mo uuid, p_amount numeric)
+RETURNS boolean LANGUAGE sql AS $fn$
+  WITH entries AS (
+    SELECT e.id, e.idempotency_key, e.reference_type, e.status,
+           e.total_debit, e.total_credit,
+           count(l.id) AS line_count,
+           count(*) FILTER (WHERE a.code = 'T1400' AND l.debit = p_amount AND l.credit = 0) AS wip_dr,
+           count(*) FILTER (WHERE a.code = 'T1300' AND l.debit = 0 AND l.credit = p_amount) AS rm_cr,
+           count(*) FILTER (WHERE a.code = 'T1350' AND l.debit = p_amount AND l.credit = 0) AS fg_dr,
+           count(*) FILTER (WHERE a.code = 'T1400' AND l.debit = 0 AND l.credit = p_amount) AS wip_cr
+    FROM public.gl_entries e
+    LEFT JOIN public.gl_entry_lines l ON l.entry_id = e.id AND l.org_id = e.org_id
+    LEFT JOIN public.gl_accounts a ON a.id = l.account_id AND a.org_id = e.org_id
+    WHERE e.org_id = pg_temp.org() AND e.reference_number = p_mo::text
+    GROUP BY e.id
+  )
+  SELECT count(*) = 2
+     AND count(*) FILTER (WHERE idempotency_key = 'MATERIAL_ISSUE:' || p_mo::text
+                            AND reference_type = 'MANUFACTURING_ORDER'
+                            AND status = 'draft' AND total_debit = p_amount
+                            AND total_credit = p_amount AND line_count = 2
+                            AND wip_dr = 1 AND rm_cr = 1) = 1
+     AND count(*) FILTER (WHERE idempotency_key = 'FG_RECEIPT:' || p_mo::text
+                            AND reference_type = 'MANUFACTURING_ORDER'
+                            AND status = 'draft' AND total_debit = p_amount
+                            AND total_credit = p_amount AND line_count = 2
+                            AND fg_dr = 1 AND wip_cr = 1) = 1
+  FROM entries;
+$fn$;

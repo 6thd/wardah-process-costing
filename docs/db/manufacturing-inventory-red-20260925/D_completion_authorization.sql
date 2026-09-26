@@ -71,12 +71,14 @@ BEGIN
     $q$SELECT to_jsonb(public.start_operation(%L::uuid, NULL::uuid, false))$q$, v_wo));
   RAISE NOTICE 'D4 reader start_operation -> ok=% err=%', v_call ->> 'ok', v_call ->> 'error';
   v_map := v_map || jsonb_build_object('start_operation', (v_call ->> 'ok')::boolean,
-                                       'start_operation_error', v_call ->> 'error');
+                                       'start_operation_error', v_call ->> 'error',
+                                       'start_operation_state', v_call ->> 'sqlstate');
   v_call := pg_temp.try_as(pg_temp.reader(), format(
     $q$SELECT to_jsonb(public.complete_operation(%L::uuid, 5, 0, NULL))$q$, v_wo));
   RAISE NOTICE 'D4 reader complete_operation(all 5) -> ok=% err=%', v_call ->> 'ok', v_call ->> 'error';
   v_map := v_map || jsonb_build_object('complete_operation', (v_call ->> 'ok')::boolean,
-                                       'complete_operation_error', v_call ->> 'error');
+                                       'complete_operation_error', v_call ->> 'error',
+                                       'complete_operation_state', v_call ->> 'sqlstate');
 
   -- D5. Definer search_path posture of the reviewed boundaries.
   FOR r IN
@@ -98,8 +100,12 @@ BEGIN
   IF v_posture_count <> 4
      OR (v_map ->> 'start_operation') IS DISTINCT FROM 'false'
      OR (v_map ->> 'complete_operation') IS DISTINCT FROM 'false'
+     OR v_map ->> 'start_operation_state' IS DISTINCT FROM '42702'
+     OR v_map ->> 'complete_operation_state' IS DISTINCT FROM '42702'
      OR position('completed_quantity' in coalesce(v_map ->> 'start_operation_error', '')) = 0
-     OR position('completed_quantity' in coalesce(v_map ->> 'complete_operation_error', '')) = 0 THEN
+     OR position('is ambiguous' in coalesce(v_map ->> 'start_operation_error', '')) = 0
+     OR position('completed_quantity' in coalesce(v_map ->> 'complete_operation_error', '')) = 0
+     OR position('is ambiguous' in coalesce(v_map ->> 'complete_operation_error', '')) = 0 THEN
     RAISE EXCEPTION 'MFG_RED_D_OPERATION_POSTURE_NOT_REPRODUCED: %', v_map;
   END IF;
 

@@ -89,9 +89,7 @@ BEGIN
   RAISE NOTICE 'B5 canonical issue value (SLE)=% | stage WIP material=% | completion total_cost=% unit_cost=% | GL=%',
     v_canonical_sle_value, v_wip, v_done ->> 'total_cost', v_done ->> 'unit_cost', v_gl;
 
-  IF (SELECT count(*) FROM public.gl_entries e
-      WHERE e.org_id = pg_temp.org() AND e.reference_number = v_mo::text
-        AND e.status = 'draft' AND e.total_debit = 50) <> 2 THEN
+  IF NOT pg_temp.completion_gl_matches(v_mo, 50) THEN
     RAISE EXCEPTION 'MFG_RED_B_DRAFT_GL_NOT_REPRODUCED: %', v_gl;
   END IF;
 

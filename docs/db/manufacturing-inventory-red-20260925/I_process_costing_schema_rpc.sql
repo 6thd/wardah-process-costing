@@ -31,7 +31,7 @@ BEGIN
        RETURNING to_jsonb(stage_costs.*)$q$,
     pg_temp.org(), v_mo, pg_temp.wc(), pg_temp.stage()));
   RAISE NOTICE 'I1a service upsert (stageId branch) -> %', v_call;
-  v_errors := v_errors || jsonb_build_object('I1a', v_call ->> 'error');
+  v_errors := v_errors || jsonb_build_object('I1a', v_call ->> 'error', 'I1a_state', v_call ->> 'sqlstate');
 
   v_call := pg_temp.try_as(pg_temp.admin(), format(
     $q$INSERT INTO public.stage_costs (org_id, manufacturing_order_id, work_center_id, good_quantity,
@@ -42,7 +42,7 @@ BEGIN
        RETURNING to_jsonb(stage_costs.*)$q$,
     pg_temp.org(), v_mo, pg_temp.wc()));
   RAISE NOTICE 'I1b service upsert (stageNo branch) -> %', v_call;
-  v_errors := v_errors || jsonb_build_object('I1b', v_call ->> 'error');
+  v_errors := v_errors || jsonb_build_object('I1b', v_call ->> 'error', 'I1b_state', v_call ->> 'sqlstate');
 
   -- I2. Cost-input tables written by applyLaborTime()/applyOverhead().
   v_call := pg_temp.try_as(pg_temp.admin(), format(
@@ -50,13 +50,13 @@ BEGIN
        VALUES (%L, %L, 1, %L, 2, 50, 'RED') RETURNING jsonb_build_object('ok', true)$q$,
     pg_temp.org(), v_mo, pg_temp.wc()));
   RAISE NOTICE 'I2a labor_time_logs insert -> %', v_call;
-  v_errors := v_errors || jsonb_build_object('I2a', v_call ->> 'error');
+  v_errors := v_errors || jsonb_build_object('I2a', v_call ->> 'error', 'I2a_state', v_call ->> 'sqlstate');
   v_call := pg_temp.try_as(pg_temp.admin(), format(
     $q$INSERT INTO public.moh_applied (tenant_id, mo_id, stage_no, wc_id, allocation_base, base_qty, overhead_rate)
        VALUES (%L, %L, 1, %L, 'labor_cost', 100, 0.15) RETURNING jsonb_build_object('ok', true)$q$,
     pg_temp.org(), v_mo, pg_temp.wc()));
   RAISE NOTICE 'I2b moh_applied insert -> %', v_call;
-  v_errors := v_errors || jsonb_build_object('I2b', v_call ->> 'error');
+  v_errors := v_errors || jsonb_build_object('I2b', v_call ->> 'error', 'I2b_state', v_call ->> 'sqlstate');
 
   -- I3. The real SQL engine entry point with its real signature.
   v_call := pg_temp.try_as(pg_temp.admin(), format(
@@ -65,7 +65,7 @@ BEGIN
          p_good_qty := 5, p_dm := 100, p_mode := 'actual') r$q$,
     pg_temp.org(), v_mo, pg_temp.wc()));
   RAISE NOTICE 'I3 upsert_stage_cost(real signature) -> %', v_call;
-  v_errors := v_errors || jsonb_build_object('I3', v_call ->> 'error');
+  v_errors := v_errors || jsonb_build_object('I3', v_call ->> 'error', 'I3_state', v_call ->> 'sqlstate');
 
   -- I4. src/ui/events.ts registered actions, as createSecureRPC would name them.
   v_call := pg_temp.try_as(pg_temp.admin(), format(
@@ -73,12 +73,12 @@ BEGIN
          p_work_center_id := %L::uuid, p_good_qty := 5, p_scrap_qty := 0, p_dm_cost := 100))$q$,
     v_mo, pg_temp.wc()));
   RAISE NOTICE 'I4a events.ts stage-recalc -> %', v_call;
-  v_errors := v_errors || jsonb_build_object('I4a', v_call ->> 'error');
+  v_errors := v_errors || jsonb_build_object('I4a', v_call ->> 'error', 'I4a_state', v_call ->> 'sqlstate');
   v_call := pg_temp.try_as(pg_temp.admin(), format(
     $q$SELECT to_jsonb(public.complete_manufacturing_order(p_mo_id := %L::uuid, p_completed_qty := 5, p_scrap_qty := 0))$q$,
     v_mo));
   RAISE NOTICE 'I4b events.ts mo-finish -> %', v_call;
-  v_errors := v_errors || jsonb_build_object('I4b', v_call ->> 'error');
+  v_errors := v_errors || jsonb_build_object('I4b', v_call ->> 'error', 'I4b_state', v_call ->> 'sqlstate');
 
   -- I5. The report RPC against a canonical-column stage_costs row (harness write).
   INSERT INTO public.stage_costs (org_id, manufacturing_order_id, stage_number, work_center_id,
@@ -88,14 +88,24 @@ BEGIN
     $q$SELECT public.rpc_cost_of_production_report(%L::uuid, NULL, %L::uuid)$q$, v_mo, pg_temp.org()));
   RAISE NOTICE 'I5 rpc_cost_of_production_report on canonical row -> ok=% %', v_call ->> 'ok',
     left(coalesce(v_call ->> 'error', (v_call -> 'result')::text), 700);
-  v_errors := v_errors || jsonb_build_object('I5_ok', v_call ->> 'ok', 'I5_error', v_call ->> 'error');
+  v_errors := v_errors || jsonb_build_object('I5_ok', v_call ->> 'ok', 'I5_error', v_call ->> 'error', 'I5_state', v_call ->> 'sqlstate');
 
   RAISE NOTICE 'I summary: %', v_errors;
   IF v_errors ->> 'I1a' IS NULL OR v_errors ->> 'I1b' IS NULL
      OR v_errors ->> 'I2a' IS NULL OR v_errors ->> 'I2b' IS NULL
      OR v_errors ->> 'I3' IS NULL OR v_errors ->> 'I4a' IS NULL
      OR v_errors ->> 'I4b' IS NULL OR v_errors ->> 'I5_error' IS NULL
-     OR v_errors ->> 'I5_ok' IS DISTINCT FROM 'false' THEN
+     OR v_errors ->> 'I5_ok' IS DISTINCT FROM 'false'
+     OR v_errors ->> 'I1a_state' IS DISTINCT FROM '42703'
+     OR v_errors ->> 'I1b_state' IS DISTINCT FROM '42703'
+     OR v_errors ->> 'I2a_state' IS DISTINCT FROM '42P01'
+     OR v_errors ->> 'I2b_state' IS DISTINCT FROM '42P01'
+     OR v_errors ->> 'I3_state' IS DISTINCT FROM '42702'
+     OR position('costing_method' in coalesce(v_errors ->> 'I3', '')) = 0
+     OR v_errors ->> 'I4a_state' IS DISTINCT FROM '42883'
+     OR v_errors ->> 'I4b_state' IS DISTINCT FROM '42883'
+     OR v_errors ->> 'I5_state' IS DISTINCT FROM '42703'
+     OR position('no field "costing_method"' in coalesce(v_errors ->> 'I5_error', '')) = 0 THEN
     RAISE EXCEPTION 'MFG_RED_I_SCHEMA_MISMATCH_NOT_REPRODUCED: %', v_errors;
   END IF;
 
