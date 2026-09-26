@@ -25,6 +25,7 @@ DECLARE
   ]::uuid[];
   v_adjustment constant uuid := 'f55f6888-852d-46be-8bb8-a218f2920735';
   v_pp uuid;
+  v_sle_ids uuid[];
   v_before jsonb;
   v_after jsonb;
   v_audit_id uuid;
@@ -34,8 +35,11 @@ BEGIN
   SELECT id INTO STRICT v_pp FROM public.products WHERE org_id=v_org AND code='PP810837' FOR UPDATE;
   PERFORM 1 FROM public.products WHERE id=ANY(v_products[1:3]) ORDER BY id FOR UPDATE;
   PERFORM 1 FROM public.bins WHERE product_id=ANY(v_products[2:3]) ORDER BY id FOR UPDATE;
-  PERFORM 1 FROM public.stock_ledger_entries
-    WHERE product_id=ANY(ARRAY[v_products[2],v_products[3],v_pp]) ORDER BY id FOR UPDATE;
+  SELECT array_agg(id ORDER BY id) INTO v_sle_ids FROM (
+    SELECT id FROM public.stock_ledger_entries
+    WHERE product_id=ANY(ARRAY[v_products[2],v_products[3],v_pp])
+    ORDER BY id FOR UPDATE
+  ) locked;
   PERFORM 1 FROM public.goods_receipts WHERE id=ANY(v_receipts) ORDER BY id FOR UPDATE;
   PERFORM 1 FROM public.purchase_orders WHERE id=ANY(v_orders) ORDER BY id FOR UPDATE;
   PERFORM 1 FROM public.purchase_order_lines WHERE purchase_order_id=ANY(v_orders) ORDER BY id FOR UPDATE;
@@ -52,9 +56,15 @@ BEGIN
   THEN RAISE EXCEPTION 'DEMO_FIX_PRODUCTS_CHANGED'; END IF;
 
   IF (SELECT count(*) FROM public.bins WHERE product_id=ANY(ARRAY[v_products[1],v_products[2],v_products[3],v_pp]))<>2
-     OR NOT EXISTS (SELECT 1 FROM public.bins WHERE org_id=v_org AND product_id=v_products[2] AND actual_qty=500 AND stock_value=1000)
-     OR NOT EXISTS (SELECT 1 FROM public.bins WHERE org_id=v_org AND product_id=v_products[3] AND actual_qty=500 AND stock_value=3250)
+     OR NOT EXISTS (SELECT 1 FROM public.bins WHERE org_id=v_org AND product_id=v_products[2] AND actual_qty=500 AND stock_value=1000
+                       AND COALESCE(reserved_qty,0)=0 AND COALESCE(ordered_qty,0)=0 AND COALESCE(planned_qty,0)=0)
+     OR NOT EXISTS (SELECT 1 FROM public.bins WHERE org_id=v_org AND product_id=v_products[3] AND actual_qty=500 AND stock_value=3250
+                       AND COALESCE(reserved_qty,0)=0 AND COALESCE(ordered_qty,0)=0 AND COALESCE(planned_qty,0)=0)
+     OR EXISTS (SELECT 1 FROM public.material_reservations WHERE org_id=v_org
+                  AND (product_id=ANY(ARRAY[v_products[2],v_products[3],v_pp])
+                    OR item_id=ANY(ARRAY[v_products[2],v_products[3],v_pp])) AND status='reserved')
      OR (SELECT count(*) FROM public.stock_ledger_entries WHERE product_id=ANY(ARRAY[v_products[1],v_products[2],v_products[3],v_pp]))<>5
+     OR COALESCE(array_length(v_sle_ids,1),0)<>5
      OR (SELECT count(*) FROM public.stock_ledger_entries WHERE org_id=v_org AND product_id=ANY(ARRAY[v_products[2],v_products[3],v_pp]) AND docstatus=1 AND COALESCE(is_cancelled,false)=false)<>5
      OR (SELECT coalesce(sum(stock_value_difference),0) FROM public.stock_ledger_entries WHERE product_id=ANY(ARRAY[v_products[2],v_products[3],v_pp]))<>14250
      OR (SELECT count(*) FROM public.stock_ledger_entries WHERE org_id=v_org AND product_id=v_pp
@@ -79,13 +89,16 @@ BEGIN
      OR (SELECT count(*) FROM public.purchase_orders WHERE id=ANY(v_orders) AND org_id=v_org AND status='fully_received')<>2
      OR (SELECT count(*) FROM public.purchase_order_lines WHERE purchase_order_id=ANY(v_orders) AND received_quantity=500 AND accepted_quantity=500 AND rejected_quantity=0)<>2
      OR (SELECT count(*) FROM public.gl_entries WHERE reference_type='GOODS_RECEIPT' AND reference_number=ANY(ARRAY[v_receipts[2]::text,v_receipts[3]::text]) AND status='draft')<>2
+     OR (SELECT count(*) FROM public.gl_entries WHERE org_id=v_org
+           AND (reference_number=ANY(ARRAY[v_receipts[1]::text,v_receipts[2]::text,v_receipts[3]::text,v_adjustment::text])
+             OR reference_id=ANY(v_receipts||ARRAY[v_adjustment])))<>2
      OR NOT EXISTS (SELECT 1 FROM public.stock_adjustments WHERE id=v_adjustment AND status='SUBMITTED' AND canonical_gl_entry_id IS NULL AND journal_entry_id IS NULL AND total_value_difference=5000)
   THEN RAISE EXCEPTION 'DEMO_FIX_DOCUMENTS_CHANGED'; END IF;
 
   SELECT jsonb_build_object(
     'products',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.products t WHERE id=ANY(ARRAY[v_products[2],v_products[3],v_pp])),
     'bins',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.bins t WHERE product_id=ANY(ARRAY[v_products[2],v_products[3]])),
-    'stock_ledger_entries',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.stock_ledger_entries t WHERE product_id=ANY(ARRAY[v_products[2],v_products[3],v_pp])),
+    'stock_ledger_entries',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.stock_ledger_entries t WHERE id=ANY(v_sle_ids)),
     'goods_receipts',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.goods_receipts t WHERE id=ANY(v_receipts)),
     'purchase_orders',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.purchase_orders t WHERE id=ANY(v_orders)),
     'purchase_order_lines',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.purchase_order_lines t WHERE purchase_order_id=ANY(v_orders)),
@@ -94,8 +107,10 @@ BEGIN
   ) INTO v_before;
 
   -- Retire orphaned/duplicated source movements without deleting their history.
-  UPDATE public.stock_ledger_entries SET is_cancelled=true, modified_at=now()
-    WHERE org_id=v_org AND product_id=ANY(ARRAY[v_products[2],v_products[3],v_pp]) AND COALESCE(is_cancelled,false)=false;
+  -- This legacy fixture has no posted inverse rows. docstatus=2 also excludes
+  -- originals from validate_stock_balance, which otherwise ignores is_cancelled.
+  UPDATE public.stock_ledger_entries SET is_cancelled=true, docstatus=2, modified_at=now()
+    WHERE id=ANY(v_sle_ids) AND org_id=v_org AND COALESCE(is_cancelled,false)=false;
   UPDATE public.bins SET actual_qty=0,stock_value=0,valuation_rate=0,stock_queue='[]'::jsonb,updated_at=now()
     WHERE org_id=v_org AND product_id=ANY(v_products[2:3]);
   UPDATE public.products SET stock_quantity=0,stock_value=0,updated_at=now()
@@ -112,19 +127,28 @@ BEGIN
       updated_at=now() WHERE id=v_adjustment;
 
   IF (SELECT count(*) FROM public.stock_ledger_entries WHERE org_id=v_org AND COALESCE(is_cancelled,false)=false)<>0
+     OR (SELECT count(*) FROM public.stock_ledger_entries WHERE id=ANY(v_sle_ids) AND is_cancelled=true AND docstatus=2)<>5
+     OR EXISTS (SELECT 1 FROM public.validate_stock_balance(v_org))
      OR (SELECT count(*) FROM public.bins WHERE org_id=v_org AND (COALESCE(actual_qty,0)<>0 OR COALESCE(stock_value,0)<>0))<>0
+     OR (SELECT count(*) FROM public.bins WHERE org_id=v_org AND (COALESCE(projected_qty,0)<>0 OR COALESCE(reserved_qty,0)<>0 OR COALESCE(ordered_qty,0)<>0 OR COALESCE(planned_qty,0)<>0))<>0
+     OR EXISTS (SELECT 1 FROM public.material_reservations WHERE org_id=v_org
+                  AND (product_id=ANY(ARRAY[v_products[2],v_products[3],v_pp])
+                    OR item_id=ANY(ARRAY[v_products[2],v_products[3],v_pp])) AND status='reserved')
      OR (SELECT count(*) FROM public.products WHERE org_id=v_org AND (COALESCE(stock_quantity,0)<>0 OR COALESCE(stock_value,0)<>0))<>0
      OR (SELECT count(*) FROM public.goods_receipts WHERE id=ANY(v_receipts) AND status='cancelled')<>3
      OR (SELECT count(*) FROM public.purchase_orders WHERE id=ANY(v_orders) AND status='cancelled')<>2
      OR (SELECT count(*) FROM public.purchase_order_lines WHERE purchase_order_id=ANY(v_orders) AND received_quantity=0 AND accepted_quantity=0 AND rejected_quantity=0)<>2
      OR (SELECT count(*) FROM public.gl_entries WHERE reference_type='GOODS_RECEIPT' AND reference_number=ANY(ARRAY[v_receipts[2]::text,v_receipts[3]::text]) AND status='cancelled')<>2
+     OR (SELECT count(*) FROM public.gl_entries WHERE org_id=v_org
+           AND (reference_number=ANY(ARRAY[v_receipts[1]::text,v_receipts[2]::text,v_receipts[3]::text,v_adjustment::text])
+             OR reference_id=ANY(v_receipts||ARRAY[v_adjustment])))<>2
      OR NOT EXISTS (SELECT 1 FROM public.stock_adjustments WHERE id=v_adjustment AND status='CANCELLED')
   THEN RAISE EXCEPTION 'DEMO_FIX_POSTFLIGHT_FAILED'; END IF;
 
   SELECT jsonb_build_object(
     'products',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.products t WHERE id=ANY(ARRAY[v_products[2],v_products[3],v_pp])),
     'bins',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.bins t WHERE product_id=ANY(ARRAY[v_products[2],v_products[3]])),
-    'stock_ledger_entries',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.stock_ledger_entries t WHERE product_id=ANY(ARRAY[v_products[2],v_products[3],v_pp])),
+    'stock_ledger_entries',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.stock_ledger_entries t WHERE id=ANY(v_sle_ids)),
     'goods_receipts',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.goods_receipts t WHERE id=ANY(v_receipts)),
     'purchase_orders',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.purchase_orders t WHERE id=ANY(v_orders)),
     'purchase_order_lines',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public.purchase_order_lines t WHERE purchase_order_id=ANY(v_orders)),
