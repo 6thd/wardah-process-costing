@@ -3,7 +3,7 @@
 **Anchor:** `main@0761d567965e7977ea2702166143ea6c2f1dc1da` (merge of PR #241, Migration 191)
 **Mode:** documentation, issue linkage, and non-executing RED evidence only
 **Evidence:** [`docs/db/manufacturing-inventory-red-20260925/`](../db/manufacturing-inventory-red-20260925/README.md)
-**Parallel workstream not touched:** PR #258 (M191 pre-Production performance characterization, Draft) and its four files
+**Parallel workstream originally not touched:** PR #258 was developed separately from this workstream and has since merged to `main` as `3c43f3d4`; this branch still does not modify its performance files
 
 > This document re-derives every finding from two independent reviews plus a third
 > (Genspark) review. It uses repository bytes and a disposable PostgreSQL 17.11 database
@@ -22,7 +22,7 @@
 | PR #241 (Migration 191) | **Merged to `main`** at 2026-09-25T11:43Z as `0761d567`. Migration 191 is now on `main`. |
 | Migration 190 SHA256 | `0fa0134569b09d88bc91aafc2bc6424947c498626f9b2726e6e706d1bf38ba2f` (unchanged by this work) |
 | Migration 191 SHA256 | `637a81caeaebea60693476222611b373dc1e738cd6b10c634bf4c236227f3f40` (unchanged by this work) |
-| PR #258 | Draft / Open. It is the active M191 performance and rollout-evidence gate, head `e613395e`. It changes only `.github/workflows/m191-performance-characterization.yml`, `docs/db/m191-evidence/M191_PERFORMANCE_CHARACTERIZATION.md`, `scripts/ci/m191_perf_characterization.sh` and `scripts/ci/m191_perf_report.py`. |
+| PR #258 | **Merged to `main`** as `3c43f3d4`. Authoritative benchmark implementation `260b540d`, run `36191681776`, artifact `10888402016`; final independent closure found no P1/P2 and §8 is technically complete for owner review. Production/Staging rollout is not implied. |
 | Repository latest migration | 191 |
 
 **Repository presence ≠ Production application.** This workstream had no Production
@@ -43,8 +43,7 @@ An external review asserted that "Production ends at 189, therefore apply 190 th
    **exactly once** in the live ledger **and** its postflight passes. M191's own
    preflight checks the 190 permission contract, but that check does not replace the
    ledger readback.
-5. **M191 is never applied first**, and never before the #258 performance gate has an
-   explicit owner disposition.
+5. **M191 is never applied first.** The #258 repository performance gate is now technically complete, but any live rollout still requires a fresh live-ledger/readback preflight and separate explicit owner authorization.
 6. Run the projection readback gate in §4 before any rollout decision.
 
 ## 3. Staging trust status: **UNVERIFIED / REBUILD RECOMMENDED**
