@@ -48,7 +48,7 @@ The table above was written at `main@e3869c2f`. Current state of the rows that m
 | Obligation | Current source | State |
 |---|---|---|
 | F2 stock concurrency | #241 (merged to `main` as `0761d567`), with #246 merged into it | **repository closed**; Production application not claimed |
-| M191 contention cost | PR #258 (Draft) | evidence collected in #258; independent closure review and owner rollout disposition pending |
+| M191 contention cost | PR #258 (merged to `main` as `3c43f3d4`) | **§8 technically complete** after independent closure review; Production rollout still requires live preflight and separate explicit authorization |
 | retry-safe partial consumption | #229 | **RED reproduced** (duplicate replay; cancelled/done/draft/on_hold consumption) |
 | authoritative completion | #230 | **RED reproduced** (no FG SLE/bin; pending-cost contamination; read-only member reaches `done`) |
 | Process Costing live-path alignment | MFG-P1 → **#260** | **RED reproduced**: live service schema-incompatible; `upsert_stage_cost` aborts `42702` |
