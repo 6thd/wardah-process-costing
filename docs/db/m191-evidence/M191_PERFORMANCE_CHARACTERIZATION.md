@@ -533,7 +533,10 @@ remains the defect proof.
 
 One estimator is used for both aggregate and per-call values: **each Lock
 sample counts one nominal 20 ms interval.** Measured sampler cadence averaged at most
-20.07 ms per workload run, with a largest single tick gap of 21.86 ms.
+20.07 ms per workload run, with a largest single tick gap of 21.86 ms. The
+current evidence does not enforce a hard maximum tick gap; 21.86 ms is the
+largest gap observed in this authoritative run and is recorded as a robustness
+limitation rather than hidden.
 
 For these RPCs (p50 about 1.4–23 ms), a call normally gets 0 or 1 sample. The
 per-call estimate is therefore **quantized**. "20 ms (1 sample)" means the call
@@ -595,23 +598,28 @@ Out-of-window Lock samples excluded: **0** in every workload/state and
 repetition. Sampler ticks inside the measured windows: 66–936 per
 workload/state (pooled).
 
-**Worst observed per-call sampled product-row Lock-wait estimate** (hot
-multiwarehouse proxy): **20 ms (one 20 ms sample) both pre- and post-191.**
-No measured call was sampled Lock-waiting twice. Read with its bounds: that
-call's real lock wait was > 0 and at most the largest post-191 statement
-latency, **6.874 ms** (pre-191: 12.048 ms). The longest observed span of a
-waiting call was 4.181 ms post-191. At 20 ms resolution the single-call worst
-case is unchanged. The M191 cost appears as **more calls waiting**
-(132 -> 298 calls with a Lock sample; 82.5 -> 186.2 sampled ms/100 ops), not
-as longer individual waits.
+**Worst observed per-call product-row Lock-wait bound** (hot
+multiwarehouse proxy): the 20 ms sampler cannot resolve the exact duration of
+the worst individual lock wait. Every sampled waiting call had at most one Lock
+sample, so a sample proves only that the call was waiting at that sampling
+instant. The actual worst observed per-call lock wait is therefore **> 0 and
+<= 12.048 ms pre-191 / <= 6.874 ms post-191**, bounded by the largest measured
+statement latency in each state. The longest observed span of a waiting call was
+5.961 ms pre-191 / 4.181 ms post-191. The increase from 132 to 298 calls with a
+Lock sample and from 82.5 to 186.2 sampled ms/100 ops is evidence of higher
+aggregate sampled Lock activity, but at 20 ms resolution it does **not**
+independently prove whether the change came from more calls waiting, longer
+individual waits, or both.
 
 **Longest consecutive same-backend sampled Lock-wait streak** (a different
 metric, kept for contention persistence only): hot multiwarehouse
 **220 ms pre / 340 ms post** in this run (400 ms in run `36157102264`). Same
 warehouse 400/440, Goods Receipt 440/620, manual 380/520, consumption
-540/820, outgoing 400/460, distinct 20/0 ms. A streak spans multiple
-consecutive calls on one backend. It is **never** the lock wait of one call,
-and the per-call value above is the one to use for "worst observed call".
+540/820, outgoing 400/460, distinct 20/0 ms. The streak grouping tolerates one
+missed sampling tick (successive samples up to 2.5 nominal sampling intervals
+apart), so a streak **may span multiple consecutive calls** on one backend. It
+is **never** the lock wait of one call. For §8 "worst observed call", use the
+per-call latency bound above, not the streak duration.
 
 ### Repeat-to-repeat envelope
 
@@ -661,12 +669,16 @@ sample count, for all 14 workload/state pairs. All matched the reporter's
 - distinct SKU: +0.3% throughput with zero post-191 Lock samples, so there
   is no global serialization (was -2.0%).
 - same warehouse -1.3% (was -3.0%), Goods Receipt -2.1% (was -1.6%): flat.
-- outgoing -3.1% (was +1.1%) and manual movement -9.7% (was -5.2%): both
-  are pulled down by one noisy post-191 database (repetition 3: manual
-  -19.0%, outgoing -7.9%). The other three repetitions were -5.2%/-8.4%/-5.0%
-  (manual) and -0.7%/-2.9%/-0.7% (outgoing). Their sampled Lock changes stay
-  small (203.8 -> 235.0 and 201.9 -> 211.2 ms/100 ops). This is runner noise
-  inside the documented range, not a new lock-wait regression.
+- manual movement -9.7% (was -5.2%) shows a **small/moderate reproducible
+  throughput cost for owner review**, with one unusually slow post-191
+  repetition (-19.0%) and the other three at -5.2%/-8.4%/-5.0%. Its current
+  pre/post throughput and p50 ranges do not overlap, so the pooled delta should
+  not be dismissed as runner noise. Sampled Lock changes remain comparatively
+  small (203.8 -> 235.0 ms/100 ops).
+- outgoing -3.1% (was +1.1%) is less conclusive: repetition 3 was -7.9% while
+  the other three were -0.7%/-2.9%/-0.7%, and sampled Lock changed only
+  201.9 -> 211.2 ms/100 ops. Record this as current-run variability rather than
+  an established new lock-wait regression.
 - manufacturing consumption: -11.9% throughput (was -12.9%), p95 improved
   (-24.8%) while p50 rose (+45.6%). That fits the added ordered
   reservation-universe prepass and product prefix: more fixed per-call work,
