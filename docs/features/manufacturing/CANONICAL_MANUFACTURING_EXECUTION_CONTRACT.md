@@ -749,9 +749,9 @@ This checklist exists so the design can survive the temporary focus on #246/#241
 
 ## 22. Addendum — 2026-09-25 RED evidence and contract hardening
 
-**Anchor:** `main@0761d567965e7977ea2702166143ea6c2f1dc1da`. **Evidence:** `docs/db/manufacturing-inventory-red-20260925/` (disposable PostgreSQL 17.11: cutoff-189 baseline pair + M190 + M191). This addendum does not implement #229/#230/#234, and does not change M190/M191.
+**Anchor:** `main@0761d567965e7977ea2702166143ea6c2f1dc1da`. **Evidence:** `docs/db/manufacturing-inventory-red-20260925/` (disposable PostgreSQL 17.11: cutoff-189 baseline pair + M190 + M191). This addendum does not implement #229/#230/#234, and does not change M190/M191. The earlier local RED run has no committed raw output; the revised probes require a new run with retained output before these observations can be used as PR acceptance evidence.
 
-### 22.1 What current `main` does today (reproduced)
+### 22.1 Previously observed behavior on the anchored checkout
 
 | Behavior | Evidence |
 |---|---|

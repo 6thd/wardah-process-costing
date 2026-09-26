@@ -41,7 +41,10 @@ BEGIN
        WHERE id = %L RETURNING jsonb_build_object('status', status, 'completed_quantity', completed_quantity)$q$, v_mo));
   RAISE NOTICE 'D1 reader direct UPDATE status=done -> %', v_call;
   v_map := v_map || jsonb_build_object('direct_update_done',
-    (v_call ->> 'ok')::boolean AND (v_call -> 'result' ->> 'status') = 'done');
+    ((v_call ->> 'ok')::boolean
+     AND jsonb_typeof(v_call -> 'result') = 'object'
+     AND (v_call -> 'result' ->> 'status') = 'done'
+     AND (v_call -> 'result' ->> 'completed_quantity')::numeric = 5) IS TRUE);
 
   -- D2. Transition RPC to done.
   v_mo := pg_temp.mk_mo('RED-D2', 5, 20);
@@ -130,9 +133,9 @@ BEGIN
   END IF;
 
   RAISE NOTICE 'D authorization map (true = read-only member succeeded): %', v_map;
-  IF NOT ((v_map ->> 'direct_update_done')::boolean
-          AND (v_map ->> 'transition_rpc_done')::boolean
-          AND (v_map ->> 'completion_rpc')::boolean) THEN
+  IF ((v_map ->> 'direct_update_done')::boolean
+      AND (v_map ->> 'transition_rpc_done')::boolean
+      AND (v_map ->> 'completion_rpc')::boolean) IS DISTINCT FROM true THEN
     RAISE EXCEPTION 'MFG_RED_D_AUTHORIZATION_BYPASS_NOT_REPRODUCED: %', v_map;
   END IF;
 

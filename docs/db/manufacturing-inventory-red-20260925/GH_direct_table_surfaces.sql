@@ -32,8 +32,11 @@ BEGIN
   -- rewritten stock_queue, so the projection lands at 0 rather than 999 — it
   -- is still moved off the bin truth by a member with no inventory grant.
   RAISE NOTICE 'G reader direct products UPDATE -> % | bins still sum to %', v_call, v_bins;
-  IF NOT (v_call ->> 'ok')::boolean
-     OR (v_call -> 'result' ->> 'stock_quantity')::numeric = v_bins THEN
+  IF (v_call ->> 'ok') IS DISTINCT FROM 'true'
+     OR jsonb_typeof(v_call -> 'result') IS DISTINCT FROM 'object'
+     OR (v_call -> 'result' ->> 'stock_quantity')::numeric IS NOT DISTINCT FROM v_bins
+     OR (v_call -> 'result' ->> 'cost_price')::numeric IS DISTINCT FROM 0.01
+     OR (v_call -> 'result' ->> 'valuation_method') IS DISTINCT FROM 'FIFO' THEN
     RAISE EXCEPTION 'MFG_RED_G_PRODUCTS_DIRECT_MUTATION_NOT_REPRODUCED: %', v_call;
   END IF;
 
@@ -45,7 +48,10 @@ BEGIN
        WHERE mo_id = %L
        RETURNING jsonb_build_object('quantity_reserved', quantity_reserved, 'status', status)$q$, v_mo));
   RAISE NOTICE 'H reader direct material_reservations UPDATE -> %', v_call;
-  IF NOT (v_call ->> 'ok')::boolean OR v_call -> 'result' IS NULL THEN
+  IF (v_call ->> 'ok') IS DISTINCT FROM 'true'
+     OR jsonb_typeof(v_call -> 'result') IS DISTINCT FROM 'object'
+     OR (v_call -> 'result' ->> 'quantity_reserved')::numeric IS DISTINCT FROM 1
+     OR (v_call -> 'result' ->> 'status') IS DISTINCT FROM 'reserved' THEN
     RAISE EXCEPTION 'MFG_RED_H_RESERVATION_DIRECT_MUTATION_NOT_REPRODUCED: %', v_call;
   END IF;
 

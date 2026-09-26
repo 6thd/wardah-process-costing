@@ -34,6 +34,8 @@ Historical documents remain useful for provenance; they are not current restart 
 | M191 contention cost | M191 Evidence Gates §8 | **evidence report not located; preserve as Production gate** |
 | Scanner v2 architecture | #247 + architecture doc | Slices 1–4 landed; mandatory migration gate not complete |
 | Scanner lexical session-state boundary | #252 | open |
+The RED statuses below summarize a previous local run; no raw output is committed here. The current probes need a fresh run and retained output before these statuses serve as PR acceptance evidence.
+
 | retry-safe partial consumption | #229 | open |
 | canonical backflush | #234 | open |
 | authoritative completion | #230 | open |

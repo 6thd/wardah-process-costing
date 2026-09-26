@@ -73,7 +73,10 @@ BEGIN
   SELECT actual_qty INTO v_w1 FROM public.bins WHERE product_id = pg_temp.xfr() AND warehouse_id = pg_temp.w1();
   SELECT COALESCE(sum(actual_qty), 0) INTO v_w2 FROM public.bins WHERE product_id = pg_temp.xfr() AND warehouse_id = pg_temp.w2();
   RAISE NOTICE 'F4 reader direct UPDATE status=SUBMITTED -> % | XFR W1=% W2=% (unchanged)', v_call, v_w1, v_w2;
-  IF NOT (v_call ->> 'ok')::boolean OR v_w1 <> 20 OR v_w2 <> 0 THEN
+  IF (v_call ->> 'ok') IS DISTINCT FROM 'true'
+     OR jsonb_typeof(v_call -> 'result') IS DISTINCT FROM 'object'
+     OR (v_call -> 'result' ->> 'status') IS DISTINCT FROM 'SUBMITTED'
+     OR v_w1 IS DISTINCT FROM 20 OR v_w2 IS DISTINCT FROM 0 THEN
     RAISE EXCEPTION 'MFG_RED_F4_HEADER_STATUS_DECOUPLING_NOT_REPRODUCED: %', v_call;
   END IF;
 

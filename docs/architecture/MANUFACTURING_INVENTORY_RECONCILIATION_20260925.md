@@ -92,8 +92,10 @@ It is never a side effect of a stock movement.
 
 ## 5. Findings — verdicts
 
-`CONFIRMED` = reproduced on the disposable DB (or proven from repository bytes where no
-DB behavior applies). `NOT REPRODUCED` = the specific claim does not hold. `ALREADY
+`CONFIRMED` records a previously reported disposable-DB result (or a finding proven
+from repository bytes where no DB behavior applies). The raw run output is not
+committed; revised RED probes require a fresh run with retained output before
+these verdicts serve as PR acceptance evidence. `NOT REPRODUCED` = the specific claim does not hold. `ALREADY
 TRACKED` = true, and an existing issue owns it. `CONTRACT GAP` = no defined contract
 exists to be violated; the gap itself is the defect.
 

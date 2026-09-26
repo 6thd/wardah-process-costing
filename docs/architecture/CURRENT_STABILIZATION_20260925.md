@@ -28,7 +28,7 @@ Sections 1–11 below were written at `main@e3869c2f` and remain as that snapsho
 - **Repository merge ≠ Production application.** No Production readback was performed for this block. The Production state is whatever a separately authorized live ledger readback shows.
 - **Operational order:** M190 must be present **exactly once** in the live ledger, with its postflight passing, before M191 is considered. M191 is never applied first. Apply only the migrations the live ledger is missing.
 - **Staging trust status: UNVERIFIED / REBUILD RECOMMENDED.** See `MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md` §3 for the acceptance list.
-- **Manufacturing remains unfinished.** #229, #234 and #230 are open, with RED evidence reproduced on a disposable PG17 DB (`docs/db/manufacturing-inventory-red-20260925/`). **MFG-P1 is unfinished**: SQL engine existence ≠ live path completion, and on the cutoff-189 schema the engine entry point itself aborts (#260). A new warehouse-local physical-count contract is tracked in #259.
+- **Manufacturing remains unfinished.** #229, #234 and #230 are open, with RED probes under review (`docs/db/manufacturing-inventory-red-20260925/`); the previous local PG17 reproduction has no raw log committed here and is not final acceptance evidence. **MFG-P1 is unfinished**: SQL engine existence ≠ live path completion, and on the cutoff-189 schema the engine entry point itself aborts (#260). A new warehouse-local physical-count contract is tracked in #259.
 - The full reconciliation, the rejected "lock-order M192" claim, the delivery plan (PR-A / PR-B / C1–C7) and the owner decisions are in [`MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md`](./MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md).
 
 ## 1. Truth boundaries
