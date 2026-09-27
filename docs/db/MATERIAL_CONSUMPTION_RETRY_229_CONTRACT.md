@@ -1,6 +1,6 @@
 # Proposal: retry-safe material consumption (#229)
 
-**Status:** proposed contract, not an implementation, GREEN result or authorization to migrate. The owner approved `in_progress` as the only MO status for **new** consumption on 2026-09-27. The work-order status choice below still needs the owner's decision.
+**Status:** proposed contract, not an implementation, GREEN result or authorization to migrate. The owner approved `in_progress` as the only MO status for **new** consumption on 2026-09-27, and requested configurable work-order eligibility in manufacturing settings. The exact optional WO states remain subject to independent review.
 **Starting point:** `main@df02a4fddfca5c56a69e738e6707a55a78bd01ee`. M190 is reported live on Production; M191 is not. Verify the ledger again before implementation and application.
 **Scope:** reserved-material consumption. FG receipt, completion, WIP close and GL (#230), and automatic backflush (#234), remain separate.
 
@@ -11,7 +11,8 @@ The existing RED probe `docs/db/manufacturing-inventory-red-20260925/C_consumpti
 ## Lifecycle and replay
 
 - **Approved MO rule:** only a stored MO status of exactly `in_progress` permits a new event. Reject `draft`, `pending`, `confirmed`, `quality_check`, `on_hold`, `completed`/`done`, `cancelled` and all other statuses. Lock the MO in the effects transaction; input status normalization cannot broaden this rule.
-- **Proposed WO rule, pending owner decision:** permit a new event only for a stored `IN_PROGRESS` work order. Reject `PENDING`, `READY`, `IN_SETUP`, `ON_HOLD`, `COMPLETED`, `CANCELLED`. Explicit and automatic selection must enforce the same approved allowlist with a locked WO in the same MO and organization. The owner must decide whether `READY` and `IN_SETUP` should permit issuing materials; document any extra approved state explicitly and test it. A denylist of completed/cancelled is insufficient. The current MO status transition problem belongs to #230; test fixtures should seed WO status directly.
+- **Configurable WO rule (owner-requested direction):** each organization has a manufacturing setting `material_consumption_allowed_wo_statuses`, created with the DB migration and a non-null default exactly `{IN_PROGRESS}`; an Org Admin may explicitly enable `READY` and/or `IN_SETUP` through the manufacturing settings UI. No setting can admit `PENDING`, `ON_HOLD`, `COMPLETED`, `CANCELLED`, null or an unrecognized status. Missing, unreadable or malformed settings must reject a **new** event, not silently substitute a broader policy; seed/backfill the default for every existing org and for new org creation. The MO must still be `in_progress` regardless of the WO setting. The server reads this setting for every **new** event and applies it atomically to a locked, same-MO, same-org work order; an explicit WO ID and automatic WO selection use identical checks. A denylist is insufficient. The current MO status transition problem belongs to #230; test fixtures should seed WO status directly.
+- Only authorized Org Admins can modify their own organization's setting, using an audited server path; ordinary employees can view their effective policy as needed but cannot change it. Validate the submitted array against the fixed allowed universe, require `IN_PROGRESS` to remain enabled, and reject duplicate, unknown or empty values. Make the write tenant-scoped with appropriate RLS/grants and test cross-org and direct-write denial. Changes apply to **future new events** when the DB reads the setting inside the event transaction; store the effective WO policy/version used for an accepted event in its receipt for audit. A valid replay returns its prior result even if the policy later tightens; permission and org checks still run first.
 - **Replay order:** authenticate, check active same-org membership and exact permission even for a replay; lock MO; look up the receipt by `(org_id,event_id)` and compare the immutable fingerprint. Return the stored result for an identical completed event **before** new-event lifecycle, stage/WIP, reservation, stock or UoM checks. A changed request conflicts without effects. Replay must work after WIP close, reservation exhaustion or MO completion, while revoked permission must still deny it.
 
 ## Event identity and API
@@ -40,6 +41,7 @@ Revoke direct `material_consumption` INSERT from `authenticated` and `anon`, rem
 | Two sessions | Hold session 1 while session 2 submits same ID. Commit 1: 2 returns stored result, not `23505`. Roll back 1: 2 applies once. Different payload conflicts. |
 | Partial batches | Force second-line failure after first-line mutation; no receipt or stock/reservation/consumption/WIP effect remains. New event ID may consume remaining valid quantities. |
 | Lifecycle | Every stored MO/WO status tested for both explicit and automatic WO choice against the approved allowlists; prior success replays without reapplying. |
+| Settings | Default `{IN_PROGRESS}`; each optional `READY`/`IN_SETUP` combination changes only new-event eligibility within the same org. Invalid, empty, duplicate, cross-org and unauthorized writes fail; tightened settings do not invalidate identical authorized replay. Test a settings change concurrent with new submission under the chosen transaction locking/isolation rule. |
 | Authorization | Admin and granted same-org employee pass; ungranted, inactive, revoked and other-org callers fail, including on replay. |
 | Bypass | Authenticated/anon direct receipt writes and consumption writes denied; all three eventless signatures, other definer writers and retired backflush cannot create effects. Different orgs may use the same ID independently. |
 
@@ -47,7 +49,7 @@ Run unchanged RED before migration and GREEN on PostgreSQL 17 with baseline cuto
 
 ## Delivery sequence
 
-1. Record the owner's WO-status decision, then independently review this completed contract; retain Draft status until then.
+1. Independently review the owner-requested configurable WO policy, the exact eligible options, the default, admin controls and the concurrency/permission guarantees; retain Draft status until the contract passes.
 2. Implement #229 in a separate DB PR after M191 with event receipt, eventless closure, direct-write closure and the full acceptance matrix. Independently review the exact head; Production application needs fresh live readback and separate authorization.
-3. Add an employee UI action using only the new RPC, showing the M190 permission, retaining event ID across retry/reload and testing granted/denied employee sessions. Do not mount the direct-insert `useConsumeMaterial` hook.
+3. Add the Org Admin manufacturing-setting control for the WO allowlist and an employee UI action using only the new event-bearing RPC. Show the M190 permission, retain event ID across retry/reload and test granted/denied employee sessions. Do not mount the direct-insert `useConsumeMaterial` hook.
 4. Resolve #230 before treating the complete manufacturing cycle as accepted.
