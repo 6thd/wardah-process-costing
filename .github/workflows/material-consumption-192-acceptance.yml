@@ -1,0 +1,40 @@
+name: Material consumption 192 disposable acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/192_material_consumption_retry_and_policy.sql'
+      - 'docs/db/material-consumption-192/**'
+      - '.github/workflows/material-consumption-192-acceptance.yml'
+      - 'sql/baseline/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Material event GREEN on disposable PG17
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Disposable baseline through 192 and behavioral checks
+        shell: bash
+        run: bash docs/db/material-consumption-192/run_local.sh
