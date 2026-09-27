@@ -33,3 +33,4 @@ python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > "$OR
 REPORT="$(mktemp)" PGDATABASE="$DB" bash scripts/ci/fresh-db/run_chain.sh sql/migrations "$ORDER"
 "${PSQL[@]}" -q -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
 "${PSQL[@]}" -f "$HERE/acceptance.sql"
+python3 "$HERE/concurrency.py" "$DB"

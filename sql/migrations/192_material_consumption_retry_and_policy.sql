@@ -82,10 +82,12 @@ BEGIN
   RETURN NEW;
 END
 $fn$;
-REVOKE ALL ON FUNCTION wardah_internal.seed_material_issue_wo_policy() FROM PUBLIC, anon, authenticated;
 CREATE TRIGGER seed_material_issue_wo_policy
 AFTER INSERT ON public.organizations
 FOR EACH ROW EXECUTE FUNCTION wardah_internal.seed_material_issue_wo_policy();
+REVOKE ALL ON FUNCTION wardah_internal.seed_material_issue_wo_policy() FROM PUBLIC;
+REVOKE ALL ON FUNCTION wardah_internal.seed_material_issue_wo_policy() FROM anon;
+REVOKE ALL ON FUNCTION wardah_internal.seed_material_issue_wo_policy() FROM authenticated;
 
 CREATE TABLE wardah_internal.material_issue_events (
   org_id uuid NOT NULL REFERENCES public.organizations(id),
