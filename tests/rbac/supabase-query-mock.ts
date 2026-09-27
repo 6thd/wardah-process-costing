@@ -29,13 +29,17 @@ export function makeFrom(getResolver: () => QueryResolver) {
         return builder;
       };
     }
-    builder.then = (
-      onFulfilled?: (value: unknown) => unknown,
-      onRejected?: (reason: unknown) => unknown
-    ) => {
-      const promise = (async () => getResolver()(table, calls))();
-      return promise.then(onFulfilled, onRejected);
-    };
+    // Supabase query builders are awaitable. Define the test object's
+    // Promise hook without a `then` member assignment on the builder.
+    Object.defineProperty(builder, 'then', {
+      value: (
+        onFulfilled?: (value: unknown) => unknown,
+        onRejected?: (reason: unknown) => unknown
+      ) => {
+        const promise = (async () => getResolver()(table, calls))();
+        return promise.then(onFulfilled, onRejected);
+      },
+    });
     return builder;
   };
 }
