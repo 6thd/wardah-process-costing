@@ -33,7 +33,7 @@ DECLARE
   v_ready_event uuid:=gen_random_uuid(); v_bad_event uuid:=gen_random_uuid();
   v_res uuid; v_res2 uuid; v_uom uuid; v_payload jsonb; v_sql text;
   v_result jsonb; v_replay jsonb; v_state jsonb; v_call jsonb;
-  v_initial jsonb; v_wo uuid;
+  v_initial jsonb; v_wo uuid; v_grant uuid; v_field text; v_change jsonb;
 BEGIN
   IF (SELECT allowed_statuses FROM wardah_internal.material_issue_wo_policies
       WHERE org_id=pg_temp.org()) IS DISTINCT FROM ARRAY['IN_PROGRESS']::text[] THEN
@@ -65,8 +65,60 @@ BEGIN
     RAISE EXCEPTION 'GREEN_192_CHANGED_REQUEST_NOT_REJECTED: %',v_call;
   END IF;
   v_call:=pg_temp.try_as(pg_temp.reader(),pg_temp.issue_sql(v_mo,v_event,10));
-  IF v_call->>'ok'<>'false' THEN
-    RAISE EXCEPTION 'GREEN_192_UNGRANTED_REPLAY_ALLOWED';
+  IF v_call->>'ok'<>'false' OR v_call->>'error' IS DISTINCT FROM
+     'MATERIAL_CONSUMPTION_PERMISSION_DENIED' THEN
+    RAISE EXCEPTION 'GREEN_192_UNGRANTED_REPLAY_WRONG_REASON: %',v_call;
+  END IF;
+  -- The SAME actor and fingerprint must be denied if its grant is revoked.
+  SELECT rp.permission_id INTO STRICT v_grant FROM public.role_permissions rp
+    JOIN public.permissions p ON p.id=rp.permission_id
+    WHERE rp.role_id='ed000000-0000-4000-8000-0000000000b1'::uuid
+      AND p.permission_key='manufacturing.material_consumption.consume';
+  DELETE FROM public.role_permissions
+    WHERE role_id='ed000000-0000-4000-8000-0000000000b1'::uuid
+      AND permission_id=v_grant;
+  v_call:=pg_temp.try_as(pg_temp.consumer(),pg_temp.issue_sql(v_mo,v_event,10));
+  IF v_call->>'ok'<>'false' OR v_call->>'error' IS DISTINCT FROM
+     'MATERIAL_CONSUMPTION_PERMISSION_DENIED' THEN
+    RAISE EXCEPTION 'GREEN_192_SAME_ACTOR_REVOKED_GRANT_REPLAY_ALLOWED: %',v_call;
+  END IF;
+  INSERT INTO public.role_permissions(role_id,permission_id)
+    VALUES ('ed000000-0000-4000-8000-0000000000b1'::uuid,v_grant);
+  v_call:=pg_temp.try_as(pg_temp.admin(),pg_temp.issue_sql(v_mo,v_event,10));
+  IF v_call->>'ok'<>'false' OR v_call->>'error' IS DISTINCT FROM
+     'MATERIAL_ISSUE_EVENT_CONFLICT' THEN
+    RAISE EXCEPTION 'GREEN_192_ACTOR_NOT_IN_FINGERPRINT: %',v_call;
+  END IF;
+  -- Each normalized business field must conflict before stock/state checks.
+  SELECT canonical_request->'lines'->0 INTO STRICT v_initial
+    FROM wardah_internal.material_issue_events
+    WHERE org_id=pg_temp.org() AND event_id=v_event;
+  FOREACH v_field IN ARRAY ARRAY[
+    'item_id','reservation_id','warehouse_id','work_order_id','uom_id','notes'
+  ] LOOP
+    v_change:=CASE v_field
+      WHEN 'item_id' THEN to_jsonb(pg_temp.fg()::text)
+      WHEN 'warehouse_id' THEN to_jsonb(pg_temp.w2()::text)
+      WHEN 'notes' THEN to_jsonb('different note'::text)
+      ELSE to_jsonb(gen_random_uuid()::text)
+    END;
+    v_payload:=jsonb_build_array(jsonb_set(v_initial,ARRAY[v_field],v_change));
+    v_sql:=format($q$SELECT public.rpc_consume_material_event(
+      %L::uuid,%L::uuid,%L::uuid,%L::jsonb)$q$,
+      v_mo,pg_temp.stage(),v_event,v_payload::text);
+    v_call:=pg_temp.try_as(pg_temp.consumer(),v_sql);
+    IF v_call->>'ok'<>'false' OR v_call->>'error' IS DISTINCT FROM
+       'MATERIAL_ISSUE_EVENT_CONFLICT' THEN
+      RAISE EXCEPTION 'GREEN_192_FIELD_NOT_IN_FINGERPRINT %: %',v_field,v_call;
+    END IF;
+  END LOOP;
+  v_call:=pg_temp.try_as(pg_temp.consumer(),format(
+    $q$SELECT public.rpc_consume_material_event(
+      %L::uuid,%L::uuid,%L::uuid,%L::jsonb)$q$,
+    v_mo,gen_random_uuid(),v_event,jsonb_build_array(v_initial)::text));
+  IF v_call->>'ok'<>'false' OR v_call->>'error' IS DISTINCT FROM
+     'MATERIAL_ISSUE_EVENT_CONFLICT' THEN
+    RAISE EXCEPTION 'GREEN_192_STAGE_NOT_IN_FINGERPRINT: %',v_call;
   END IF;
   PERFORM pg_temp.as_user(pg_temp.consumer(),pg_temp.issue_sql(v_mo,gen_random_uuid(),5));
   IF (pg_temp.consumption_state(v_mo)->>'mc_rows')::int<>2 THEN
@@ -175,15 +227,34 @@ BEGIN
      OR position('EVENT_ID_REQUIRED' in v_call->>'error')=0 THEN
     RAISE EXCEPTION 'GREEN_192_EVENTLESS_ORG_WRAPPER_ALLOWED: %',v_call;
   END IF;
-  v_call:=pg_temp.try_as(pg_temp.consumer(),
-    'INSERT INTO public.material_consumption DEFAULT VALUES RETURNING id');
-  IF v_call->>'ok'<>'false' THEN
+  v_call:=pg_temp.try_as(pg_temp.consumer(),format($q$
+    INSERT INTO public.material_consumption
+      (org_id,work_order_id,mo_id,item_id,consumed_quantity,
+       consumption_type,status,warehouse_id,total_cost)
+    VALUES (%L::uuid,%L::uuid,%L::uuid,%L::uuid,1,'MANUAL','POSTED',%L::uuid,10)
+    RETURNING to_jsonb(id)$q$,
+    pg_temp.org(),v_wo,v_mo,pg_temp.raw_item(),pg_temp.w1()));
+  IF v_call->>'ok'<>'false' OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
     RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_CONSUMPTION_INSERT_ALLOWED: %',v_call;
   END IF;
-  v_call:=pg_temp.try_as(pg_temp.admin(),
-    'INSERT INTO wardah_internal.material_issue_events DEFAULT VALUES RETURNING event_id');
-  IF v_call->>'ok'<>'false' THEN
+  v_call:=pg_temp.try_as(pg_temp.admin(),format($q$
+    INSERT INTO wardah_internal.material_issue_events
+      (org_id,event_id,mo_id,actor_id,canonical_request,request_hash,
+       policy_version,allowed_wo_statuses,consumption_ids,result)
+    VALUES (%L::uuid,gen_random_uuid(),%L::uuid,%L::uuid,
+      '{}'::jsonb,'candidate',1,ARRAY['IN_PROGRESS']::text[],
+      ARRAY[]::uuid[],'{}'::jsonb)
+    RETURNING to_jsonb(event_id)$q$,pg_temp.org(),v_mo,pg_temp.admin()));
+  IF v_call->>'ok'<>'false' OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
     RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_RECEIPT_INSERT_ALLOWED: %',v_call;
+  END IF;
+  IF has_table_privilege('authenticated','material_consumption','INSERT')
+     OR has_table_privilege('authenticated',
+       'wardah_internal.material_issue_events','INSERT')
+     OR has_table_privilege('anon','material_consumption','INSERT')
+     OR has_table_privilege('anon',
+       'wardah_internal.material_issue_events','INSERT') THEN
+    RAISE EXCEPTION 'GREEN_192_CLIENT_INSERT_GRANT_RESTORED';
   END IF;
   RAISE NOTICE 'GREEN_192_SEQUENTIAL_ACCEPTANCE';
 END

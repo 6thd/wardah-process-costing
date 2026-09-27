@@ -52,6 +52,10 @@ to the new API afterwards. The disposable suite exercises a second failing
 batch line, unauthorized direct writes, replay after status/policy changes,
 and two real sessions for same/different MOs and both first-transaction COMMIT
 and ROLLBACK. It also tests both orders of policy update versus a READY issue.
+The separate acceptance matrix asserts all 288 policy × MO × WO combinations,
+including NULL statuses, and a work order owned by a different MO. The
+sequential suite checks same-actor replay after revoking its grant, complete
+client insert payloads, and changes to each normalized business field.
 Independent final-head verification must check the raw run, NULL and malformed
 policy behavior, the generated TypeScript changes, and any reviewer findings.
 No Production or Staging write is implied by these tests.
