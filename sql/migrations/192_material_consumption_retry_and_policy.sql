@@ -26,11 +26,31 @@ $preflight$;
 
 -- The legacy 12,4 and cost 12,4 columns would silently round M191's
 -- six-decimal stock quantity/cost while WIP and reservations retain six.
+-- This existing security-invoker report depends on the altered column types.
+-- Recreate it inside this same transaction with exactly the original columns
+-- and invoker behavior (baseline + M103), preserving its existing ACL.
+DROP VIEW public.v_material_consumption_report;
 ALTER TABLE public.material_consumption
   ALTER COLUMN planned_quantity TYPE numeric(18,6),
   ALTER COLUMN consumed_quantity TYPE numeric(18,6),
   ALTER COLUMN unit_cost TYPE numeric(30,12),
   ALTER COLUMN total_cost TYPE numeric(18,6);
+CREATE VIEW public.v_material_consumption_report WITH (security_invoker=on) AS
+SELECT mc.org_id, mo.order_number, wo.work_order_number,
+    i.code AS item_code, i.name AS item_name,
+    mc.planned_quantity, mc.consumed_quantity,
+    (mc.consumed_quantity - mc.planned_quantity) AS variance_qty,
+    CASE WHEN mc.planned_quantity > 0 THEN
+      round((mc.consumed_quantity - mc.planned_quantity)
+             / mc.planned_quantity * 100, 2)
+      ELSE 0 END AS variance_pct,
+    mc.unit_cost, mc.total_cost, mc.consumption_type, mc.consumption_date, mc.status
+FROM public.material_consumption mc
+JOIN public.manufacturing_orders mo ON mc.mo_id=mo.id
+JOIN public.work_orders wo ON mc.work_order_id=wo.id
+JOIN public.items i ON mc.item_id=i.id;
+REVOKE ALL ON public.v_material_consumption_report FROM PUBLIC;
+GRANT ALL ON public.v_material_consumption_report TO anon, authenticated, service_role;
 
 CREATE SCHEMA IF NOT EXISTS wardah_internal;
 REVOKE ALL ON SCHEMA wardah_internal FROM PUBLIC, anon, authenticated;
