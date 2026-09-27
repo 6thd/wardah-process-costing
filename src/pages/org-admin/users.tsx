@@ -170,12 +170,20 @@ export default function OrgAdminUsers() {
     try {
       const result = await updateUserRoles(selectedUser.user_id, currentOrgId, selectedRoleIds);
       if (result.success) {
-        // Update local state
+        // The role catalogue can be unavailable or exclude inactive roles.
+        // Keep already loaded assignments when reflecting a successful RPC;
+        // otherwise a second unchanged save could revoke those roles.
+        const knownRoles = new Map(
+          [...(selectedUser.roles || []), ...roles].map(role => [role.id, role])
+        );
+        const resolvedRoles = selectedRoleIds.map(id => knownRoles.get(id));
+        const rolesComplete = resolvedRoles.every(role => role !== undefined);
         setUsers(users.map(u => {
           if (u.user_id === selectedUser.user_id) {
             return {
               ...u,
-              roles: roles.filter(r => selectedRoleIds.includes(r.id)),
+              roles: rolesComplete ? resolvedRoles.filter((role): role is OrgRole => role !== undefined) : undefined,
+              roles_status: rolesComplete ? 'loaded' as const : 'unavailable' as const,
             };
           }
           return u;
@@ -542,4 +550,3 @@ export default function OrgAdminUsers() {
     </div>
   );
 }
-

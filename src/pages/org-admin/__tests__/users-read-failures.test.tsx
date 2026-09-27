@@ -11,13 +11,13 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { QueryResolver } from './supabase-query-mock';
+import type { QueryResolver } from '../../../../tests/rbac/supabase-query-mock';
 
 const rpcMock = vi.fn();
 let resolver: QueryResolver;
 
 vi.mock('@/lib/supabase', async () => {
-  const { makeFrom } = await import('./supabase-query-mock');
+  const { makeFrom } = await import('../../../../tests/rbac/supabase-query-mock');
   return {
     getSupabase: () => ({ rpc: rpcMock, from: makeFrom(() => resolver) }),
   };
@@ -62,6 +62,7 @@ type Result = { data: unknown; error: unknown };
 const ok = (data: unknown): Result => ({ data, error: null });
 
 let userRolesRead: () => Result;
+let roleListRead: () => Result;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -73,6 +74,7 @@ beforeEach(() => {
       { user_id: 'user-1', role: ROLE_A },
       { user_id: 'user-1', role: ROLE_B },
     ]);
+  roleListRead = () => ok([ROLE_A, ROLE_B]);
 
   resolver = (table) => {
     switch (table) {
@@ -83,7 +85,7 @@ beforeEach(() => {
       case 'user_profiles':
         return ok(PROFILES);
       case 'roles':
-        return ok([ROLE_A, ROLE_B]);
+        return roleListRead();
       case 'role_permissions':
         return ok([]);
       default:
@@ -171,6 +173,47 @@ describe('F2 — failed user_roles read never becomes an editable empty assignme
 });
 
 describe('controls — successful reads keep full-set replacement semantics', () => {
+  it('keeps assignments across two saves when the role catalogue read fails', async () => {
+    roleListRead = () => ({ data: null, error: { message: 'role list unavailable' } });
+    const user = userEvent.setup();
+    await renderPage();
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await openManageRoles(user, 'سارة');
+      await waitFor(() => expect(roleDialog()).toBeInTheDocument());
+      await user.click(within(roleDialog()!).getByRole('button', { name: 'حفظ التغييرات' }));
+      await waitFor(() => expect(replaceCalls()).toHaveLength(attempt));
+      await waitFor(() => expect(roleDialog()).not.toBeInTheDocument());
+    }
+
+    expect(replaceCalls().map(call => call[1].p_payload.role_ids)).toEqual([
+      ['role-a', 'role-b'], ['role-a', 'role-b'],
+    ]);
+  });
+
+  it('keeps an assigned inactive role across two unchanged saves', async () => {
+    const inactiveRole = { ...ROLE_B, id: 'role-z', is_active: false, name_ar: 'دور غير نشط' };
+    userRolesRead = () => ok([
+      { user_id: 'user-1', role: ROLE_A },
+      { user_id: 'user-1', role: inactiveRole },
+    ]);
+    roleListRead = () => ok([ROLE_A]);
+    const user = userEvent.setup();
+    await renderPage();
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await openManageRoles(user, 'سارة');
+      await waitFor(() => expect(roleDialog()).toBeInTheDocument());
+      await user.click(within(roleDialog()!).getByRole('button', { name: 'حفظ التغييرات' }));
+      await waitFor(() => expect(replaceCalls()).toHaveLength(attempt));
+      await waitFor(() => expect(roleDialog()).not.toBeInTheDocument());
+    }
+
+    expect(replaceCalls().map(call => call[1].p_payload.role_ids)).toEqual([
+      ['role-a', 'role-z'], ['role-a', 'role-z'],
+    ]);
+  });
+
   it('successful non-empty read saves the complete assigned set', async () => {
     const user = userEvent.setup();
     await renderPage();

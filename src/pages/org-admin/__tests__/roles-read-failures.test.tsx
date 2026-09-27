@@ -12,13 +12,13 @@
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { usedMethod, type QueryResolver } from './supabase-query-mock';
+import { usedMethod, type QueryResolver } from '../../../../tests/rbac/supabase-query-mock';
 
 const rpcMock = vi.fn();
 let resolver: QueryResolver;
 
 vi.mock('@/lib/supabase', async () => {
-  const { makeFrom: mf } = await import('./supabase-query-mock');
+  const { makeFrom: mf } = await import('../../../../tests/rbac/supabase-query-mock');
   return {
     getSupabase: () => ({ rpc: rpcMock, from: mf(() => resolver) }),
   };
