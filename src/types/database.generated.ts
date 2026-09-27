@@ -10994,6 +10994,15 @@ export type Database = {
         Args: { p_payload: Json }
         Returns: Json
       }
+      rpc_consume_material_event: {
+        Args: {
+          p_consumptions: Json
+          p_event_id: string
+          p_mo_id: string
+          p_stage_id: string
+        }
+        Returns: Json
+      }
       rpc_consume_reserved_materials: {
         Args: { p_consumptions: Json; p_mo_id: string }
         Returns: Json
@@ -11073,6 +11082,10 @@ export type Database = {
           org_name_ar: string
           status: string
         }[]
+      }
+      rpc_get_material_issue_wo_statuses: {
+        Args: { p_org_id: string }
+        Returns: Json
       }
       rpc_get_org_uom_engine_enabled: {
         Args: { p_org_id: string }
@@ -11235,6 +11248,10 @@ export type Database = {
           p_reversal_date?: string
           p_reversal_reason?: string
         }
+        Returns: Json
+      }
+      rpc_set_material_issue_wo_statuses: {
+        Args: { p_allowed_statuses: string[]; p_org_id: string }
         Returns: Json
       }
       rpc_set_org_admin: {
