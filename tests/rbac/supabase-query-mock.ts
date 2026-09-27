@@ -22,24 +22,17 @@ const CHAIN_METHODS = ['select', 'eq', 'in', 'order', 'limit', 'neq', 'is'] as c
 export function makeFrom(getResolver: () => QueryResolver) {
   return (table: string) => {
     const calls: QueryCall[] = [];
-    const builder: Record<string, unknown> = {};
+    // A native Promise is already awaitable. Decorate it with the query
+    // methods instead of manufacturing a `then` member on a plain object.
+    // The resolver runs in a microtask, after synchronous method chaining.
+    const builder: Record<string, unknown> = Promise.resolve()
+      .then(() => getResolver()(table, calls)) as unknown as Record<string, unknown>;
     for (const method of CHAIN_METHODS) {
       builder[method] = (...args: unknown[]) => {
         calls.push({ method, args });
         return builder;
       };
     }
-    // Supabase query builders are awaitable. Define the test object's
-    // Promise hook without a `then` member assignment on the builder.
-    Object.defineProperty(builder, 'then', {
-      value: (
-        onFulfilled?: (value: unknown) => unknown,
-        onRejected?: (reason: unknown) => unknown
-      ) => {
-        const promise = (async () => getResolver()(table, calls))();
-        return promise.then(onFulfilled, onRejected);
-      },
-    });
     return builder;
   };
 }
