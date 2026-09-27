@@ -7,6 +7,8 @@
 **Base for implementation:** `main@48c91a420a977215b0f377463882aa19390f3572`  
 **Production state:** NOT APPLIED by this PR
 
+> **2026-09-27 live update:** M190 was applied to Production project `uutfztmqvajmsxnrqeiv` once under migration-ledger version `20260927082227`; an executor-run read-only Production catalog and stock readback on 2026-09-27 passed, and a later independent reviewer rechecked those live results. The older “NOT APPLIED by this PR” line above describes this runbook's original PR boundary. See [the dated Production application record](M190_PRODUCTION_APPLICATION_20260927.md). M191 remains unapplied to Production.
+
 ## Purpose
 
 Close the proven authorization gap around manufacturing material consumption without
