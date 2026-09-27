@@ -54,7 +54,12 @@ BEGIN
                           'draft','IN_PROGRESS');
       SELECT id INTO STRICT v_original_wo FROM public.work_orders WHERE mo_id=v_mo;
       IF v_mo_status IS DISTINCT FROM 'draft' THEN
+        -- Superuser fixture injection only: exercise every stored state,
+        -- including NULL and transitions the normal state machine disallows.
+        -- Restore triggers before invoking the authenticated event RPC.
+        PERFORM set_config('session_replication_role','replica',true);
         UPDATE public.manufacturing_orders SET status=v_mo_status WHERE id=v_mo;
+        PERFORM set_config('session_replication_role','origin',true);
       END IF;
       FOR v_wo_idx IN 1..array_length(v_all_wo,1) LOOP
         v_wo_status:=v_all_wo[v_wo_idx];
