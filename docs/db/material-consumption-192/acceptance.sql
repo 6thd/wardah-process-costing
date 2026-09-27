@@ -29,7 +29,9 @@ $fn$;
 
 DO $check$
 DECLARE
-  v_mo uuid; v_ready uuid; v_null uuid; v_event uuid:=gen_random_uuid();
+  v_mo uuid; v_ready uuid; v_null uuid; v_draft uuid; v_event uuid:=gen_random_uuid();
+  v_ready_event uuid:=gen_random_uuid(); v_bad_event uuid:=gen_random_uuid();
+  v_res uuid; v_res2 uuid; v_uom uuid; v_payload jsonb; v_sql text;
   v_result jsonb; v_replay jsonb; v_state jsonb; v_call jsonb;
   v_initial jsonb; v_wo uuid;
 BEGIN
@@ -70,6 +72,18 @@ BEGIN
   IF (pg_temp.consumption_state(v_mo)->>'mc_rows')::int<>2 THEN
     RAISE EXCEPTION 'GREEN_192_SECOND_EVENT_DID_NOT_APPLY';
   END IF;
+  -- An identical authorized replay bypasses NEW-event lifecycle checks.
+  PERFORM pg_temp.transition(v_mo,'on_hold');
+  v_replay:=pg_temp.as_user(pg_temp.consumer(),pg_temp.issue_sql(v_mo,v_event,10));
+  IF v_result IS DISTINCT FROM v_replay THEN
+    RAISE EXCEPTION 'GREEN_192_REPLAY_AFTER_MO_HOLD_FAILED';
+  END IF;
+  v_call:=pg_temp.try_as(pg_temp.consumer(),pg_temp.issue_sql(v_mo,gen_random_uuid(),1));
+  IF v_call->>'ok'<>'false' THEN RAISE EXCEPTION 'GREEN_192_NEW_EVENT_ON_HOLD_ALLOWED'; END IF;
+
+  v_draft:=pg_temp.mk_mo('GREEN-192-DRAFT',5,20,'draft','IN_PROGRESS');
+  v_call:=pg_temp.try_as(pg_temp.consumer(),pg_temp.issue_sql(v_draft,gen_random_uuid(),5));
+  IF v_call->>'ok'<>'false' THEN RAISE EXCEPTION 'GREEN_192_DRAFT_MO_ALLOWED'; END IF;
 
   v_ready:=pg_temp.mk_mo('GREEN-192-READY',5,20,'in_progress','READY');
   v_call:=pg_temp.try_as(pg_temp.consumer(),pg_temp.issue_sql(v_ready,gen_random_uuid(),5));
@@ -80,7 +94,50 @@ BEGIN
   PERFORM pg_temp.as_user(pg_temp.admin(),
     format($q$SELECT public.rpc_set_material_issue_wo_statuses(
        %L::uuid,ARRAY['IN_PROGRESS','READY']::text[])$q$,pg_temp.org()));
-  PERFORM pg_temp.as_user(pg_temp.consumer(),pg_temp.issue_sql(v_ready,gen_random_uuid(),5));
+  v_result:=pg_temp.as_user(pg_temp.consumer(),pg_temp.issue_sql(v_ready,v_ready_event,5));
+  PERFORM pg_temp.as_user(pg_temp.admin(),format(
+    $q$SELECT public.rpc_set_material_issue_wo_statuses(
+       %L::uuid,ARRAY['IN_PROGRESS']::text[])$q$,pg_temp.org()));
+  v_replay:=pg_temp.as_user(pg_temp.consumer(),pg_temp.issue_sql(v_ready,v_ready_event,5));
+  IF v_result IS DISTINCT FROM v_replay THEN
+    RAISE EXCEPTION 'GREEN_192_REPLAY_AFTER_POLICY_TIGHTEN_FAILED';
+  END IF;
+  v_call:=pg_temp.try_as(pg_temp.consumer(),pg_temp.issue_sql(v_ready,gen_random_uuid(),1));
+  IF v_call->>'ok'<>'false' THEN RAISE EXCEPTION 'GREEN_192_READY_ALLOWED_AFTER_TIGHTEN'; END IF;
+
+  -- Force second-line stock failure after the first line mutates stock.
+  -- The entire RPC, including the receipt, must roll back.
+  v_initial:=pg_temp.consumption_state(v_ready);
+  SELECT id INTO v_res FROM public.material_reservations WHERE mo_id=v_ready LIMIT 1;
+  SELECT id INTO v_wo FROM public.work_orders WHERE mo_id=v_ready LIMIT 1;
+  SELECT base_uom_id INTO v_uom FROM public.products WHERE id=pg_temp.raw();
+  INSERT INTO public.material_reservations(
+    org_id,mo_id,item_id,product_id,quantity_reserved,status,uom_id
+  ) VALUES (
+    pg_temp.org(),v_ready,pg_temp.raw_item(),pg_temp.raw(),5,'reserved',v_uom
+  ) RETURNING id INTO v_res2;
+  -- Restore READY eligibility so execution reaches the second stock line.
+  PERFORM pg_temp.as_user(pg_temp.admin(),format(
+    $q$SELECT public.rpc_set_material_issue_wo_statuses(
+       %L::uuid,ARRAY['IN_PROGRESS','READY']::text[])$q$,pg_temp.org()));
+  v_payload:=jsonb_build_array(
+    jsonb_build_object('item_id',pg_temp.raw_item(),'reservation_id',v_res,
+      'warehouse_id',pg_temp.w1(),'work_order_id',v_wo,'uom_id',v_uom,
+      'quantity',1,'consumption_type','MANUAL'),
+    jsonb_build_object('item_id',pg_temp.raw_item(),'reservation_id',v_res2,
+      'warehouse_id',pg_temp.w2(),'work_order_id',v_wo,'uom_id',v_uom,
+      'quantity',1,'consumption_type','MANUAL')
+  );
+  v_sql:=format($q$SELECT public.rpc_consume_material_event(
+    %L::uuid,%L::uuid,%L::uuid,%L::jsonb)$q$,
+    v_ready,pg_temp.stage(),v_bad_event,v_payload::text);
+  v_call:=pg_temp.try_as(pg_temp.consumer(),v_sql);
+  IF v_call->>'ok'<>'false'
+     OR pg_temp.consumption_state(v_ready) IS DISTINCT FROM v_initial
+     OR EXISTS(SELECT 1 FROM wardah_internal.material_issue_events
+               WHERE org_id=pg_temp.org() AND event_id=v_bad_event) THEN
+    RAISE EXCEPTION 'GREEN_192_SECOND_LINE_ROLLBACK_FAILED: %',v_call;
+  END IF;
 
   v_null:=pg_temp.mk_mo('GREEN-192-NULL',5,20,'in_progress',NULL);
   v_call:=pg_temp.try_as(pg_temp.consumer(),pg_temp.issue_sql(v_null,gen_random_uuid(),5));
