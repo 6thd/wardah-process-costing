@@ -44,9 +44,10 @@ Do not apply #229 before M191 on Production.
 
 Record exact-head checkout SHA, server version, raw disposable-run output and
 checksum. Confirm the unchanged C probe is RED before M192 and adapt C1/C1b/C2/C3
-to the new API afterwards. Run two real sessions for both first-transaction
-COMMIT and ROLLBACK, including the same event ID for two different MOs. Run
-negative controls for a second failing batch line, unauthorized direct writes,
-missing/malformed policy, and replay after status/policy changes. Review any
-generator-produced TypeScript changes and independent findings at the final
-head. No Production or Staging write is implied by these tests.
+to the new API afterwards. The disposable suite exercises a second failing
+batch line, unauthorized direct writes, replay after status/policy changes,
+and two real sessions for same/different MOs and both first-transaction COMMIT
+and ROLLBACK. It also tests both orders of policy update versus a READY issue.
+Independent final-head verification must check the raw run, NULL and malformed
+policy behavior, the generated TypeScript changes, and any reviewer findings.
+No Production or Staging write is implied by these tests.

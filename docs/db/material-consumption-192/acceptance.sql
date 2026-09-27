@@ -162,6 +162,29 @@ BEGIN
      OR position('EVENT_ID_REQUIRED' in v_call->>'error')=0 THEN
     RAISE EXCEPTION 'GREEN_192_EVENTLESS_V2_WRITES_OR_WRONG_ERROR: %',v_call;
   END IF;
+  v_call:=pg_temp.try_as(pg_temp.consumer(),format(
+    $q$SELECT public.rpc_consume_reserved_materials(%L::uuid,'[]'::jsonb)$q$,v_mo));
+  IF v_call->>'ok'<>'false'
+     OR position('EVENT_ID_REQUIRED' in v_call->>'error')=0 THEN
+    RAISE EXCEPTION 'GREEN_192_EVENTLESS_WRAPPER_ALLOWED: %',v_call;
+  END IF;
+  v_call:=pg_temp.try_as(pg_temp.consumer(),format(
+    $q$SELECT public.consume_materials_for_mo(%L::uuid,%L::uuid,ARRAY[]::jsonb[])$q$,
+    pg_temp.org(),v_mo));
+  IF v_call->>'ok'<>'false'
+     OR position('EVENT_ID_REQUIRED' in v_call->>'error')=0 THEN
+    RAISE EXCEPTION 'GREEN_192_EVENTLESS_ORG_WRAPPER_ALLOWED: %',v_call;
+  END IF;
+  v_call:=pg_temp.try_as(pg_temp.consumer(),
+    'INSERT INTO public.material_consumption DEFAULT VALUES RETURNING id');
+  IF v_call->>'ok'<>'false' THEN
+    RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_CONSUMPTION_INSERT_ALLOWED: %',v_call;
+  END IF;
+  v_call:=pg_temp.try_as(pg_temp.admin(),
+    'INSERT INTO wardah_internal.material_issue_events DEFAULT VALUES RETURNING event_id');
+  IF v_call->>'ok'<>'false' THEN
+    RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_RECEIPT_INSERT_ALLOWED: %',v_call;
+  END IF;
   RAISE NOTICE 'GREEN_192_SEQUENTIAL_ACCEPTANCE';
 END
 $check$;

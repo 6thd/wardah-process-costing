@@ -27,10 +27,10 @@ def sql(query: str, *, success: bool = True) -> str:
     return result.stdout.strip()
 
 
-def setup(label: str) -> tuple[str, str, str]:
+def setup(label: str, wo_status: str = "IN_PROGRESS") -> tuple[str, str, str]:
     setup_sql = f"""BEGIN;
 \\i {helpers}
-SELECT pg_temp.mk_mo('{label}',5,100,'in_progress','IN_PROGRESS');
+SELECT pg_temp.mk_mo('{label}',5,100,'in_progress','{wo_status}');
 COMMIT;
 """
     result = subprocess.run(base, input=setup_sql, text=True, capture_output=True, timeout=30)
@@ -51,6 +51,7 @@ uom = str(uuid.UUID(sql(
 )))
 org = "ed000000-0000-4000-8000-000000000001"
 consumer = "ed000000-0000-4000-8000-0000000000a2"
+admin = "ed000000-0000-4000-8000-0000000000a1"
 stage = "ed000000-0000-4000-8000-0000000000f1"
 item = "ed000000-0000-4000-8000-0000000000d1"
 warehouse = "ed000000-0000-4000-8000-0000000000e1"
@@ -66,21 +67,21 @@ def call(mo: str, reservation: str, wo: str, event: str) -> str:
       )));"""
 
 
-def as_consumer(query: str) -> str:
-    return f"""SELECT set_config('request.jwt.claim.sub','{consumer}',true);
+def as_user(query: str, actor: str = consumer) -> str:
+    return f"""SELECT set_config('request.jwt.claim.sub','{actor}',true);
 SELECT set_config('request.jwt.claims',
-  '{{"sub":"{consumer}","role":"authenticated"}}',true);
+  '{{"sub":"{actor}","role":"authenticated"}}',true);
 SET LOCAL ROLE authenticated;
 {query}
 RESET ROLE;
 """
 
 
-def race(rollback_first: bool) -> None:
+def race(rollback_first: bool, same_mo: bool = False) -> None:
     first = setup("GREEN-192-RACE-A-" + str(uuid.uuid4())[:8])
-    second = setup("GREEN-192-RACE-B-" + str(uuid.uuid4())[:8])
+    second = first if same_mo else setup("GREEN-192-RACE-B-" + str(uuid.uuid4())[:8])
     event = str(uuid.uuid4())
-    first_sql = ("BEGIN;\n" + as_consumer(call(first[0], first[1], first[2], event))
+    first_sql = ("BEGIN;\n" + as_user(call(first[0], first[1], first[2], event))
                  + "\\echo FIRST_HELD\nSELECT pg_sleep(3);\n"
                  + ("ROLLBACK;\n" if rollback_first else "COMMIT;\n"))
     proc = subprocess.Popen(base, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -93,7 +94,7 @@ def race(rollback_first: bool) -> None:
             break
     else:
         raise AssertionError("first session never held transaction")
-    second_sql = ("BEGIN;\n" + as_consumer(call(second[0], second[1], second[2], event))
+    second_sql = ("BEGIN;\n" + as_user(call(second[0], second[1], second[2], event))
                   + "COMMIT;\n")
     waiter = subprocess.run(base, input=second_sql, text=True, capture_output=True,
                             timeout=30)
@@ -101,7 +102,13 @@ def race(rollback_first: bool) -> None:
     if rollback_first:
         if waiter.returncode:
             raise AssertionError(("rollback waiter should succeed", waiter.stderr))
-        expected = (0, 1)
+        expected = (1, 1) if same_mo else (0, 1)
+    elif same_mo:
+        stored = sql("SELECT result::text FROM wardah_internal.material_issue_events "
+                     f"WHERE org_id='{org}'::uuid AND event_id='{event}'::uuid")
+        if waiter.returncode or stored not in waiter.stdout:
+            raise AssertionError(("identical waiter should replay", waiter.stdout, waiter.stderr))
+        expected = (1, 1)
     else:
         if waiter.returncode == 0 or "MATERIAL_ISSUE_EVENT_CONFLICT" not in waiter.stderr:
             raise AssertionError(("changed MO must conflict", waiter.stdout, waiter.stderr))
@@ -114,6 +121,55 @@ def race(rollback_first: bool) -> None:
         raise AssertionError(("unreceipted or duplicate effects", counts, receipts))
 
 
+def policy_race(admin_first: bool) -> None:
+    mo, reservation, wo = setup("GREEN-192-POLICY-" + str(uuid.uuid4())[:8], "READY")
+    event = str(uuid.uuid4())
+    allow = ("SELECT public.rpc_set_material_issue_wo_statuses("
+             f"'{org}'::uuid,ARRAY['IN_PROGRESS','READY']::text[]);")
+    tighten = ("SELECT public.rpc_set_material_issue_wo_statuses("
+               f"'{org}'::uuid,ARRAY['IN_PROGRESS']::text[]);")
+    result = subprocess.run(base, input="BEGIN;\n" + as_user(allow, admin) + "COMMIT;\n",
+                            text=True, capture_output=True, timeout=30)
+    if result.returncode:
+        raise AssertionError(("policy setup failed", result.stderr))
+    issue = call(mo, reservation, wo, event)
+    first_sql = ("BEGIN;\n" + as_user(tighten, admin) if admin_first else
+                 "BEGIN;\n" + as_user(issue))
+    first_sql += "\\echo POLICY_FIRST_HELD\nSELECT pg_sleep(3);\nCOMMIT;\n"
+    proc = subprocess.Popen(base, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, bufsize=1)
+    assert proc.stdin and proc.stdout
+    proc.stdin.write(first_sql)
+    proc.stdin.close()
+    for line in proc.stdout:
+        if "POLICY_FIRST_HELD" in line:
+            break
+    else:
+        raise AssertionError("policy first session did not reach barrier")
+    second_sql = ("BEGIN;\n" + as_user(issue) if admin_first else
+                  "BEGIN;\n" + as_user(tighten, admin)) + "COMMIT;\n"
+    waiter = subprocess.run(base, input=second_sql, text=True, capture_output=True,
+                            timeout=30)
+    proc.wait(timeout=30)
+    if proc.returncode:
+        raise AssertionError(("policy first transaction failed", proc.stderr.read()))
+    receipt = int(sql("SELECT count(*) FROM wardah_internal.material_issue_events "
+                      f"WHERE org_id='{org}'::uuid AND event_id='{event}'::uuid"))
+    if admin_first:
+        if waiter.returncode == 0 or "WORK_ORDER_NOT_ELIGIBLE" not in waiter.stderr or receipt:
+            raise AssertionError(("waiting issue ignored tightened policy", waiter.stderr, receipt))
+    elif waiter.returncode or receipt != 1:
+        raise AssertionError(("waiting policy change lost issued event", waiter.stderr, receipt))
+    statuses = sql("SELECT array_to_string(allowed_statuses,',') FROM "
+                   f"wardah_internal.material_issue_wo_policies WHERE org_id='{org}'::uuid")
+    if statuses != "IN_PROGRESS":
+        raise AssertionError(("policy change not committed", statuses))
+
+
 race(False)
 race(True)
+race(False, same_mo=True)
+race(True, same_mo=True)
+policy_race(admin_first=True)
+policy_race(admin_first=False)
 print("GREEN_192_TWO_SESSION_ACCEPTANCE")
