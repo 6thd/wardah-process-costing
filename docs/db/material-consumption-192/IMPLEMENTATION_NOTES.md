@@ -42,6 +42,10 @@ Do not apply #229 before M191 on Production.
 
 ## Remaining acceptance
 
+The disposable two-session runner uses Psycopg 3 with bound parameters; the CI
+workflow installs `psycopg[binary]`. Install the same package before running
+`run_local.sh` in another local PostgreSQL 17 environment.
+
 Record exact-head checkout SHA, server version, raw disposable-run output and
 checksum. Confirm the unchanged C probe is RED before M192 and adapt C1/C1b/C2/C3
 to the new API afterwards. The disposable suite exercises a second failing
