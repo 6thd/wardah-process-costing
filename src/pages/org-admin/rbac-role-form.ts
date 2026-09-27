@@ -18,7 +18,9 @@ export interface ModuleLike {
 }
 
 /**
- * Map the editor's selected permission ids to permission keys.
+ * Map the editor's selected permission ids to permission keys, for display
+ * (e.g. the sensitive-permission warning). The save path must use
+ * resolvePermissionKeys instead, which refuses rather than drops.
  *
  * The 174 RPCs speak keys, not row ids: keys are stable across environments,
  * ids are not. Unknown ids are dropped rather than sent as `undefined`, so a
@@ -30,6 +32,45 @@ export function permissionIdsToKeys(modules: ModuleLike[], ids: string[]): strin
   const byId = new Map<string, string>();
   modules.forEach(m => m.permissions.forEach(p => byId.set(p.id, p.permission_key)));
   return ids.map(id => byId.get(id)).filter((k): k is string => Boolean(k));
+}
+
+export type PermissionKeyResolution =
+  | { ok: true; keys: string[] }
+  | { ok: false; unresolvedIds: string[] };
+
+/**
+ * Strict variant of permissionIdsToKeys for the save path.
+ *
+ * rpc_upsert_org_role replaces the role's full permission set, so silently
+ * dropping an id that the loaded catalogue cannot resolve would turn a stale
+ * or failed catalogue read into a revocation. Every selected id must map to
+ * exactly one permission key; otherwise the caller must refuse to save.
+ */
+export function resolvePermissionKeys(
+  modules: ModuleLike[],
+  ids: string[]
+): PermissionKeyResolution {
+  const byId = new Map<string, Set<string>>();
+  modules.forEach(m =>
+    m.permissions.forEach(p => {
+      if (!p.permission_key) return;
+      const keys = byId.get(p.id) ?? new Set<string>();
+      keys.add(p.permission_key);
+      byId.set(p.id, keys);
+    })
+  );
+
+  const keys: string[] = [];
+  const unresolvedIds: string[] = [];
+  for (const id of new Set(ids)) {
+    const candidates = byId.get(id);
+    if (candidates?.size === 1) {
+      keys.push([...candidates][0]);
+    } else {
+      unresolvedIds.push(id);
+    }
+  }
+  return unresolvedIds.length > 0 ? { ok: false, unresolvedIds } : { ok: true, keys };
 }
 
 /**

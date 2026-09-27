@@ -66,6 +66,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 
+const ROLES_UNAVAILABLE_MESSAGE =
+  'تعذر تحميل أدوار هذا المستخدم، لذلك لا يمكن تعديلها الآن حتى لا تُحذف عند الحفظ. حدّث الصفحة وأعد المحاولة.';
+
 export default function OrgAdminUsers() {
   const { currentOrgId, user } = useAuth();
   const navigate = useNavigate();
@@ -145,24 +148,42 @@ export default function OrgAdminUsers() {
   }
 
   function openRoleDialog(u: OrgUser) {
+    // The dialog saves a full replacement; an unknown current assignment must
+    // not be presented as an editable empty one.
+    if (u.roles_status !== 'loaded' || !u.roles) {
+      toast.error(ROLES_UNAVAILABLE_MESSAGE);
+      return;
+    }
     setSelectedUser(u);
-    setSelectedRoleIds(u.roles?.map(r => r.id) || []);
+    setSelectedRoleIds(u.roles.map(r => r.id));
     setRoleDialogOpen(true);
   }
 
   async function handleSaveRoles() {
     if (!currentOrgId || !selectedUser) return;
+    if (selectedUser.roles_status !== 'loaded') {
+      toast.error(ROLES_UNAVAILABLE_MESSAGE);
+      return;
+    }
     
     setSavingRoles(true);
     try {
       const result = await updateUserRoles(selectedUser.user_id, currentOrgId, selectedRoleIds);
       if (result.success) {
-        // Update local state
+        // The role catalogue can be unavailable or exclude inactive roles.
+        // Keep already loaded assignments when reflecting a successful RPC;
+        // otherwise a second unchanged save could revoke those roles.
+        const knownRoles = new Map(
+          [...(selectedUser.roles || []), ...roles].map(role => [role.id, role])
+        );
+        const resolvedRoles = selectedRoleIds.map(id => knownRoles.get(id));
+        const rolesComplete = resolvedRoles.every(role => role !== undefined);
         setUsers(users.map(u => {
           if (u.user_id === selectedUser.user_id) {
             return {
               ...u,
-              roles: roles.filter(r => selectedRoleIds.includes(r.id)),
+              roles: rolesComplete ? resolvedRoles.filter((role): role is OrgRole => role !== undefined) : undefined,
+              roles_status: rolesComplete ? 'loaded' as const : 'unavailable' as const,
             };
           }
           return u;
@@ -348,6 +369,15 @@ export default function OrgAdminUsers() {
 
                     {/* Roles */}
                     <div className="hidden md:flex items-center gap-2 flex-wrap max-w-[200px]">
+                      {u.roles_status !== 'loaded' && (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-500/40 text-amber-400"
+                          title={ROLES_UNAVAILABLE_MESSAGE}
+                        >
+                          تعذر تحميل الأدوار
+                        </Badge>
+                      )}
                       {(u.roles || []).slice(0, 2).map(role => (
                         <Badge
                           key={role.id}
@@ -509,7 +539,7 @@ export default function OrgAdminUsers() {
             </Button>
             <Button
               onClick={handleSaveRoles}
-              disabled={savingRoles}
+              disabled={savingRoles || selectedUser?.roles_status !== 'loaded'}
               className="bg-gradient-to-r from-teal-600 to-cyan-600"
             >
               {savingRoles ? 'جاري الحفظ...' : 'حفظ التغييرات'}
@@ -520,4 +550,3 @@ export default function OrgAdminUsers() {
     </div>
   );
 }
-

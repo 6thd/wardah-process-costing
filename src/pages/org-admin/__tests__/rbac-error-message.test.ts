@@ -50,7 +50,12 @@ describe('rbacErrorMessage', () => {
 // directly rather than only through a mounted dialog.
 // ---------------------------------------------------------------------------
 
-import { permissionIdsToKeys, sensitiveAmong, buildUpsertRolePayload } from '../rbac-role-form';
+import {
+  permissionIdsToKeys,
+  resolvePermissionKeys,
+  sensitiveAmong,
+  buildUpsertRolePayload,
+} from '../rbac-role-form';
 
 const MODULES = [
   {
@@ -77,6 +82,49 @@ describe('permissionIdsToKeys', () => {
   it('returns an empty array for an empty selection', () => {
     expect(permissionIdsToKeys(MODULES, [])).toEqual([]);
     expect(permissionIdsToKeys([], ['p1'])).toEqual([]);
+  });
+});
+
+describe('resolvePermissionKeys (save path)', () => {
+  it('resolves every selected id to its key', () => {
+    expect(resolvePermissionKeys(MODULES, ['p1', 'p3'])).toEqual({
+      ok: true,
+      keys: ['accounting.vouchers.unpost', 'sales.invoices.create'],
+    });
+  });
+
+  it('accepts an intentional empty selection', () => {
+    expect(resolvePermissionKeys(MODULES, [])).toEqual({ ok: true, keys: [] });
+    expect(resolvePermissionKeys([], [])).toEqual({ ok: true, keys: [] });
+  });
+
+  it('refuses instead of dropping an id the catalogue cannot resolve', () => {
+    expect(resolvePermissionKeys(MODULES, ['p1', 'ghost'])).toEqual({
+      ok: false,
+      unresolvedIds: ['ghost'],
+    });
+  });
+
+  it('refuses every selected id when the catalogue is empty (failed read)', () => {
+    expect(resolvePermissionKeys([], ['p1', 'p2'])).toEqual({
+      ok: false,
+      unresolvedIds: ['p1', 'p2'],
+    });
+  });
+
+  it('refuses an id that maps to more than one key', () => {
+    const ambiguous = [
+      { permissions: [{ id: 'p1', permission_key: 'a.b.c' }] },
+      { permissions: [{ id: 'p1', permission_key: 'x.y.z' }] },
+    ];
+    expect(resolvePermissionKeys(ambiguous, ['p1'])).toEqual({ ok: false, unresolvedIds: ['p1'] });
+  });
+
+  it('collapses a duplicated selected id to one key', () => {
+    expect(resolvePermissionKeys(MODULES, ['p2', 'p2'])).toEqual({
+      ok: true,
+      keys: ['accounting.entries.approve'],
+    });
   });
 });
 

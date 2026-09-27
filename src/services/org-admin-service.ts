@@ -26,7 +26,16 @@ export interface OrgUser {
     preferred_language?: string;
     last_login_at?: string;
   };
+  /**
+   * Present only when roles_status is 'loaded'. An empty array then means the
+   * user genuinely holds no roles; it is never used to stand in for a failed read.
+   */
   roles?: OrgRole[];
+  /**
+   * 'unavailable' means the user's role assignments could not be read, so the
+   * current set is unknown and must not be edited as if it were empty.
+   */
+  roles_status: 'loaded' | 'unavailable';
   email?: string;
 }
 
@@ -164,14 +173,20 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
       throw error;
     }
 
-    // محاولة جلب الأدوار (اختياري - قد لا يوجد الجدول)
+    // Role assignments feed an editor that saves a full replacement through
+    // rpc_replace_user_roles, so "read failed" must stay distinguishable from
+    // "holds no roles". A failed read marks every listed user unavailable
+    // (the single query covers them all); an assignment whose role row could
+    // not be resolved marks only that user unavailable.
     const userIds = (data || []).map(u => u.user_id);
     const rolesMap = new Map<string, OrgRole[]>();
+    const unresolvedRoleUsers = new Set<string>();
+    let rolesReadFailed = false;
     const profilesMap = new Map<string, OrgUser['user_profile'] & { email?: string }>();
     
     if (userIds.length > 0) {
       try {
-        const { data: userRoles } = await supabase
+        const { data: userRoles, error: userRolesError } = await supabase
           .from('user_roles')
           .select(`
             user_id,
@@ -180,20 +195,22 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
           .eq('org_id', orgId)
           .in('user_id', userIds);
 
-        // Merge roles with users
-        (userRoles || []).forEach((ur) => {
-          if (!rolesMap.has(ur.user_id)) {
-            rolesMap.set(ur.user_id, []);
+        if (userRolesError || !Array.isArray(userRoles)) {
+          throw userRolesError ?? new Error('user roles unavailable');
+        }
+
+        userRoles.forEach((ur) => {
+          if (!ur.role) {
+            unresolvedRoleUsers.add(ur.user_id);
+            return;
           }
-          if (ur.role) {
-            const userRoles = rolesMap.get(ur.user_id);
-            if (userRoles) {
-              userRoles.push(ur.role as unknown as OrgRole);
-            }
-          }
+          const list = rolesMap.get(ur.user_id) ?? [];
+          list.push(ur.role as unknown as OrgRole);
+          rolesMap.set(ur.user_id, list);
         });
       } catch (rolesError) {
-        console.warn('Could not fetch user roles:', rolesError);
+        rolesReadFailed = true;
+        console.error('Could not fetch user roles:', rolesError);
       }
 
       try {
@@ -213,11 +230,13 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
 
     return (data || []).map(user => {
       const profile = profilesMap.get(user.user_id);
+      const rolesKnown = !rolesReadFailed && !unresolvedRoleUsers.has(user.user_id);
       return {
         ...user,
         user_profile: profile,
         email: profile?.email,
-        roles: rolesMap.get(user.user_id) || [],
+        roles: rolesKnown ? rolesMap.get(user.user_id) || [] : undefined,
+        roles_status: rolesKnown ? 'loaded' : 'unavailable',
       };
     });
   } catch (error) {
