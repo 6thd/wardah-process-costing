@@ -1,6 +1,6 @@
 # Proposal: retry-safe material consumption (#229)
 
-**Status:** proposed contract for review. This document is not an implementation, a GREEN result, or permission to apply a migration.  
+**Status:** proposed technical contract for review. The owner accepted the narrow MO lifecycle rule on 2026-09-27; event identity and DB delivery remain under review. This document is not an implementation, a GREEN result, or permission to apply a migration.  
 **Repository starting point:** `main@df02a4fddfca5c56a69e738e6707a55a78bd01ee`; M190 is reported applied to Production, M191 is not. Recheck the live ledger before any future application.  
 **Scope:** reserved-material consumption only. Finished-goods receipt, completion costing, WIP close and GL state belong to #230. Automatic backflush belongs to #234.
 
@@ -10,9 +10,9 @@ The unchanged RED probe `docs/db/manufacturing-inventory-red-20260925/C_consumpt
 
 M190 requires `manufacturing.material_consumption.consume` at the canonical RPC and the table INSERT policy. A permitted client's direct INSERT still creates a consumption row without the stock/reservation/WIP effects. A UI may not expose this path as a safe consumption action.
 
-## Proposed business contract (owner decision required before implementation)
+## Proposed contract (MO lifecycle choice accepted by owner)
 
-1. **Eligible order:** a *new* material-consumption event requires an MO in `in_progress` and a work order belonging to the same organization and MO whose status is neither `COMPLETED` nor `CANCELLED`. Draft, pending, confirmed, quality_check, on_hold, completed/done and cancelled MOs reject new events. The MO and work order must be checked while locked in the same transaction as the effects. Confirm whether late consumption during `quality_check` is a real factory requirement before accepting this rule.
+1. **Eligible order:** a *new* material-consumption event requires an MO in `in_progress` and a work order belonging to the same organization and MO whose status is neither `COMPLETED` nor `CANCELLED`. Draft, pending, confirmed, quality_check, on_hold, completed/done and cancelled MOs reject new events. The MO and work order must be checked while locked in the same transaction as the effects. The owner accepted this narrow rule on 2026-09-27; late consumption during `quality_check` is not part of this contract.
 2. **Event identity:** the caller supplies one stable, opaque event ID for the whole batch, created once when the operator submits it and retained across response loss, retries and page reload. A new legitimate partial issue gets a new ID even when it uses the same reservation. The server never silently invents a different ID for a retry.
 3. **Same event and payload:** after authenticating and checking the exact permission and organization, a repeated event ID with the *same canonical payload* returns the stored success/result with no new stock, reservation, consumption or WIP effect. A reused ID with different payload fails with a distinct conflict error and no effect. A retry after the MO later changes state may return the prior successful result, but must never produce a new effect.
 4. **Scope and payload:** the stored identity is unique per organization and event ID; bind it to MO, stage, actor and a canonical representation of every consumption line (item/reservation, quantity and UoM, warehouse, work order and meaningful options). Reject missing/invalid event IDs, duplicate or malformed lines and ambiguous item/warehouse/stage resolution. Define canonicalization before coding so JSON key order alone cannot change the hash, while changing a business field always does.
@@ -39,7 +39,7 @@ The DB PR should run the original RED probe before its migration, then its own G
 
 ## Delivery sequence
 
-1. Review and approve the business-status and event-identity choices in this proposal. Keep this contract PR Draft until that decision is recorded.
+1. Independently review the accepted MO-status rule and the proposed event-identity/DB choices. Keep this contract PR Draft until the complete contract has been accepted.
 2. DB PR for #229: additive migration, fail-closed compatibility and direct-write closure, with the acceptance matrix above; independent review at the exact head. Applying it to Production is a separate, explicitly authorized step after M191 readiness and a fresh ledger readback.
 3. Consumer PR: give the employee a manufacturing action that invokes only the corrected RPC, display the exact permission from M190, persist the event ID across retry/reload, and test authorized/denied same-org employee sessions. Do not mount the legacy direct-insert `useConsumeMaterial` hook.
 4. Continue #230 separately before treating MO completion and the full manufacturing cycle as accepted.
