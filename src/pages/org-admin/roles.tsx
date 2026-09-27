@@ -2,7 +2,7 @@
 // بسم الله الرحمن الرحيم
 // Org Admin - Roles & Permissions Management
 
-import { useEffect, useState, useCallback, type FormEvent } from 'react';
+import { useEffect, useState, useCallback, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -16,6 +16,7 @@ import { createRoleFromTemplate } from '@/services/rbac-service';
 import { getSupabase } from '@/lib/supabase';
 import {
   permissionIdsToKeys,
+  resolvePermissionKeys,
   sensitiveAmong,
   rbacErrorMessage,
   buildUpsertRolePayload,
@@ -105,6 +106,19 @@ interface RoleFormData {
   permission_ids: string[];
 }
 
+// The permission catalogue is required to translate the editor's selected ids
+// into the keys rpc_upsert_org_role replaces the role with. Until it has been
+// read successfully (and again after any failed refresh) the editor refuses to
+// save, instead of treating the missing catalogue as "no permissions".
+type CatalogStatus = 'loading' | 'ready' | 'error';
+
+const CATALOG_ERROR_MESSAGE =
+  'تعذر تحميل قائمة الصلاحيات. لا يمكن حفظ الدور حتى يُعاد التحميل بنجاح.';
+const ROLE_PERMISSIONS_ERROR_MESSAGE =
+  'تعذر تحميل صلاحيات الدور الحالية، لذلك لم يُفتح المحرر حتى لا تُحذف صلاحياته عند الحفظ. أعد المحاولة.';
+const UNRESOLVED_PERMISSIONS_MESSAGE =
+  'بعض الصلاحيات المحددة غير موجودة في القائمة المحمّلة. حدّث الصفحة وأعد المحاولة؛ لم يُحفظ شيء.';
+
 function getCategoryLabel(category: string): string {
   const categories: Record<string, string> = {
     accounting: 'المحاسبة',
@@ -141,6 +155,10 @@ export default function OrgAdminRoles() {
   const { sensitivePermissionKeys: sensitiveKeys, refreshPermissions } = usePermissions();
   const [roles, setRoles] = useState<OrgRole[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
+  const [catalogStatus, setCatalogStatus] = useState<CatalogStatus>('loading');
+  // Only the most recent load may update state; an older, slower response
+  // must not overwrite a newer catalogue (or a newer failure).
+  const loadSeq = useRef(0);
   const [loading, setLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
   
@@ -190,23 +208,38 @@ export default function OrgAdminRoles() {
       return;
     }
     
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     
     try {
       const supabase = getSupabase();
 
+      // The catalogue read settles on its own so a returned or thrown error is
+      // recorded as a catalogue failure rather than an empty catalogue.
+      const catalogPromise = (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('modules')
+            .select(`
+              *,
+              permissions(*)
+            `)
+            .order('display_order');
+          if (error || !Array.isArray(data)) {
+            return { ok: false as const, error: error ?? new Error('permission catalogue unavailable') };
+          }
+          return { ok: true as const, data: data as unknown as Module[] };
+        } catch (error) {
+          return { ok: false as const, error };
+        }
+      })();
+
       // Load with timeout
       const loadPromise = Promise.all([
         getOrgRolesWithStats(currentOrgId),
         getRoleTemplates(),
-        supabase
-          .from('modules')
-          .select(`
-            *,
-            permissions(*)
-          `)
-          .order('display_order')
+        catalogPromise,
       ]);
 
       const timeoutPromise = new Promise((_, reject) => 
@@ -216,17 +249,33 @@ export default function OrgAdminRoles() {
       const result = await Promise.race([
         loadPromise,
         timeoutPromise
-      ]) as [OrgRole[], RoleTemplate[], any];
+      ]) as [OrgRole[], RoleTemplate[], Awaited<typeof catalogPromise>];
+
+      if (seq !== loadSeq.current) return;
 
       setRoles(result[0]);
       setTemplates(result[1]);
-      setModules(result[2]?.data || []);
+      const catalog = result[2];
+      if (catalog.ok) {
+        setModules(catalog.data);
+        setCatalogStatus('ready');
+      } else {
+        // Keep the previously loaded catalogue on screen so an open editor
+        // still shows the admin's selection, but block saving until a
+        // successful reload.
+        console.error('Error loading permission catalogue:', catalog.error);
+        setCatalogStatus('error');
+        toast.error(CATALOG_ERROR_MESSAGE);
+      }
     } catch (error: any) {
+      if (seq !== loadSeq.current) return;
       console.error('Error loading data:', error);
+      // Timeout or unexpected failure: the catalogue's freshness is unknown.
+      setCatalogStatus('error');
       setError(error.message || 'فشل تحميل البيانات');
       toast.error(error.message || 'فشل تحميل البيانات');
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [currentOrgId]);
 
@@ -278,13 +327,23 @@ export default function OrgAdminRoles() {
   }
 
   const openEditRoleDialog = useCallback(async (role: OrgRole) => {
-    const supabase = getSupabase();
-    
-    // Get role permissions
-    const { data: rolePerms } = await supabase
-      .from('role_permissions')
-      .select('permission_id')
-      .eq('role_id', role.id);
+    // The editor saves a full replacement of the role's permissions, so it must
+    // never open on an unknown current set: a failed read is not "no grants".
+    let rolePerms: { permission_id: string }[];
+    try {
+      const { data, error } = await getSupabase()
+        .from('role_permissions')
+        .select('permission_id')
+        .eq('role_id', role.id);
+      if (error || !Array.isArray(data)) {
+        throw error ?? new Error('role permissions unavailable');
+      }
+      rolePerms = data;
+    } catch (error) {
+      console.error('Error loading role permissions:', error);
+      toast.error(ROLE_PERMISSIONS_ERROR_MESSAGE);
+      return;
+    }
 
     setEditingRole(role);
     setFormData({
@@ -292,15 +351,10 @@ export default function OrgAdminRoles() {
       name_ar: role.name_ar,
       description: role.description || '',
       description_ar: role.description_ar || '',
-      permission_ids: (rolePerms || []).map(rp => rp.permission_id),
+      permission_ids: rolePerms.map(rp => rp.permission_id),
     });
     setDialogOpen(true);
   }, []);
-
-  const selectedPermissionKeys = useCallback(
-    (ids: string[]) => permissionIdsToKeys(modules, ids),
-    [modules]
-  );
 
   const sensitiveSelected = useCallback(
     (ids: string[]) => sensitiveAmong(permissionIdsToKeys(modules, ids), sensitiveKeys),
@@ -316,6 +370,18 @@ export default function OrgAdminRoles() {
       return;
     }
 
+    if (catalogStatus !== 'ready') {
+      toast.error(CATALOG_ERROR_MESSAGE);
+      return;
+    }
+
+    const resolved = resolvePermissionKeys(modules, formData.permission_ids);
+    if (resolved.ok === false) {
+      console.error('Unresolved permission ids; refusing to save:', resolved.unresolvedIds);
+      toast.error(UNRESOLVED_PERMISSIONS_MESSAGE);
+      return;
+    }
+
     setSaving(true);
     try {
       // Migration 174: one atomic RPC replaces the previous
@@ -328,7 +394,7 @@ export default function OrgAdminRoles() {
           name: formData.name,
           nameAr: formData.name_ar,
           description: formData.description,
-          permissionKeys: selectedPermissionKeys(formData.permission_ids),
+          permissionKeys: resolved.keys,
         }),
       });
 
@@ -400,6 +466,13 @@ export default function OrgAdminRoles() {
   }, [formData.permission_ids]);
 
   const selectedSensitiveKeys = sensitiveSelected(formData.permission_ids);
+  const selectionResolution = resolvePermissionKeys(modules, formData.permission_ids);
+  const saveBlockedReason = (() => {
+    if (catalogStatus === 'error') return CATALOG_ERROR_MESSAGE;
+    if (catalogStatus === 'loading') return 'جاري تحميل قائمة الصلاحيات...';
+    if (!selectionResolution.ok) return UNRESOLVED_PERMISSIONS_MESSAGE;
+    return null;
+  })();
 
   return (
     <div className="min-h-screen bg-background">
@@ -844,6 +917,18 @@ export default function OrgAdminRoles() {
                   })}
                 </div>
               </div>
+              {/* Same always-mounted pattern as the sensitive warning below. */}
+              <div
+                data-testid="role-save-blocked"
+                aria-live="polite"
+                className={
+                  saveBlockedReason
+                    ? 'rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm'
+                    : 'sr-only'
+                }
+              >
+                {saveBlockedReason}
+              </div>
               {/* Always mounted, toggled by CSS: conditionally inserting and
                   removing this node inside the dialog re-entered React's render
                   cycle (observed as "Maximum update depth exceeded"). Keeping
@@ -885,7 +970,7 @@ export default function OrgAdminRoles() {
               </Button>
               <Button
                 type="submit"
-                disabled={saving}
+                disabled={saving || saveBlockedReason !== null}
                 className="bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 disabled:opacity-50"
               >
                 {(() => {
