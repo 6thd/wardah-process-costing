@@ -434,8 +434,15 @@ BEGIN
         'quantity', 1
       )]::jsonb[]
     );
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM = 'MANUFACTURING_ORDER_ORG_MISMATCH' THEN
+  EXCEPTION WHEN OTHERS THEN
+    IF to_regprocedure('public.rpc_consume_material_event(uuid,uuid,uuid,jsonb)') IS NOT NULL
+       AND SQLSTATE='0A000'
+       AND SQLERRM='MATERIAL_CONSUMPTION_EVENT_ID_REQUIRED' THEN
+      -- M192 intentionally retires the eventless compatibility signature.
+      -- A future caller must use the new RPC with an explicit event identity.
+      v_caught := true;
+    ELSIF to_regprocedure('public.rpc_consume_material_event(uuid,uuid,uuid,jsonb)') IS NULL
+       AND SQLERRM = 'MANUFACTURING_ORDER_ORG_MISMATCH' THEN
       v_caught := true;
     ELSE
       RAISE;

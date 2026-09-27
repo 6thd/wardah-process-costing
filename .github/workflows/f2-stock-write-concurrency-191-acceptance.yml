@@ -92,7 +92,12 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
           psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
-            > /tmp/chain_order.txt
+            > /tmp/chain_order_full.txt
+          # This workflow proves M191's historical thirteen-object contract
+          # at the M191 boundary. M192 intentionally retires its v2 body;
+          # post-192 behavior is tested by material-consumption-192-acceptance.
+          sed -n '1,/^191_f2_stock_write_concurrency_closure.sql$/p' \
+            /tmp/chain_order_full.txt > /tmp/chain_order.txt
           grep -q '^191_f2_stock_write_concurrency_closure.sql$' /tmp/chain_order.txt
           REPORT=/tmp/chain_report.txt bash scripts/ci/fresh-db/run_chain.sh \
             sql/migrations /tmp/chain_order.txt
