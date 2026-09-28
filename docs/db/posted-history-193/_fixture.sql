@@ -11,6 +11,39 @@ BEGIN
 END
 $fn$;
 
+CREATE FUNCTION pg_temp.truncate_history_193(p_table text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER AS $fn$
+BEGIN
+  IF p_table <> ALL(ARRAY[
+    'manufacturing_orders','work_orders','material_reservations',
+    'material_consumption','stage_wip_log','labor_time_tracking',
+    'operation_execution_logs','quality_inspections'
+  ]) THEN RAISE EXCEPTION 'UNREVIEWED_TRUNCATE_TARGET'; END IF;
+  EXECUTE format('TRUNCATE public.%I CASCADE',p_table);
+  RETURN 'true'::jsonb;
+END
+$fn$;
+
+-- The shared try_as helper always switches to authenticated. This variant
+-- proves the anon grant boundary with the same subtransaction semantics.
+CREATE FUNCTION pg_temp.try_anon_193(p_sql text)
+RETURNS jsonb LANGUAGE plpgsql AS $fn$
+DECLARE v_res jsonb; v_state text; v_msg text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  PERFORM set_config('request.jwt.claims','{}',true);
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE anon';
+    EXECUTE p_sql INTO v_res;
+    EXECUTE 'RESET ROLE';
+    RETURN jsonb_build_object('ok',true,'result',v_res);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state=RETURNED_SQLSTATE,v_msg=MESSAGE_TEXT;
+    RETURN jsonb_build_object('ok',false,'sqlstate',v_state,'error',v_msg);
+  END;
+END
+$fn$;
+
 CREATE FUNCTION pg_temp.issue_193(p_mo uuid, p_event uuid)
 RETURNS text LANGUAGE sql AS $fn$
   SELECT format(

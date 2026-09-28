@@ -58,12 +58,17 @@ requires a disposable local PostgreSQL 17 server. It builds baseline cutoff
    previously orphaned M192 receipt; its postflight checks guards, execution
    grants and direct DELETE/TRUNCATE grants.
 3. `acceptance.sql`: the owner WO DELETE must fail for **the guard's own**
-   P0001 reason, while the same-member client gets 42501. The two-step WO→MO
-   route must not erase the fixture. A visible
-   WIP row with posted material cost must reject client DELETE with 42501,
+   P0001 reason, while the same-member client gets the table-grant 42501.
+   A direct owner MO DELETE remains rejected by its existing FK (23503);
+   the two-step WO→MO route must not erase the fixture. A visible
+   WIP row with posted material cost must reject client DELETE with the
+   table-grant 42501,
    while owner deletes hit the named WIP/consumption guards. Both client and
-   owner TRUNCATE are denied. Receipt, SLE, bin, WIP, reservation, GL and
-   completion cost stay correct. All fixture writes roll back.
+   owner TRUNCATE are denied. Each of the eight protected tables is checked
+   for its enabled trigger and effective anon/authenticated DELETE/TRUNCATE
+   grants, and probed as owner, authenticated and anon. A second organization's
+   linked WIP and labor rows must survive every attempt. Receipt, SLE, bin,
+   WIP, reservation, GL and completion cost stay correct. All fixtures roll back.
 4. Re-run M192's sequential, 288-cell lifecycle matrix and true two-session
    concurrency suite on the same disposable DB to catch regressions.
 
