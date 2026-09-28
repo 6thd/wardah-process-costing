@@ -33,7 +33,7 @@ BEGIN
   END IF;
   RAISE NOTICE 'RED_273_WO_CASCADE_REPRODUCED';
 
-  v_call:=pg_temp.try_as(pg_temp.reader(),'TRUNCATE public.stage_wip_log');
+  v_call:=pg_temp.try_as(pg_temp.reader(),'SELECT pg_temp.truncate_wip_193()');
   IF v_call->>'ok' IS DISTINCT FROM 'true'
      OR EXISTS (SELECT 1 FROM public.stage_wip_log WHERE id=v_wip) THEN
     RAISE EXCEPTION 'RED_273_WIP_TRUNCATE_NOT_REPRODUCED: %',v_call;

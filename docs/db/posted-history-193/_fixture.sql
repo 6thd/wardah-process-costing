@@ -1,6 +1,16 @@
 -- Included inside each acceptance transaction after the RED fixture is loaded.
 \ir ../manufacturing-inventory-red-20260925/_helpers.sql
 
+-- try_as expects a result-producing SQL command. Keep TRUNCATE itself in a
+-- SECURITY INVOKER helper so the same authenticated role executes it.
+CREATE FUNCTION pg_temp.truncate_wip_193()
+RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER AS $fn$
+BEGIN
+  TRUNCATE public.stage_wip_log;
+  RETURN 'true'::jsonb;
+END
+$fn$;
+
 CREATE FUNCTION pg_temp.issue_193(p_mo uuid, p_event uuid)
 RETURNS text LANGUAGE sql AS $fn$
   SELECT format(

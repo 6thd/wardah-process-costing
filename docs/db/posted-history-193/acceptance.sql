@@ -89,7 +89,7 @@ BEGIN
     END IF;
   END;
 
-  v_call:=pg_temp.try_as(pg_temp.reader(),'TRUNCATE public.stage_wip_log');
+  v_call:=pg_temp.try_as(pg_temp.reader(),'SELECT pg_temp.truncate_wip_193()');
   IF v_call->>'ok' IS DISTINCT FROM 'false'
      OR v_call->>'sqlstate' IS DISTINCT FROM '42501'
      OR (SELECT cost_material FROM public.stage_wip_log WHERE id=v_wip)<>100 THEN
