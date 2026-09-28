@@ -1,5 +1,7 @@
 # M191 — Production application and readback (2026-09-28)
 
+> **Later Production status — 2026-09-28 11:11:41 UTC:** M192 was subsequently applied once as ledger version `20260928111141`. See [M192 Production application and readback](M192_PRODUCTION_APPLICATION_20260928.md). All M192-absent statements and the **After M191** function hashes below describe the earlier M191-only snapshot. M192 later replaced `rpc_consume_reserved_materials_v2(uuid,uuid,jsonb)`; its After-M191 hash below is not a current drift baseline.
+
 **Project:** Production `uutfztmqvajmsxnrqeiv`; server PostgreSQL 17.6.  
 **Source:** `main@76689dc076ca50f1765603bf7fb17439e4d0af39`, file `sql/migrations/191_f2_stock_write_concurrency_closure.sql`; SHA-256 `637a81caeaebea60693476222611b373dc1e738cd6b10c634bf4c236227f3f40`; Git blob `3e1736285ec245e619238e6c082f75009de33791`.  
 **Live ledger:** name `191_f2_stock_write_concurrency_closure`, version `20260928074428` (2026-09-28 07:44:28 UTC / 10:44:28 Asia/Riyadh).  
@@ -68,4 +70,4 @@ Supabase Advisor was queried only **after** application. It returned security `W
 
 No Production fixture, ordinary-user material-consumption exercise, multi-user race, or hot-SKU load test ran. The zero stock-balance result is limited by the absence of active SLE/business movements. The PostgreSQL 17.11 RED/GREEN concurrency and rollback proof is disposable-test evidence from the independent readiness review, not this Production transaction.
 
-M192 remains in `main` but **unapplied** to Production; #229 requires a separate review and authorization. Before considering M192, verify the live M190/M191 ledger and M191 catalog/Fix E again, review dependent views and client signatures, make a **fresh post-M191/pre-M192 recovery point and restore it**, and run M192 on an isolated restored copy. Staging drift remains unresolved. #230 (completion), #260 (costing), #259 (physical counts) and the #268 MO/WO lock-order note remain separate workstreams; M191's application does not close them.
+**At M191 application**, M192 was in `main` but had not been applied to Production. Its separate decision gate required a fresh post-M191/pre-M192 recovery point and restore, a live M190/M191 ledger and Fix E recheck, a review of dependent views and client signatures, and an isolated restored-copy rehearsal. The later M192 application and its evidence limits are documented in the [M192 Production record](M192_PRODUCTION_APPLICATION_20260928.md). Staging drift remained unresolved; #230 (completion), #260 (costing), #259 (physical counts) and #268 remain separate workstreams. M191's application alone did not close them.

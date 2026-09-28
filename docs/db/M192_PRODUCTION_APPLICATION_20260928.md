@@ -33,7 +33,7 @@ The security advisor count for executable SECURITY DEFINER functions available t
 ## Still open after M192
 
 - [#229](https://github.com/6thd/wardah-process-costing/issues/229): the database event boundary is live, but the employee client must persist and resend the *same* `event_id`, legacy callers must be audited, and user-session behavior tested. Keep the employee consumption UI unavailable until the surrounding write boundaries are safe.
-- [#170](https://github.com/6thd/wardah-process-costing/issues/170) and [#154](https://github.com/6thd/wardah-process-costing/issues/154): `authenticated` still has direct INSERT/UPDATE grants on `material_reservations`, `work_orders` and `stage_wip_log`; existing RLS permits some organization-membership-only writes. M192 does not secure these surfaces.
+- [#170](https://github.com/6thd/wardah-process-costing/issues/170) and [#154](https://github.com/6thd/wardah-process-costing/issues/154): `authenticated` still has direct INSERT/UPDATE/DELETE grants on `material_reservations`, `work_orders` and `stage_wip_log`; grants alone do not prove each row mutation is allowed, but existing RLS permits some organization-membership-only writes (including a DELETE policy on `material_reservations`). M192 does not secure these surfaces.
 - [#230](https://github.com/6thd/wardah-process-costing/issues/230): define and implement authoritative FG/bin/SLE/WIP/GL completion. Fix the potential MO→WO versus WO→MO lock inversion **before** making the WO status trigger operational.
 - [#268](https://github.com/6thd/wardah-process-costing/issues/268): its M191→M192 scheduling gate is now satisfied on Production. Acceptance/ACL test additions can be a focused PR; lock and precision decisions belong with #230 and the costing contract.
 
