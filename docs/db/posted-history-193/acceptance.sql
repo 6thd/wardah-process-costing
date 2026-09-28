@@ -24,13 +24,23 @@ BEGIN
     RAISE EXCEPTION 'GREEN_273_INVALID_POSTED_FIXTURE: %',v_before;
   END IF;
 
-  -- The same reader deleted this very WO in red.sql before M193.
+  -- A privileged caller reaches the named row guard. The ordinary reader
+  -- that deleted this WO in RED must now be stopped by the revoked grant.
+  BEGIN
+    DELETE FROM public.work_orders WHERE id=v_wo;
+    RAISE EXCEPTION 'GREEN_273_OWNER_WO_DELETE_ALLOWED';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_sqlstate=RETURNED_SQLSTATE,v_error=MESSAGE_TEXT;
+    IF v_sqlstate IS DISTINCT FROM 'P0001'
+       OR v_error IS DISTINCT FROM 'M193_POSTED_WORK_ORDER_DELETE_DENIED' THEN
+      RAISE EXCEPTION 'GREEN_273_WO_GUARD_WRONG_REASON: %, %',v_sqlstate,v_error;
+    END IF;
+  END;
   v_call:=pg_temp.try_as(pg_temp.reader(),format(
     'DELETE FROM public.work_orders WHERE id=%L::uuid RETURNING to_jsonb(id)',v_wo));
   IF v_call->>'ok' IS DISTINCT FROM 'false'
-     OR v_call->>'sqlstate' IS DISTINCT FROM 'P0001'
-     OR v_call->>'error' IS DISTINCT FROM 'M193_POSTED_WORK_ORDER_DELETE_DENIED' THEN
-    RAISE EXCEPTION 'GREEN_273_WO_GUARD_WRONG_REASON: %',v_call;
+     OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
+    RAISE EXCEPTION 'GREEN_273_CLIENT_WO_DELETE_NOT_CLOSED: %',v_call;
   END IF;
   -- An immediate second MO deletion may fail on its own FK; the first
   -- named guard must already have stopped the WO->MO two-step route.
