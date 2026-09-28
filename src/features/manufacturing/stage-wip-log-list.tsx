@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -25,11 +25,9 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
-import { toast } from 'sonner'
 import { 
   Plus, 
   Edit, 
-  Trash2, 
   RefreshCw, 
   Factory
 } from 'lucide-react'
@@ -102,10 +100,7 @@ interface WipLogTableRowProps {
   readonly stage: ManufacturingStage | undefined
   readonly mo: ManufacturingOrder | undefined
   readonly canOpenEditForm: boolean
-  readonly canDelete: boolean
-  readonly isDeleting: boolean
   readonly onEdit: (log: WipLog) => void
-  readonly onDelete: (id: string) => void
 }
 
 function WipUnitsCell({ log }: { readonly log: WipLog }) {
@@ -142,19 +137,13 @@ function WipEquivalentUnitsCell({ log }: { readonly log: WipLog }) {
 interface WipLogRowActionsProps {
   readonly log: WipLog
   readonly canOpenEditForm: boolean
-  readonly canDelete: boolean
-  readonly isDeleting: boolean
   readonly onEdit: (log: WipLog) => void
-  readonly onDelete: (id: string) => void
 }
 
 function WipLogRowActions({
   log,
   canOpenEditForm,
-  canDelete,
-  isDeleting,
   onEdit,
-  onDelete,
 }: WipLogRowActionsProps) {
   return (
     <div className="flex gap-2">
@@ -169,17 +158,6 @@ function WipLogRowActions({
           <Edit className="h-4 w-4" />
         </Button>
       )}
-      {canDelete && (
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={`حذف سجل WIP ${log.id}`}
-          onClick={() => onDelete(log.id)}
-          disabled={isDeleting}
-        >
-          <Trash2 className="h-4 w-4 text-destructive" />
-        </Button>
-      )}
     </div>
   )
 }
@@ -189,10 +167,7 @@ function WipLogTableRow({
   stage,
   mo,
   canOpenEditForm,
-  canDelete,
-  isDeleting,
   onEdit,
-  onDelete,
 }: WipLogTableRowProps) {
   return (
     <TableRow>
@@ -224,10 +199,7 @@ function WipLogTableRow({
         <WipLogRowActions
           log={log}
           canOpenEditForm={canOpenEditForm}
-          canDelete={canDelete}
-          isDeleting={isDeleting}
           onEdit={onEdit}
-          onDelete={onDelete}
         />
       </TableCell>
     </TableRow>
@@ -235,12 +207,10 @@ function WipLogTableRow({
 }
 
 export function StageWipLogList() {
-  const queryClient = useQueryClient()
   const { hasPermissionKey } = usePermissions()
   const canRead = hasPermissionKey('manufacturing.stage_costs.read')
   const canCreate = hasPermissionKey('manufacturing.stage_costs.create')
   const canUpdate = hasPermissionKey('manufacturing.stage_costs.update')
-  const canDelete = hasPermissionKey('manufacturing.stage_costs.delete')
   // بيانات مرجعية من موردَين مختلفَين تمامًا عن stage_costs — أوامر التصنيع
   // ومراحل التصنيع — كل منهما يحتاج مفتاح قراءته الفعلي الخاص، لا
   // stage_costs.read وحدها (كانت المشكلة أن هذه الشاشة تحمّلهما لأي حامل
@@ -291,32 +261,6 @@ export function StageWipLogList() {
 
   // canRead يحجب أيضًا أي بيانات كاش سابقة عند سحب الصلاحية أثناء الجلسة
   const wipLogs = canRead ? (wipLogsData ?? []) : []
-
-  // Delete mutation
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      if (!canDelete) throw new Error('لا تملك صلاحية حذف سجلات WIP')
-      await stageWipLogService.delete(id)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['stage-wip-log'] })
-      toast.success('تم حذف سجل WIP بنجاح')
-    },
-    onError: (error: unknown) => {
-      const err = error as { message?: string }
-      toast.error(`خطأ في حذف السجل: ${err.message || 'حدث خطأ غير متوقع'}`)
-    }
-  })
-
-  const handleDelete = async (id: string) => {
-    if (!canDelete) {
-      toast.error('لا تملك صلاحية حذف سجلات WIP')
-      return
-    }
-    if (confirm('هل أنت متأكد من حذف هذا السجل؟')) {
-      deleteMutation.mutate(id)
-    }
-  }
 
   const handleFilterChange = (field: string, value: string) => {
     setFilters(prev => ({ ...prev, [field]: value }))
@@ -494,13 +438,10 @@ export function StageWipLogList() {
                           stage={stage}
                           mo={mo}
                           canOpenEditForm={canOpenEditForm}
-                          canDelete={canDelete}
-                          isDeleting={deleteMutation.isPending}
                           onEdit={(editedLog) => {
                             setEditingLog(toWipLogFormValues(editedLog))
                             setFormOpen(true)
                           }}
-                          onDelete={handleDelete}
                         />
                       )
                     })
@@ -531,4 +472,3 @@ export function StageWipLogList() {
     </div>
   )
 }
-

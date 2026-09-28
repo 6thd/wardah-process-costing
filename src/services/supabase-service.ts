@@ -1034,20 +1034,11 @@ export const stageWipLogService = {
     }
   },
 
-  delete: async (id: string) => {
-    try {
-      const supabase = await getClient()
-      const { error } = await supabase
-        .from('stage_wip_log')
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
-      return { success: true }
-    } catch (error: unknown) {
-      console.error('Error deleting stage WIP log:', error)
-      throw error
-    }
+  // WIP rows can contain posted M192 material costs. Keep the legacy method
+  // reject-only so old in-process callers cannot erase history. M193 also
+  // removes the table DELETE grant, which blocks previously deployed clients.
+  delete: async (_id: string) => {
+    throw new Error('حذف سجلات WIP غير متاح حفاظًا على سجل تكاليف التصنيع')
   }
 }
 
