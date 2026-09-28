@@ -123,8 +123,12 @@ BEGIN
   -- Isolate MO identity in the receipt fingerprint before new-event validation.
   v_other_mo:=pg_temp.mk_mo('GREEN-192-DIFFERENT-MO',5,20,
                             'in_progress','IN_PROGRESS');
-  v_call:=pg_temp.try_as(pg_temp.consumer(),
-    pg_temp.issue_sql(v_other_mo,v_event,10));
+  -- Reuse the receipt's exact line payload, so MO identity is the ONLY
+  -- changed business field. A replay that ignores mo_id would return ok=true.
+  v_call:=pg_temp.try_as(pg_temp.consumer(),format(
+    $q$SELECT public.rpc_consume_material_event(
+      %L::uuid,%L::uuid,%L::uuid,%L::jsonb)$q$,
+    v_other_mo,pg_temp.stage(),v_event,jsonb_build_array(v_initial)::text));
   IF v_call->>'ok' IS DISTINCT FROM 'false'
      OR v_call->>'error' IS DISTINCT FROM 'MATERIAL_ISSUE_EVENT_CONFLICT'
      OR pg_temp.consumption_state(v_mo) IS DISTINCT FROM v_state
@@ -276,18 +280,20 @@ BEGIN
      OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
     RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_CONSUMPTION_DELETE_ALLOWED: %',v_call;
   END IF;
-  v_call:=pg_temp.try_as(pg_temp.admin(),format($q$
-    UPDATE wardah_internal.material_issue_events SET result='{}'::jsonb
-    WHERE org_id=%L::uuid AND event_id=%L::uuid
-    RETURNING to_jsonb(event_id)$q$,pg_temp.org(),v_event));
+  -- No WHERE/RETURNING: the denial must be for UPDATE itself, rather
+  -- than a missing SELECT grant on the private receipt table.
+  v_call:=pg_temp.try_as(pg_temp.admin(),$q$
+    WITH attempted AS (
+      UPDATE wardah_internal.material_issue_events SET result='{}'::jsonb
+    ) SELECT to_jsonb(1)$q$);
   IF v_call->>'ok' IS DISTINCT FROM 'false'
      OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
     RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_RECEIPT_UPDATE_ALLOWED: %',v_call;
   END IF;
-  v_call:=pg_temp.try_as(pg_temp.admin(),format($q$
-    DELETE FROM wardah_internal.material_issue_events
-    WHERE org_id=%L::uuid AND event_id=%L::uuid
-    RETURNING to_jsonb(event_id)$q$,pg_temp.org(),v_event));
+  v_call:=pg_temp.try_as(pg_temp.admin(),$q$
+    WITH attempted AS (
+      DELETE FROM wardah_internal.material_issue_events
+    ) SELECT to_jsonb(1)$q$);
   IF v_call->>'ok' IS DISTINCT FROM 'false'
      OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
     RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_RECEIPT_DELETE_ALLOWED: %',v_call;
@@ -297,6 +303,25 @@ BEGIN
      OR has_table_privilege('authenticated','material_consumption','UPDATE')
      OR has_table_privilege('authenticated','material_consumption','DELETE')
      OR has_table_privilege('authenticated','material_consumption','TRUNCATE')
+     OR has_table_privilege('anon','material_consumption','UPDATE')
+     OR has_table_privilege('anon','material_consumption','DELETE')
+     OR has_table_privilege('anon','material_consumption','TRUNCATE')
+     OR has_table_privilege('authenticated',
+       'wardah_internal.material_issue_wo_policies','INSERT')
+     OR has_table_privilege('authenticated',
+       'wardah_internal.material_issue_wo_policies','UPDATE')
+     OR has_table_privilege('authenticated',
+       'wardah_internal.material_issue_wo_policies','DELETE')
+     OR has_table_privilege('authenticated',
+       'wardah_internal.material_issue_wo_policies','TRUNCATE')
+     OR has_table_privilege('anon',
+       'wardah_internal.material_issue_wo_policies','INSERT')
+     OR has_table_privilege('anon',
+       'wardah_internal.material_issue_wo_policies','UPDATE')
+     OR has_table_privilege('anon',
+       'wardah_internal.material_issue_wo_policies','DELETE')
+     OR has_table_privilege('anon',
+       'wardah_internal.material_issue_wo_policies','TRUNCATE')
      OR has_table_privilege('authenticated',
        'wardah_internal.material_issue_events','UPDATE')
      OR has_table_privilege('authenticated',
