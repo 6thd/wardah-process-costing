@@ -29,7 +29,7 @@ $fn$;
 
 DO $check$
 DECLARE
-  v_mo uuid; v_ready uuid; v_null uuid; v_draft uuid; v_event uuid:=gen_random_uuid();
+  v_mo uuid; v_other_mo uuid; v_ready uuid; v_null uuid; v_draft uuid; v_event uuid:=gen_random_uuid();
   v_ready_event uuid:=gen_random_uuid(); v_bad_event uuid:=gen_random_uuid();
   v_res uuid; v_res2 uuid; v_uom uuid; v_payload jsonb; v_sql text;
   v_result jsonb; v_replay jsonb; v_state jsonb; v_call jsonb;
@@ -119,6 +119,17 @@ BEGIN
   IF v_call->>'ok'<>'false' OR v_call->>'error' IS DISTINCT FROM
      'MATERIAL_ISSUE_EVENT_CONFLICT' THEN
     RAISE EXCEPTION 'GREEN_192_STAGE_NOT_IN_FINGERPRINT: %',v_call;
+  END IF;
+  -- Isolate MO identity in the receipt fingerprint before new-event validation.
+  v_other_mo:=pg_temp.mk_mo('GREEN-192-DIFFERENT-MO',5,20,
+                            'in_progress','IN_PROGRESS');
+  v_call:=pg_temp.try_as(pg_temp.consumer(),
+    pg_temp.issue_sql(v_other_mo,v_event,10));
+  IF v_call->>'ok' IS DISTINCT FROM 'false'
+     OR v_call->>'error' IS DISTINCT FROM 'MATERIAL_ISSUE_EVENT_CONFLICT'
+     OR pg_temp.consumption_state(v_mo) IS DISTINCT FROM v_state
+     OR (pg_temp.consumption_state(v_other_mo)->>'mc_rows')::int<>0 THEN
+    RAISE EXCEPTION 'GREEN_192_MO_NOT_IN_FINGERPRINT: %',v_call;
   END IF;
   PERFORM pg_temp.as_user(pg_temp.consumer(),pg_temp.issue_sql(v_mo,gen_random_uuid(),5));
   IF (pg_temp.consumption_state(v_mo)->>'mc_rows')::int<>2 THEN
@@ -247,6 +258,58 @@ BEGIN
     RETURNING to_jsonb(event_id)$q$,pg_temp.org(),v_mo,pg_temp.admin()));
   IF v_call->>'ok'<>'false' OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
     RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_RECEIPT_INSERT_ALLOWED: %',v_call;
+  END IF;
+  -- A real receipt and consumption row exist; rejected mutations must fail
+  -- with 42501, and the explicit effective-privilege backstop covers cases
+  -- where RETURNING would otherwise be the reason for denial.
+  v_call:=pg_temp.try_as(pg_temp.consumer(),format($q$
+    UPDATE public.material_consumption SET consumed_quantity=42
+    WHERE mo_id=%L::uuid RETURNING to_jsonb(id)$q$,v_mo));
+  IF v_call->>'ok' IS DISTINCT FROM 'false'
+     OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
+    RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_CONSUMPTION_UPDATE_ALLOWED: %',v_call;
+  END IF;
+  v_call:=pg_temp.try_as(pg_temp.consumer(),format($q$
+    DELETE FROM public.material_consumption WHERE mo_id=%L::uuid
+    RETURNING to_jsonb(id)$q$,v_mo));
+  IF v_call->>'ok' IS DISTINCT FROM 'false'
+     OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
+    RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_CONSUMPTION_DELETE_ALLOWED: %',v_call;
+  END IF;
+  v_call:=pg_temp.try_as(pg_temp.admin(),format($q$
+    UPDATE wardah_internal.material_issue_events SET result='{}'::jsonb
+    WHERE org_id=%L::uuid AND event_id=%L::uuid
+    RETURNING to_jsonb(event_id)$q$,pg_temp.org(),v_event));
+  IF v_call->>'ok' IS DISTINCT FROM 'false'
+     OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
+    RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_RECEIPT_UPDATE_ALLOWED: %',v_call;
+  END IF;
+  v_call:=pg_temp.try_as(pg_temp.admin(),format($q$
+    DELETE FROM wardah_internal.material_issue_events
+    WHERE org_id=%L::uuid AND event_id=%L::uuid
+    RETURNING to_jsonb(event_id)$q$,pg_temp.org(),v_event));
+  IF v_call->>'ok' IS DISTINCT FROM 'false'
+     OR v_call->>'sqlstate' IS DISTINCT FROM '42501' THEN
+    RAISE EXCEPTION 'GREEN_192_CLIENT_DIRECT_RECEIPT_DELETE_ALLOWED: %',v_call;
+  END IF;
+  IF has_schema_privilege('authenticated','wardah_internal','USAGE')
+     OR has_schema_privilege('anon','wardah_internal','USAGE')
+     OR has_table_privilege('authenticated','material_consumption','UPDATE')
+     OR has_table_privilege('authenticated','material_consumption','DELETE')
+     OR has_table_privilege('authenticated','material_consumption','TRUNCATE')
+     OR has_table_privilege('authenticated',
+       'wardah_internal.material_issue_events','UPDATE')
+     OR has_table_privilege('authenticated',
+       'wardah_internal.material_issue_events','DELETE')
+     OR has_table_privilege('authenticated',
+       'wardah_internal.material_issue_events','TRUNCATE')
+     OR has_table_privilege('anon',
+       'wardah_internal.material_issue_events','UPDATE')
+     OR has_table_privilege('anon',
+       'wardah_internal.material_issue_events','DELETE')
+     OR has_table_privilege('anon',
+       'wardah_internal.material_issue_events','TRUNCATE') THEN
+    RAISE EXCEPTION 'GREEN_192_CLIENT_WRITE_OR_SCHEMA_GRANT_RESTORED';
   END IF;
   IF has_table_privilege('authenticated','material_consumption','INSERT')
      OR has_table_privilege('authenticated',
