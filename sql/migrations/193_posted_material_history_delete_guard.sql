@@ -27,11 +27,11 @@ BEGIN
 END
 $preflight$;
 
--- The WO guard rejects before the work-order FK can cascade to consumption.
+-- The invoker WO guard rejects before the work-order FK can cascade to consumption.
 -- No MO lock is taken here: M192 holds MO before WO, and reversing that order
 -- in a DELETE trigger would create a new MO/WO deadlock.
 CREATE FUNCTION wardah_internal.guard_posted_wo_delete_193()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $fn$
 BEGIN
@@ -60,7 +60,7 @@ FOR EACH ROW EXECUTE FUNCTION wardah_internal.guard_posted_wo_delete_193();
 -- This second guard covers a direct owner/service-role DELETE on a posted
 -- consumption line, as well as any future FK path that bypasses the WO row.
 CREATE FUNCTION wardah_internal.guard_posted_consumption_delete_193()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $fn$
 BEGIN
@@ -84,7 +84,7 @@ FOR EACH ROW EXECUTE FUNCTION wardah_internal.guard_posted_consumption_delete_19
 -- working and revoke DELETE at the grant layer. Even a privileged DELETE must
 -- preserve a row containing posted material cost or an M192 stage receipt.
 CREATE FUNCTION wardah_internal.guard_posted_wip_delete_193()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $fn$
 BEGIN
@@ -188,7 +188,8 @@ BEGIN
          'guard_posted_consumption_delete_193',
          'guard_posted_wip_delete_193',
          'deny_manufacturing_history_truncate_193'
-       ) AND (has_function_privilege('anon',p.oid,'EXECUTE')
+       ) AND (p.prosecdef
+              OR has_function_privilege('anon',p.oid,'EXECUTE')
               OR has_function_privilege('authenticated',p.oid,'EXECUTE'))
      ) THEN RAISE EXCEPTION 'M193_TRIGGER_GUARD_DRIFT'; END IF;
 END

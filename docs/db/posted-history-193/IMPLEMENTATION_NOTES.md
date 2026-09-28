@@ -25,7 +25,9 @@ run is an application authorization.
 - A BEFORE DELETE guard on `work_orders` reads POSTED consumption and M192
   event fingerprints. It raises `M193_POSTED_WORK_ORDER_DELETE_DENIED` / P0001
   before the FK cascade. It does not acquire the MO lock and cannot reverse
-  M192's MO→WO lock order.
+  M192's MO→WO lock order. All guards run as SECURITY INVOKER: an ordinary
+  client is denied at the table grant, while the SQL owner reaches the named
+  guards. A privileged role lacking private-schema read access fails closed.
 - A BEFORE DELETE guard on `material_consumption` independently rejects
   posted/receipt-linked deletion, including an owner or indirect FK path.
 - A BEFORE DELETE guard on `stage_wip_log` preserves nonzero material cost or
@@ -55,8 +57,9 @@ requires a disposable local PostgreSQL 17 server. It builds baseline cutoff
 2. M193 as one BEGIN/COMMIT file. Its preflight rejects a missing M192 or a
    previously orphaned M192 receipt; its postflight checks guards, execution
    grants and direct DELETE/TRUNCATE grants.
-3. `acceptance.sql`: same-member WO DELETE must fail for **the guard's own**
-   P0001 reason; the two-step WO→MO route must not erase the fixture. A visible
+3. `acceptance.sql`: the owner WO DELETE must fail for **the guard's own**
+   P0001 reason, while the same-member client gets 42501. The two-step WO→MO
+   route must not erase the fixture. A visible
    WIP row with posted material cost must reject client DELETE with 42501,
    while owner deletes hit the named WIP/consumption guards. Both client and
    owner TRUNCATE are denied. Receipt, SLE, bin, WIP, reservation, GL and
