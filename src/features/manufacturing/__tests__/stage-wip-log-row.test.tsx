@@ -205,12 +205,7 @@ describe('WipLogTableRow — rendered inside StageWipLogList', () => {
     expect(screen.getByText('Invalid Date - Invalid Date')).toBeInTheDocument();
   });
 
-  it('shared deleteMutation.isPending disables every row\'s delete button, not just the row being deleted', async () => {
-    let resolveDelete!: () => void;
-    wipDelete.mockImplementation(
-      () => new Promise<void>((resolve) => { resolveDelete = resolve; })
-    );
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('no row exposes a delete action even with a legacy full permission set', async () => {
     wipGetAll.mockResolvedValue([
       { id: 'wip-a', mo_id: 'mo-1', stage_id: 'stage-1', is_closed: false },
       { id: 'wip-b', mo_id: 'mo-1', stage_id: 'stage-1', is_closed: false },
@@ -218,19 +213,10 @@ describe('WipLogTableRow — rendered inside StageWipLogList', () => {
     setPermissions(FULL_PERMISSIONS);
     renderList();
 
-    const deleteA = await screen.findByRole('button', { name: 'حذف سجل WIP wip-a' });
-    const deleteB = await screen.findByRole('button', { name: 'حذف سجل WIP wip-b' });
-    expect(deleteA).not.toBeDisabled();
-    expect(deleteB).not.toBeDisabled();
-
-    await userEvent.click(deleteA);
-
-    await waitFor(() => expect(deleteA).toBeDisabled());
-    expect(deleteB).toBeDisabled();
-
-    resolveDelete();
-    await waitFor(() => expect(deleteA).not.toBeDisabled());
-    expect(deleteB).not.toBeDisabled();
+    expect(await screen.findAllByText('Invalid Date - Invalid Date')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'حذف سجل WIP wip-a' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'حذف سجل WIP wip-b' })).not.toBeInTheDocument();
+    expect(wipDelete).not.toHaveBeenCalled();
   });
 
   it('clicking edit actually populates WipLogFormDialog with the mapped log values, not just opens it', async () => {
@@ -275,13 +261,13 @@ describe('WipLogTableRow — rendered inside StageWipLogList', () => {
     expect(screen.getByLabelText('ملاحظات')).toHaveValue('ملاحظة تعديل');
   });
 
-  it('an is_closed row disables edit while a delete grant still allows delete', async () => {
+  it('an is_closed row disables edit and cannot be deleted', async () => {
     wipGetAll.mockResolvedValue([{ id: 'wip-closed', mo_id: 'mo-1', stage_id: 'stage-1', is_closed: true }]);
     setPermissions(FULL_PERMISSIONS);
     renderList();
 
     expect(await screen.findByRole('button', { name: 'تعديل سجل WIP wip-closed' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'حذف سجل WIP wip-closed' })).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'حذف سجل WIP wip-closed' })).not.toBeInTheDocument();
     expect(screen.getByText('مقفل')).toBeInTheDocument();
   });
 });

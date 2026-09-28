@@ -86,7 +86,7 @@ beforeEach(() => {
   wipGetAll.mockResolvedValue([WIP]);
 });
 
-describe('StageWipLogList — manufacturing.stage_costs.create/.update/.delete', () => {
+describe('StageWipLogList — manufacturing.stage_costs.create/.update and retired delete', () => {
   it('hides the add trigger and row edit/delete controls without the exact keys', async () => {
     setPermissions(['manufacturing.stage_costs.read', 'manufacturing.orders.read', 'manufacturing.stages.read']);
     renderList();
@@ -97,14 +97,15 @@ describe('StageWipLogList — manufacturing.stage_costs.create/.update/.delete',
     expect(screen.queryByRole('button', { name: 'حذف سجل WIP wip-1' })).not.toBeInTheDocument();
   });
 
-  it('a delete grant shows delete and calls the delete gateway', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    setPermissions(['manufacturing.stage_costs.read', 'manufacturing.stage_costs.delete']);
+  it('a legacy delete grant cannot restore the retired WIP delete action', async () => {
+    setPermissions([
+      'manufacturing.stage_costs.read', 'manufacturing.stage_costs.delete',
+      'manufacturing.orders.read', 'manufacturing.stages.read',
+    ]);
     renderList();
-
-    await userEvent.click(await screen.findByRole('button', { name: 'حذف سجل WIP wip-1' }));
-
-    await waitFor(() => expect(wipDelete).toHaveBeenCalledWith('wip-1'));
+    await waitFor(() => expect(screen.getByText('MO-1')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'حذف سجل WIP wip-1' })).not.toBeInTheDocument();
+    expect(wipDelete).not.toHaveBeenCalled();
   });
 
   it('a create grant alone (no orders/stages read) still hides the add trigger — fail-closed reference-data gap', async () => {
