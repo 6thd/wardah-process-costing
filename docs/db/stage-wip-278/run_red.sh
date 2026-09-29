@@ -3,16 +3,18 @@
 set -Eeuo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
-if [[ -n "${DATABASE_URL:-}" || -n "${PGSERVICE:-}" || -n "${SUPABASE_DB_URL:-}" ]]; then
+if [[ -n "${DATABASE_URL:-}" || -n "${PGSERVICE:-}" || -n "${PGSERVICEFILE:-}" || -n "${SUPABASE_DB_URL:-}" ]]; then
   echo 'REFUSED: remote connection configuration present' >&2; exit 2
 fi
 case "${PGHOST:-}" in ''|localhost|127.0.0.1|/*) ;; *) echo 'REFUSED: nonlocal PGHOST' >&2; exit 2;; esac
+case "${PGHOSTADDR:-}" in ''|127.0.0.1|::1) ;; *) echo 'REFUSED: nonlocal PGHOSTADDR' >&2; exit 2;; esac
 if [[ "$(psql -X -tAc 'SHOW server_version_num' -d postgres)" != 17* ]]; then
   echo 'REFUSED: requires PostgreSQL 17' >&2; exit 2
 fi
 DB="wardah_278_red_$$"
 ORDER="$(mktemp)"
-cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -f "$ORDER"; }
+FULL_ORDER="$(mktemp)"
+cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -f "$ORDER" "$FULL_ORDER"; }
 trap cleanup EXIT
 cd "$ROOT"
 echo "checkout: $(git rev-parse HEAD)"
@@ -28,7 +30,10 @@ PSQL=(psql -X -v ON_ERROR_STOP=1 -d "$DB")
 "${PSQL[@]}" -q -f scripts/ci/fresh-db/supabase_shim.sql >/dev/null
 "${PSQL[@]}" -q -f "$BASELINE" >/dev/null 2>&1
 "${PSQL[@]}" -q -f "$REFERENCE" >/dev/null
-python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > "$ORDER"
+python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > "$FULL_ORDER"
+# This historical RED remains valid after later migrations are added: apply
+# precisely the pre-protection 190..193 state, never the next migration.
+sed -n '1,/^193_posted_material_history_delete_guard.sql$/p' "$FULL_ORDER" > "$ORDER"
 if [[ "$(tail -n 1 "$ORDER")" != '193_posted_material_history_delete_guard.sql' ]]; then
   echo 'REFUSED: RED must stop at M193' >&2; exit 2
 fi

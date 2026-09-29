@@ -16,9 +16,9 @@ BEGIN
          WHERE event_id=v_event) IS DISTINCT FROM v_wip::text THEN
     RAISE EXCEPTION 'RED_278_INVALID_POSTED_FIXTURE';
   END IF;
-  -- The mounted form sends its old cost_material along with period fields.
+  -- Isolate a stale material-cost write from period eligibility changes.
   v_call:=pg_temp.try_as(pg_temp.reader(),format(
-    'UPDATE public.stage_wip_log SET cost_material=0, period_end=period_end+1 '
+    'UPDATE public.stage_wip_log SET cost_material=0 '
     || 'WHERE id=%L::uuid RETURNING to_jsonb(cost_material)',v_wip));
   IF v_call->>'ok' IS DISTINCT FROM 'true'
      OR (SELECT cost_material FROM public.stage_wip_log WHERE id=v_wip)<>0
@@ -33,17 +33,43 @@ $red$;
 
 DO $red$
 DECLARE
+  v_mo uuid:=pg_temp.mk_mo('RED-278-PERIOD',5,100,'in_progress','IN_PROGRESS');
+  v_wip uuid; v_old_end date; v_event uuid:=gen_random_uuid(); v_call jsonb;
+BEGIN
+  SELECT id,period_end INTO STRICT v_wip,v_old_end
+    FROM public.stage_wip_log WHERE mo_id=v_mo;
+  PERFORM pg_temp.as_user(pg_temp.consumer(),pg_temp.issue_193(v_mo,v_event));
+  v_call:=pg_temp.try_as(pg_temp.reader(),format(
+    'UPDATE public.stage_wip_log SET period_end=period_end+1 '
+    || 'WHERE id=%L::uuid RETURNING to_jsonb(period_end)',v_wip));
+  IF v_call->>'ok' IS DISTINCT FROM 'true'
+     OR (SELECT period_end FROM public.stage_wip_log WHERE id=v_wip)
+        IS DISTINCT FROM v_old_end+1
+     OR (SELECT cost_material FROM public.stage_wip_log WHERE id=v_wip)<>100
+     OR (SELECT count(*) FROM wardah_internal.material_issue_events
+         WHERE event_id=v_event)<>1 THEN
+    RAISE EXCEPTION 'RED_278_POSTED_PERIOD_CHANGE_NOT_REPRODUCED: %',v_call;
+  END IF;
+  RAISE NOTICE 'RED_278_POSTED_PERIOD_CHANGED';
+END
+$red$;
+
+DO $red$
+DECLARE
   v_mo uuid:=pg_temp.mk_mo('RED-278-REKEY',5,100,'in_progress','IN_PROGRESS');
   v_other_mo uuid; v_wip uuid; v_event uuid:=gen_random_uuid(); v_call jsonb;
 BEGIN
   SELECT id INTO STRICT v_wip FROM public.stage_wip_log WHERE mo_id=v_mo;
   PERFORM pg_temp.as_user(pg_temp.consumer(),pg_temp.issue_193(v_mo,v_event));
   v_other_mo:=pg_temp.mk_mo('RED-278-OTHER',5,20,'in_progress','IN_PROGRESS');
-  -- The other MO's own WIP period has the same dates, so use another date
-  -- range to demonstrate a real FK-valid re-key without the exact-key UNIQUE.
+  -- Move the other MO's unposted fixture period out of the way, so changing
+  -- only mo_id is FK-valid, unique-key-valid and not an interval conflict.
+  UPDATE public.stage_wip_log
+    SET period_start=DATE '2020-01-01',period_end=DATE '2020-01-02'
+    WHERE mo_id=v_other_mo;
   v_call:=pg_temp.try_as(pg_temp.reader(),format(
-    'UPDATE public.stage_wip_log SET mo_id=%L::uuid,period_start=CURRENT_DATE,'
-    || 'period_end=CURRENT_DATE WHERE id=%L::uuid RETURNING to_jsonb(id)',
+    'UPDATE public.stage_wip_log SET mo_id=%L::uuid '
+    || 'WHERE id=%L::uuid RETURNING to_jsonb(id)',
     v_other_mo,v_wip));
   IF v_call->>'ok' IS DISTINCT FROM 'true'
      OR (SELECT mo_id FROM public.stage_wip_log WHERE id=v_wip) IS DISTINCT FROM v_other_mo
@@ -58,17 +84,18 @@ $red$;
 DO $red$
 DECLARE
   v_mo uuid:=pg_temp.mk_mo('RED-278-OVERLAP',5,100,'in_progress','IN_PROGRESS');
-  v_first uuid; v_new uuid:=gen_random_uuid(); v_event uuid:=gen_random_uuid();
+  v_first uuid; v_first_end date; v_new uuid:=gen_random_uuid(); v_event uuid:=gen_random_uuid();
   v_second_event uuid:=gen_random_uuid(); v_call jsonb; v_result jsonb;
 BEGIN
-  SELECT id INTO STRICT v_first FROM public.stage_wip_log WHERE mo_id=v_mo;
+  SELECT id,period_end INTO STRICT v_first,v_first_end
+    FROM public.stage_wip_log WHERE mo_id=v_mo;
   PERFORM pg_temp.as_user(pg_temp.consumer(),pg_temp.issue_193(v_mo,v_event));
   v_call:=pg_temp.try_as(pg_temp.reader(),format(
     'INSERT INTO public.stage_wip_log '
     || '(id,org_id,mo_id,stage_id,period_start,period_end) '
-    || 'VALUES (%L::uuid,%L::uuid,%L::uuid,%L::uuid,CURRENT_DATE,CURRENT_DATE+7) '
+    || 'VALUES (%L::uuid,%L::uuid,%L::uuid,%L::uuid,CURRENT_DATE,%L::date) '
     || 'RETURNING to_jsonb(id)',
-    v_new,pg_temp.org(),v_mo,pg_temp.stage()));
+    v_new,pg_temp.org(),v_mo,pg_temp.stage(),v_first_end+1));
   IF v_call->>'ok' IS DISTINCT FROM 'true'
      OR (SELECT count(*) FROM public.stage_wip_log
          WHERE mo_id=v_mo AND stage_id=pg_temp.stage()

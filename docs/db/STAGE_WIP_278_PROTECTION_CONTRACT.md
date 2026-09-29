@@ -22,11 +22,16 @@ issue action remains disabled.
   global exclusion constraint. No row identifiers or data were modified.
 
 `stage-wip-278/run_red.sh` builds the cutoff-189 baseline + 190..193 in a
-disposable PG17 database and asserts three executable defects: an ordinary
-same-org member wipes posted cost with a stale update, re-keys the posted WIP
-row to another MO, and inserts an overlapping open row that receives the next
-material issue. All probe writes roll back. A passing RED runner means the
-defects were reproduced; it is not GREEN acceptance.
+disposable PG17 database and asserts four executable defects: an ordinary
+same-org member wipes posted cost with a cost-only stale update, changes a
+posted row's eligibility period independently, re-keys the posted WIP row to
+another MO without an interval conflict, and inserts an
+overlapping open row with a later end date that receives the next material
+issue. The end date is derived from the original interval so this proof does
+not depend on the day the runner executes. The probe transaction rolls back;
+the disposable database and its setup fixture are subsequently dropped. A
+passing RED runner means the defects were reproduced; it is not GREEN
+acceptance.
 
 ## Database contract for the implementation PR
 
@@ -43,9 +48,16 @@ defects were reproduced; it is not GREEN acceptance.
    do not accept unrestricted direct writes as a compatibility exception.
 3. A new or changed open interval must not overlap another eligible open
    interval for the same `(org,MO,stage)`, including an equal `period_end`.
+   Both ends are inclusive, exactly as M192's
+   `CURRENT_DATE BETWEEN period_start AND period_end`; `is_closed IS NULL` is
+   open, exactly as its
+   `COALESCE(is_closed,false)=false`. Check the whole interval, independent
+   of today's date.
    Enforce this under concurrent INSERT/UPDATE, not only with a SELECT before
-   writing. Historical overlapping rows remain untouched by this change and
-   cannot be used to justify a second issue target. M192 must reject a new
+   writing. A constraint that excludes historical rows from its index must
+   still reject a new interval overlapping one of those rows. Historical
+   overlapping rows remain untouched by this change and cannot be used to
+   justify a second issue target. M192 must reject a new
    event if more than one row is eligible for its date; an identical authorized
    replay still returns its stored result.
 4. The migration must fail atomically on unexpected catalog drift and preserve
@@ -55,24 +67,57 @@ defects were reproduced; it is not GREEN acceptance.
 5. The mounted form omits event-derived fields from generic writes, keeps an
    explicit user-facing error for rejected stale edits, and uses the approved
    close operation. The database rejects equivalent old-client PATCH payloads.
+6. Every WIP INSERT or change of `org_id`, `mo_id` or `stage_id` must verify
+   that the referenced MO and stage belong to the WIP organization. This
+   applies even to a zero-cost row: independent foreign keys and a tenant-only
+   RLS check do not establish child-to-parent organization agreement.
+7. Preserve M192's MO-before-WIP lock order. M192 updates material cost while
+   holding a WIP row lock: a row-level UPDATE guard must not then acquire an
+   MO lock or another lock in the reverse order. Direct identity, interval or
+   eligibility edits to existing rows must be denied; an approved operation
+   that needs both locks obtains the MO lock before the WIP row lock. A
+   concurrent interval guard must not make a legitimate M192 cost-only issue
+   deadlock or fail. Choose a serialization mechanism that works with the
+   historical overlaps and both INSERT and UPDATE, then prove it with real
+   two-session races. A transaction-local client-set GUC alone is not trusted
+   authority to bypass the guard.
+8. Review table-level and column-level grants, RLS, and every privileged WIP
+   writer. State precisely which direct writes remain allowed for each role
+   (`authenticated`, Org Admin, owner and `service_role`), how the M192
+   owner-run update is distinguished, and what happens when an old client
+   sends unchanged protected fields together with a legitimate labor or
+   overhead change. Protect `cost_material`, cost-derived/equivalent-unit
+   fields, row identity, dates and `is_closed` without rejecting lawful
+   recomputation by `trigger_calculate_wip_eu`. Account for BEFORE-trigger
+   ordering and `INSERT ... ON CONFLICT DO UPDATE` as an UPDATE path; a
+   table-level grant cannot be narrowed by revoking only column grants.
 
 ## Required acceptance before any Production decision
 
 - RED above is reproduced on PG17. GREEN: real M192 issue adds a priced line,
-  then an old-client UPDATE of cost/period/re-key is rejected by the intended
-  boundary; the receipt, WIP cost, reservation, SLE, bins and GL are unchanged.
+  then a cost-only old-client PATCH, period-only PATCH, re-key to a
+  non-overlapping interval and full stale-form UPDATE are rejected by the
+  intended boundary; the receipt, WIP cost, reservation, SLE, bins and GL are
+  unchanged.
+- Repeat the old-client checks with an upsert that takes the conflict UPDATE
+  path, and with unchanged protected fields in a lawful labor/overhead edit.
 - Test ordinary member, authorized WIP editor, Org Admin, foreign-org member
   and privileged writer separately. The privileged path can post via M192;
   an unreviewed direct overwrite is rejected or explicitly scoped.
 - Two simultaneous interval inserts and an UPDATE/INSERT race cannot create
   eligible overlap. New overlap with a historical row is rejected. Test equal
-  period ends and non-overlapping lawful rows.
+  period ends, shared boundary days, `is_closed=NULL`, non-overlapping lawful
+  rows, and intervals not containing CURRENT_DATE.
 - Seed two pre-existing overlapping rows in a disposable database; the
   migration preserves them without modifying data, then a new event for a date
   in their overlap fails with a named error before stock or WIP effects. A
   normal one-row issue and replay remain green.
 - Exercise lawful labor/overhead edit and one-way close through their approved
   permissions; previous legitimate call sites have no silent 0-row success.
+- Exercise a real M192 issue concurrently with an authorized interval INSERT
+  and an authorized WIP change in both lock orders. Pause between MO and WIP
+  locks and assert no `40P01`, no lost cost, and a single unambiguous issue
+  target. Reject cross-org MO or stage re-key/insert even on zero-cost rows.
 - Run M192 and M193 acceptance again, migration chain, type-check/build and
   exact-head CI. Independently review contract, implementation and mutations.
 
