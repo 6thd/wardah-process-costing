@@ -26,6 +26,8 @@ The review of `b3ace12` found that the implementation behaved correctly but its 
 
 The independent review of `69b4e906` closed M03/M04/M13 but found that a split-transaction response settlement (M14) and stale-decision registration with a redundant re-read (M04b) still left the suite green. The next follow-up requires settlement of both success and definitive rejection to read and write within one readwrite transaction; registration may open only the actor lookup and the atomic read/write transaction before fetch. Both M14 and M04b turn these new tests red on scratch copies. The runtime remains unchanged and still needs a fresh independent acceptance decision.
 
+The review of `7a61c2a` verified those mutations but showed a stronger M04b2 variant could make its decision from the earlier actor lookup while performing an unused read in the write transaction. Two behavioral interleavings now assert that simultaneous sends register distinct attempts, and that acknowledgment after the actor lookup prevents any later network call or revival of the tombstone. M04b2 makes both tests red on a scratch copy. The runtime remains unchanged; these local tests do not establish real-browser behavior.
+
 The CI/CD workflow currently filters pull requests by base branch and does not include this stacked contract branch. Exact-head CI/CD remains unavailable while #279 targets #277; local type-check, lint, focused tests, full tests and build must be recorded separately. After #277 is merged, rebase #279 onto `main` and require the regular exact-head workflow before Ready.
 
 ## Still required before Ready or any Production event

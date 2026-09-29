@@ -236,6 +236,81 @@ describe('material issue durable slot', () => {
     }
   })
 
+  it('records both simultaneous sends before either response can be acknowledged', async () => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    const bothStarted = deferred<void>()
+    const server = deferred<{ data: null; error: { code: string; message: string } }>()
+    let started = 0
+    vi.mocked(supabase.rpc).mockImplementation(() => {
+      if (++started === 2) bothStarted.resolve()
+      return server.promise as never
+    })
+
+    const first = sendMaterialIssue(record.eventId)
+    const second = sendMaterialIssue(record.eventId)
+    await bothStarted.promise
+    const error = { code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION' }
+    try {
+      const pending = await pendingMaterialIssue(input.userId, input.moId)
+      expect(pending?.attempts).toEqual([
+        { state: 'unknown', registered: true },
+        { state: 'unknown', registered: true },
+      ])
+      await expect(acknowledgeRejectedMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_OUTCOME_UNKNOWN')
+    } finally {
+      server.resolve({ data: null, error })
+      await Promise.allSettled([first, second])
+    }
+    await expect(first).rejects.toMatchObject(error)
+    await expect(second).rejects.toMatchObject(error)
+    expect((await pendingMaterialIssue(input.userId, input.moId))?.attempts).toEqual([
+      { state: 'rejected', registered: true, ...error },
+      { state: 'rejected', registered: true, ...error },
+    ])
+  })
+
+  it('rejects a stale send when another tab acknowledges after actor lookup', async () => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    const error = { code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION' }
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: null, error } as never)
+    await expect(sendMaterialIssue(record.eventId)).rejects.toMatchObject(error)
+    vi.mocked(supabase.rpc).mockClear()
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: issueResult(input, record.eventId), error: null } as never)
+
+    const nativeGet = IDBObjectStore.prototype.get
+    let intercepted = false
+    let acknowledgment: Promise<void> | undefined
+    const get = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (this: IDBObjectStore, key) {
+      const operation = nativeGet.call(this, key)
+      if (key !== record.eventId || intercepted) return operation
+      intercepted = true
+      // Delay delivery of the actor lookup's old snapshot until another tab
+      // commits the acknowledgment. A registration must re-read the tombstone.
+      return new Proxy(operation, {
+        get(target, property) { return Reflect.get(target, property, target) },
+        set(target, property, callback) {
+          if (property !== 'onsuccess') return Reflect.set(target, property, callback, target)
+          target.onsuccess = event => {
+            acknowledgment = acknowledgeRejectedMaterialIssue(record.eventId)
+            void acknowledgment.then(() => callback(event), () => callback(event))
+          }
+          return true
+        },
+      })
+    })
+    try {
+      await expect(sendMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_EVENT_ACKNOWLEDGED')
+      expect(intercepted).toBe(true)
+      await expect(acknowledgment).resolves.toBeUndefined()
+      expect(supabase.rpc).not.toHaveBeenCalled()
+      expect(await pendingMaterialIssue(input.userId, input.moId)).toBeNull()
+    } finally {
+      get.mockRestore()
+    }
+  })
+
   it.each(['rejected', 'succeeded'] as const)('settles a %s response with its fresh read and write in one transaction', async outcome => {
     const input = command()
     const record = await claimMaterialIssue(input)
