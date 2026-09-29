@@ -3,8 +3,7 @@
 One page. Design rationale lives in merged PR #236; the acceptance evidence lives in
 `docs/db/m191-evidence/`. Neither is repeated here.
 
-**Status: not applied to Production or Staging. No Production apply without separate
-authorization.**
+**Production status (2026-09-28): M191 applied once as `20260928074428`; M192 subsequently applied once as `20260928111141`.** See [M191 Production application and readback](M191_PRODUCTION_APPLICATION_20260928.md) for preflight, execution, postflight and evidence limits. The 2026-09-25 pre-merge and pre-application instructions below are retained as a historical runbook; they do not describe current Production status. See [M192 Production application and readback](M192_PRODUCTION_APPLICATION_20260928.md) for the later migration. Staging is **unverified / rebuild recommended**.
 
 > **2026-09-25 post-merge note (`main@0761d567`).** PR #241 is merged, so this file
 > and Migration 191 are on `main`. That is repository state only. It is **not**
