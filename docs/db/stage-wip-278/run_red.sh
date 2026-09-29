@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Disposable, local PG17 only; RED proof before any #278 migration.
+set -Eeuo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"
+if [[ -n "${DATABASE_URL:-}" || -n "${PGSERVICE:-}" || -n "${PGSERVICEFILE:-}" || -n "${SUPABASE_DB_URL:-}" ]]; then
+  echo 'REFUSED: remote connection configuration present' >&2; exit 2
+fi
+case "${PGHOST:-}" in ''|localhost|127.0.0.1|/*) ;; *) echo 'REFUSED: nonlocal PGHOST' >&2; exit 2;; esac
+case "${PGHOSTADDR:-}" in ''|127.0.0.1|::1) ;; *) echo 'REFUSED: nonlocal PGHOSTADDR' >&2; exit 2;; esac
+if [[ "$(psql -X -tAc 'SHOW server_version_num' -d postgres)" != 17* ]]; then
+  echo 'REFUSED: requires PostgreSQL 17' >&2; exit 2
+fi
+DB="wardah_278_red_$$"
+ORDER="$(mktemp)"
+FULL_ORDER="$(mktemp)"
+cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -f "$ORDER" "$FULL_ORDER"; }
+trap cleanup EXIT
+cd "$ROOT"
+echo "checkout: $(git rev-parse HEAD)"
+echo "server: $(psql -X -tAc 'SHOW server_version' -d postgres)"
+PAIR="$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)"
+pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+BASELINE="$(pair_field BASELINE_PATH)"
+REFERENCE="$(pair_field REFERENCE_PATH)"
+CUTOFF="$(pair_field BASELINE_CUTOFF)"
+echo "baseline: $BASELINE cutoff: $CUTOFF"
+createdb "$DB"
+PSQL=(psql -X -v ON_ERROR_STOP=1 -d "$DB")
+"${PSQL[@]}" -q -f scripts/ci/fresh-db/supabase_shim.sql >/dev/null
+"${PSQL[@]}" -q -f "$BASELINE" >/dev/null 2>&1
+"${PSQL[@]}" -q -f "$REFERENCE" >/dev/null
+python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > "$FULL_ORDER"
+# This historical RED remains valid after later migrations are added: apply
+# precisely the pre-protection 190..193 state, never the next migration.
+sed -n '1,/^193_posted_material_history_delete_guard.sql$/p' "$FULL_ORDER" > "$ORDER"
+if [[ "$(tail -n 1 "$ORDER")" != '193_posted_material_history_delete_guard.sql' ]]; then
+  echo 'REFUSED: RED must stop at M193' >&2; exit 2
+fi
+if [[ "$(wc -l < "$ORDER")" != 4 ]]; then
+  echo 'REFUSED: requires exact 190,191,192,193 chain' >&2; exit 2
+fi
+PGDATABASE="$DB" bash scripts/ci/fresh-db/run_chain.sh sql/migrations "$ORDER"
+"${PSQL[@]}" -q -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
+"${PSQL[@]}" -f "$HERE/red.sql"
