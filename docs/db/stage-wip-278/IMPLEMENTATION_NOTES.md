@@ -39,8 +39,9 @@ or the employee issue UI. #229 and #230 remain separate.
 database through M193, reproduces the M193 suite, seeds two overlapping
 historical rows and two currently eligible rows, applies M194, then checks
 the WIP boundary and re-runs the M192 sequential, matrix and two-session
-acceptance. Its own two-session harness exercises overlapping INSERTs and
-both issue/INSERT lock orders. The historical fixture is local only;
+acceptance. Its own two-session harness exercises overlapping INSERTs,
+both issue/INSERT lock orders and lawful labor edits racing a material issue
+in both orders. The historical fixture is local only;
 Production rows are never rewritten. The PR remains Draft for independent
 review and further negative controls.
 

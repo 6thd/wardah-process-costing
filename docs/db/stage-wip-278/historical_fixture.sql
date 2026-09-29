@@ -24,6 +24,8 @@ BEGIN
 
   PERFORM pg_temp.mk_mo('GREEN-278-RACE-ISSUE-A',5,20,'in_progress','IN_PROGRESS');
   PERFORM pg_temp.mk_mo('GREEN-278-RACE-ISSUE-B',5,20,'in_progress','IN_PROGRESS');
+  PERFORM pg_temp.mk_mo('GREEN-278-RACE-WIP-C',5,20,'in_progress','IN_PROGRESS');
+  PERFORM pg_temp.mk_mo('GREEN-278-RACE-WIP-D',5,20,'in_progress','IN_PROGRESS');
 END
 $fixture$;
 COMMIT;

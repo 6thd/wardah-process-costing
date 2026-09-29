@@ -34,7 +34,7 @@ def act(conn, user):
     conn.execute("SET LOCAL ROLE authenticated")
 
 
-def wait_on_mo(observer, pid):
+def wait_for_lock(observer, pid):
     for _ in range(200):
         row = observer.execute(
             "SELECT wait_event_type FROM pg_stat_activity WHERE pid=%s", (pid,)
@@ -82,7 +82,7 @@ with connect() as observer:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             pending = pool.submit(future_insert, second, mo)
             try:
-                wait_on_mo(observer, pid)
+                wait_for_lock(observer, pid)
             finally:
                 first.commit()
             try:
@@ -122,7 +122,7 @@ with connect() as observer:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                     pending = pool.submit(future_insert, second, mo)
                     try:
-                        wait_on_mo(observer, pid)
+                        wait_for_lock(observer, pid)
                         issue(first, mo, reservation, work_order, uom)
                     finally:
                         first.commit()
@@ -135,7 +135,7 @@ with connect() as observer:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                     pending = pool.submit(issue, second, mo, reservation, work_order, uom)
                     try:
-                        wait_on_mo(observer, pid)
+                        wait_for_lock(observer, pid)
                     finally:
                         first.commit()
                     pending.result(timeout=15)
@@ -150,3 +150,62 @@ with connect() as observer:
             raise AssertionError(f"GREEN_278_ISSUE_INSERT_RACE_STATE: {row}")
         observer.commit()
         print("GREEN_278_ISSUE_INSERT_" + ("ISSUE_FIRST" if issue_first else "INSERT_FIRST"))
+
+    # The direct labor edit holds WIP only. M192 holds MO then WIP. Either
+    # ordering must complete without 40P01 and preserve both contributions.
+    for suffix, issue_first in (("C", False), ("D", True)):
+        mo, reservation, work_order, uom, wip = observer.execute(
+            """SELECT m.id,r.id,w.id,p.base_uom_id,s.id
+               FROM public.manufacturing_orders m
+               JOIN public.material_reservations r ON r.mo_id=m.id
+               JOIN public.work_orders w ON w.mo_id=m.id
+               JOIN public.products p ON p.id='ed000000-0000-4000-8000-0000000000c1'::uuid
+               JOIN public.stage_wip_log s ON s.mo_id=m.id
+               WHERE m.order_number=%s LIMIT 1""",
+            ("GREEN-278-RACE-WIP-" + suffix,),
+        ).fetchone()
+        observer.commit()
+
+        def labor(conn):
+            conn.execute(
+                "UPDATE public.stage_wip_log SET cost_labor=cost_labor+1 WHERE id=%s",
+                (wip,),
+            )
+
+        with connect() as first, connect() as second:
+            pid = second.execute("SELECT pg_backend_pid()").fetchone()[0]
+            second.commit()
+            if issue_first:
+                act(first, CONSUMER)
+                issue(first, mo, reservation, work_order, uom)
+                act(second, ADMIN)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    pending = pool.submit(labor, second)
+                    try:
+                        wait_for_lock(observer, pid)
+                    finally:
+                        first.commit()
+                    pending.result(timeout=15)
+                    second.commit()
+            else:
+                act(first, ADMIN)
+                labor(first)
+                act(second, CONSUMER)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    pending = pool.submit(issue, second, mo, reservation, work_order, uom)
+                    try:
+                        wait_for_lock(observer, pid)
+                    finally:
+                        first.commit()
+                    pending.result(timeout=15)
+                    second.commit()
+        row = observer.execute(
+            """SELECT (SELECT count(*) FROM public.material_consumption WHERE mo_id=%s),
+                      (SELECT cost_material FROM public.stage_wip_log WHERE id=%s),
+                      (SELECT cost_labor FROM public.stage_wip_log WHERE id=%s)""",
+            (mo, wip, wip),
+        ).fetchone()
+        if row != (1, 100, 1):
+            raise AssertionError(f"GREEN_278_ISSUE_LABOR_RACE_STATE: {row}")
+        observer.commit()
+        print("GREEN_278_ISSUE_LABOR_" + ("ISSUE_FIRST" if issue_first else "LABOR_FIRST"))
