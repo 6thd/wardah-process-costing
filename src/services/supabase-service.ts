@@ -896,6 +896,21 @@ export const manufacturingStagesService = {
 // ===================================================================
 // STAGE WIP LOG SERVICE
 // ===================================================================
+const editableStageWipFields = [
+  'units_beginning_wip', 'units_started', 'units_completed',
+  'units_ending_wip', 'material_completion_pct',
+  'conversion_completion_pct', 'cost_beginning_wip', 'cost_labor',
+  'cost_overhead', 'notes',
+] as const
+
+function stageWipEditablePayload(input: Record<string, unknown>) {
+  return Object.fromEntries(
+    editableStageWipFields
+      .filter((field) => Object.prototype.hasOwnProperty.call(input, field))
+      .map((field) => [field, input[field]])
+  )
+}
+
 export const stageWipLogService = {
   getAll: async (filters?: {
     moId?: string
@@ -976,7 +991,11 @@ export const stageWipLogService = {
       const { data, error } = await supabase
         .from('stage_wip_log')
         .insert({
-          ...wipLog,
+          ...stageWipEditablePayload(wipLog),
+          mo_id: wipLog.mo_id as string,
+          stage_id: wipLog.stage_id as string,
+          period_start: wipLog.period_start as string,
+          period_end: wipLog.period_end as string,
           org_id: tenantId || (config?.ORG_ID)
         })
         .select()
@@ -996,7 +1015,7 @@ export const stageWipLogService = {
       const { data, error } = await supabase
         .from('stage_wip_log')
         .update({
-          ...updates,
+          ...stageWipEditablePayload(updates),
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -1011,20 +1030,11 @@ export const stageWipLogService = {
     }
   },
 
-  closePeriod: async (id: string, closedBy?: string) => {
+  closePeriod: async (id: string) => {
     try {
       const supabase = await getClient()
       const { data, error } = await supabase
-        .from('stage_wip_log')
-        .update({
-          is_closed: true,
-          closed_at: new Date().toISOString(),
-          closed_by: closedBy,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id)
-        .select()
-        .single()
+        .rpc('rpc_close_stage_wip_194', { p_wip_id: id })
 
       if (error) throw error
       return data

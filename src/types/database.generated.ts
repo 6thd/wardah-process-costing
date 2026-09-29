@@ -10994,6 +10994,10 @@ export type Database = {
         Args: { p_payload: Json }
         Returns: Json
       }
+      rpc_close_stage_wip_194: {
+        Args: { p_wip_id: string }
+        Returns: Json
+      }
       rpc_consume_material_event: {
         Args: {
           p_consumptions: Json
@@ -12012,4 +12016,3 @@ export const Constants = {
     },
   },
 } as const
-

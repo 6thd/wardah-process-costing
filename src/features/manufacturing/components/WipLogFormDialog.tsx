@@ -113,12 +113,30 @@ export function WipLogFormDialog({
       if (values.period_end < values.period_start) {
         throw new Error('نهاية الفترة قبل بدايتها')
       }
-      const { cost_total: _ct, ...derivedToSave } = computeWipDerived(values)
-      const payload = { ...values, ...derivedToSave }
-      if (editing?.id) {
-        return stageWipLogService.update(editing.id, payload)
+      // Material issue cost and equivalent-unit results are server-owned.
+      // Do not replay an older form snapshot over a newly posted M192 issue.
+      const editable = {
+        units_beginning_wip: values.units_beginning_wip,
+        units_started: values.units_started,
+        units_completed: values.units_completed,
+        units_ending_wip: values.units_ending_wip,
+        material_completion_pct: values.material_completion_pct,
+        conversion_completion_pct: values.conversion_completion_pct,
+        cost_beginning_wip: values.cost_beginning_wip,
+        cost_labor: values.cost_labor,
+        cost_overhead: values.cost_overhead,
+        notes: values.notes,
       }
-      return stageWipLogService.create(payload)
+      if (editing?.id) {
+        return stageWipLogService.update(editing.id, editable)
+      }
+      return stageWipLogService.create({
+        ...editable,
+        mo_id: values.mo_id,
+        stage_id: values.stage_id,
+        period_start: values.period_start,
+        period_end: values.period_end,
+      })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stage-wip-log'] })
@@ -127,7 +145,9 @@ export function WipLogFormDialog({
     },
     onError: (error: unknown) => {
       const err = error as { message?: string }
-      toast.error(err.message || 'خطأ في حفظ السجل')
+      toast.error(err.message?.includes('WIP_')
+        ? 'تعذّر حفظ السجل: تغيّرت تكلفة المواد أو فترة المرحلة. حدّث البيانات وأعد المحاولة.'
+        : (err.message || 'خطأ في حفظ السجل'))
     },
   })
 
@@ -149,7 +169,7 @@ export function WipLogFormDialog({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <Label htmlFor="wip-mo">أمر التصنيع *</Label>
-            <Select value={values.mo_id} onValueChange={(v) => setValues((p) => ({ ...p, mo_id: v }))}>
+            <Select disabled={!!editing} value={values.mo_id} onValueChange={(v) => setValues((p) => ({ ...p, mo_id: v }))}>
               <SelectTrigger id="wip-mo"><SelectValue placeholder="اختر أمر التصنيع" /></SelectTrigger>
               <SelectContent>
                 {manufacturingOrders.map((mo) => (
@@ -160,7 +180,7 @@ export function WipLogFormDialog({
           </div>
           <div>
             <Label htmlFor="wip-stage">المرحلة *</Label>
-            <Select value={values.stage_id} onValueChange={(v) => setValues((p) => ({ ...p, stage_id: v }))}>
+            <Select disabled={!!editing} value={values.stage_id} onValueChange={(v) => setValues((p) => ({ ...p, stage_id: v }))}>
               <SelectTrigger id="wip-stage"><SelectValue placeholder="اختر المرحلة" /></SelectTrigger>
               <SelectContent>
                 {stages.map((s) => (
@@ -172,12 +192,12 @@ export function WipLogFormDialog({
 
           <div>
             <Label htmlFor="wip-start">بداية الفترة *</Label>
-            <Input id="wip-start" type="date" value={values.period_start}
+            <Input id="wip-start" type="date" value={values.period_start} disabled={!!editing}
               onChange={(e) => setValues((p) => ({ ...p, period_start: e.target.value }))} />
           </div>
           <div>
             <Label htmlFor="wip-end">نهاية الفترة *</Label>
-            <Input id="wip-end" type="date" value={values.period_end}
+            <Input id="wip-end" type="date" value={values.period_end} disabled={!!editing}
               onChange={(e) => setValues((p) => ({ ...p, period_end: e.target.value }))} />
           </div>
 
@@ -213,7 +233,8 @@ export function WipLogFormDialog({
           </div>
           <div>
             <Label htmlFor="wip-c-mat">تكلفة المواد</Label>
-            <Input id="wip-c-mat" type="number" min="0" step="0.01" value={values.cost_material} onChange={setNum('cost_material')} />
+            <Input id="wip-c-mat" type="number" value={values.cost_material} readOnly aria-describedby="wip-material-hint" />
+            <p id="wip-material-hint" className="text-xs text-muted-foreground">تُرحّل تكلفة المواد آليًا عند إصدارها.</p>
           </div>
           <div>
             <Label htmlFor="wip-c-labor">تكلفة العمل</Label>
