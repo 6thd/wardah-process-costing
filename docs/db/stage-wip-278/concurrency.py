@@ -2,6 +2,7 @@
 import concurrent.futures
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -9,7 +10,7 @@ import uuid
 import psycopg
 
 DB = sys.argv[1] if len(sys.argv) == 2 else ""
-if not DB.startswith("wardah_192_green_278_") or os.getenv("DATABASE_URL"):
+if not re.fullmatch(r"wardah_192_green_[0-9]+", DB) or os.getenv("DATABASE_URL"):
     raise SystemExit("REFUSED: disposable M194 database required")
 if os.getenv("PGHOST", "localhost") not in ("localhost", "127.0.0.1"):
     raise SystemExit("REFUSED: local PostgreSQL required")

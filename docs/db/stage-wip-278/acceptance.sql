@@ -8,6 +8,7 @@ DECLARE
   v_mo uuid:=pg_temp.mk_mo('GREEN-278',5,100,'in_progress','IN_PROGRESS');
   v_other_mo uuid; v_wip uuid; v_event uuid:=gen_random_uuid();
   v_original jsonb; v_call jsonb; v_state jsonb; v_close jsonb;
+  v_end date; v_state_code text; v_error text;
   v_foreign_org uuid:=gen_random_uuid(); v_foreign_mo uuid:=gen_random_uuid();
   v_foreign_stage uuid:=gen_random_uuid();
 BEGIN
@@ -26,6 +27,28 @@ BEGIN
      OR v_call->>'error' IS DISTINCT FROM 'WIP_POSTED_MATERIAL_IMMUTABLE' THEN
     RAISE EXCEPTION 'GREEN_278_COST_WRITE_WRONG_REASON: %',v_call;
   END IF;
+  SELECT period_end INTO v_end
+    FROM public.stage_wip_log WHERE id=v_wip;
+  v_call:=pg_temp.try_as(pg_temp.admin(),format(
+    'INSERT INTO public.stage_wip_log(id,org_id,mo_id,stage_id,period_start,period_end) '
+    || 'VALUES (%L::uuid,%L::uuid,%L::uuid,%L::uuid,%L::date,%L::date) '
+    || 'ON CONFLICT (id) '
+    || 'DO UPDATE SET cost_material=0 RETURNING to_jsonb(id)',
+    v_wip,pg_temp.org(),v_mo,pg_temp.stage(),v_end+50,v_end+60));
+  IF v_call->>'error' IS DISTINCT FROM 'WIP_POSTED_MATERIAL_IMMUTABLE'
+     OR v_call->>'sqlstate' IS DISTINCT FROM 'P0001' THEN
+    RAISE EXCEPTION 'GREEN_278_UPSERT_OVERWRITE_ALLOWED: %',v_call;
+  END IF;
+  BEGIN
+    UPDATE public.stage_wip_log SET cost_material=0 WHERE id=v_wip;
+    RAISE EXCEPTION 'GREEN_278_OWNER_COST_OVERWRITE_ALLOWED';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state_code=RETURNED_SQLSTATE,v_error=MESSAGE_TEXT;
+    IF v_state_code IS DISTINCT FROM 'P0001'
+       OR v_error IS DISTINCT FROM 'WIP_POSTED_MATERIAL_IMMUTABLE' THEN
+      RAISE EXCEPTION 'GREEN_278_OWNER_COST_WRONG_REASON: %, %',v_state_code,v_error;
+    END IF;
+  END;
 
   v_call:=pg_temp.try_as(pg_temp.admin(),format(
     'UPDATE public.stage_wip_log SET period_end=period_end+1 WHERE id=%L::uuid RETURNING to_jsonb(id)',v_wip));
@@ -71,6 +94,20 @@ BEGIN
   IF v_call->>'error' IS DISTINCT FROM 'WIP_OPEN_PERIOD_OVERLAP'
      OR v_call->>'sqlstate' IS DISTINCT FROM 'P0001' THEN
     RAISE EXCEPTION 'GREEN_278_OVERLAP_WRONG_REASON: %',v_call;
+  END IF;
+  v_call:=pg_temp.try_as(pg_temp.admin(),format(
+    'INSERT INTO public.stage_wip_log(org_id,mo_id,stage_id,period_start,period_end,is_closed) '
+    || 'VALUES (%L::uuid,%L::uuid,%L::uuid,%L::date,%L::date,NULL) '
+    || 'RETURNING to_jsonb(id)',pg_temp.org(),v_mo,pg_temp.stage(),v_end,v_end+2));
+  IF v_call->>'error' IS DISTINCT FROM 'WIP_OPEN_PERIOD_OVERLAP' THEN
+    RAISE EXCEPTION 'GREEN_278_SHARED_BOUNDARY_OR_NULL_OPEN_ALLOWED: %',v_call;
+  END IF;
+  v_call:=pg_temp.try_as(pg_temp.admin(),format(
+    'INSERT INTO public.stage_wip_log(org_id,mo_id,stage_id,period_start,period_end,is_closed) '
+    || 'VALUES (%L::uuid,%L::uuid,%L::uuid,%L::date,%L::date,NULL) '
+    || 'RETURNING to_jsonb(id)',pg_temp.org(),v_mo,pg_temp.stage(),v_end+35,v_end+40));
+  IF v_call->>'ok' IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'GREEN_278_NON_OVERLAP_NULL_OPEN_DENIED: %',v_call;
   END IF;
   v_call:=pg_temp.try_as(pg_temp.admin(),format(
     'INSERT INTO public.stage_wip_log(org_id,mo_id,stage_id,period_start,period_end,cost_material) '

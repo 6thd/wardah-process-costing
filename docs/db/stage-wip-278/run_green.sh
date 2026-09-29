@@ -10,7 +10,7 @@ case "${PGHOST:-}" in ''|localhost|127.0.0.1|/*) ;; *) echo 'REFUSED: nonlocal P
 if [[ "$(psql -X -tAc 'SHOW server_version_num' -d postgres)" != 17* ]]; then
   echo 'REFUSED: requires PostgreSQL 17' >&2; exit 2
 fi
-DB="wardah_192_green_278_$$"
+DB="wardah_192_green_$$"
 ORDER="$(mktemp)"
 cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -f "$ORDER"; }
 trap cleanup EXIT
