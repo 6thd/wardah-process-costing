@@ -111,27 +111,34 @@ BEGIN
   END IF;
 
   -- UPDATE already holds the WIP row. Never acquire an MO lock here.
-  IF (NEW.org_id,NEW.mo_id,NEW.stage_id,NEW.period_start,NEW.period_end)
+  -- The primary key is part of the identity: an M192 receipt links to its WIP
+  -- row only by id (no foreign key), so a re-key would orphan the receipt.
+  IF (NEW.id,NEW.org_id,NEW.mo_id,NEW.stage_id,NEW.period_start,NEW.period_end)
       IS DISTINCT FROM
-     (OLD.org_id,OLD.mo_id,OLD.stage_id,OLD.period_start,OLD.period_end) THEN
+     (OLD.id,OLD.org_id,OLD.mo_id,OLD.stage_id,OLD.period_start,OLD.period_end) THEN
     RAISE EXCEPTION 'WIP_IDENTITY_OR_PERIOD_IMMUTABLE' USING ERRCODE='P0001';
   END IF;
   IF NEW.is_closed IS DISTINCT FROM OLD.is_closed
      OR NEW.closed_at IS DISTINCT FROM OLD.closed_at
      OR NEW.closed_by IS DISTINCT FROM OLD.closed_by THEN
-    IF NOT (
+    -- current_setting(name,true) is SQL NULL in a backend that has never
+    -- defined the token, which makes this whole test NULL and, without the
+    -- COALESCE, silently lets the owner through. An unset token must deny.
+    IF NOT COALESCE((
       current_user=v_owner
       AND current_setting('wardah.stage_wip_close_194',true)=OLD.id::text
       AND COALESCE(OLD.is_closed,false)=false
       AND NEW.is_closed IS TRUE
       AND NEW.closed_at IS NOT NULL AND NEW.closed_by=auth.uid()
-    ) THEN
+    ),false) THEN
       RAISE EXCEPTION 'WIP_CLOSE_REQUIRES_RPC' USING ERRCODE='P0001';
     END IF;
   END IF;
+  -- Same NULL-safety for the material-issue marker: only the M192 owner-run
+  -- writer, having set the marker to this exact row id, may change the cost.
   IF NEW.cost_material IS DISTINCT FROM OLD.cost_material
-     AND NOT (current_user=v_owner AND
-       current_setting('wardah.material_issue_wip_194',true)=OLD.id::text) THEN
+     AND NOT COALESCE(current_user=v_owner AND
+       current_setting('wardah.material_issue_wip_194',true)=OLD.id::text,false) THEN
     RAISE EXCEPTION 'WIP_POSTED_MATERIAL_IMMUTABLE' USING ERRCODE='P0001';
   END IF;
   IF current_user<>v_owner THEN
