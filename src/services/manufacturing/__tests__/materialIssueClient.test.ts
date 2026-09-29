@@ -193,10 +193,17 @@ describe('material issue durable slot', () => {
   it('registers a retry with its fresh slot read in one readwrite transaction before fetch', async () => {
     const input = command()
     const record = await claimMaterialIssue(input)
+    const transactions: IDBTransaction[] = []
     const reads: IDBTransaction[] = []
     const writes: IDBTransaction[] = []
+    const nativeTransaction = IDBDatabase.prototype.transaction
     const nativeGet = IDBObjectStore.prototype.get
     const nativePut = IDBObjectStore.prototype.put
+    const transaction = vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(function (this: IDBDatabase, ...args) {
+      const tx = nativeTransaction.apply(this, args as Parameters<IDBDatabase['transaction']>)
+      transactions.push(tx)
+      return tx
+    })
     const get = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (this: IDBObjectStore, key) {
       if (key === record.eventId) reads.push(this.transaction)
       return nativeGet.call(this, key)
@@ -214,12 +221,66 @@ describe('material issue durable slot', () => {
     try {
       const sending = sendMaterialIssue(record.eventId)
       await atNetwork.promise
+      // One actor/slot lookup and one atomic registration; an extra read
+      // transaction before the put may have made the decision on stale data.
+      expect(transactions).toHaveLength(2)
       expect(writes).toHaveLength(1)
       expect(writes[0].mode).toBe('readwrite')
       expect(reads).toContain(writes[0])
       server.resolve({ data: null, error: { code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION' } })
       await expect(sending).rejects.toMatchObject({ code: 'P0001' })
     } finally {
+      transaction.mockRestore()
+      get.mockRestore()
+      put.mockRestore()
+    }
+  })
+
+  it.each(['rejected', 'succeeded'] as const)('settles a %s response with its fresh read and write in one transaction', async outcome => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    const atNetwork = deferred<void>()
+    const server = deferred<{ data: unknown; error: { code: string; message: string } | null }>()
+    vi.mocked(supabase.rpc).mockImplementationOnce(() => {
+      atNetwork.resolve()
+      return server.promise as never
+    })
+    const sending = sendMaterialIssue(record.eventId)
+    await atNetwork.promise
+    const transactions: IDBTransaction[] = []
+    const reads: IDBTransaction[] = []
+    const writes: IDBTransaction[] = []
+    const nativeTransaction = IDBDatabase.prototype.transaction
+    const nativeGet = IDBObjectStore.prototype.get
+    const nativePut = IDBObjectStore.prototype.put
+    const transaction = vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(function (this: IDBDatabase, ...args) {
+      const tx = nativeTransaction.apply(this, args as Parameters<IDBDatabase['transaction']>)
+      transactions.push(tx)
+      return tx
+    })
+    const get = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (this: IDBObjectStore, key) {
+      if (key === record.eventId) reads.push(this.transaction)
+      return nativeGet.call(this, key)
+    })
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value) {
+      if ((value as { eventId?: string }).eventId === record.eventId) writes.push(this.transaction)
+      return nativePut.call(this, value)
+    })
+    try {
+      if (outcome === 'succeeded') {
+        server.resolve({ data: issueResult(input, record.eventId), error: null })
+        expect(await sending).toEqual(issueResult(input, record.eventId))
+      } else {
+        const error = { code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION' }
+        server.resolve({ data: null, error })
+        await expect(sending).rejects.toMatchObject(error)
+      }
+      expect(transactions).toHaveLength(1)
+      expect(transactions[0].mode).toBe('readwrite')
+      expect(reads).toEqual([transactions[0]])
+      expect(writes).toEqual([transactions[0]])
+    } finally {
+      transaction.mockRestore()
       get.mockRestore()
       put.mockRestore()
     }
