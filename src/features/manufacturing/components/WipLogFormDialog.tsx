@@ -139,7 +139,7 @@ export function WipLogFormDialog({
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['stage-wip-log'] })
+      void queryClient.invalidateQueries({ queryKey: ['stage-wip-log'] })
       toast.success(editing ? 'تم تحديث سجل WIP' : 'تم إنشاء سجل WIP')
       onOpenChange(false)
     },

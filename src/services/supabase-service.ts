@@ -763,7 +763,9 @@ export const subscribeToItems = (callback: (items: Item[]) => void) => {
   return supabase
     .channel('products_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
-      itemsService.getAll().then(callback)
+      itemsService.getAll().then(callback).catch((error: unknown) => {
+        console.error('Error refreshing items after a realtime change:', error)
+      })
     })
     .subscribe()
 }
@@ -774,7 +776,9 @@ export const subscribeToManufacturingOrders = (callback: (orders: Record<string,
   return supabase
     .channel('manufacturing_orders_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'manufacturing_orders' }, () => {
-      manufacturingService.getAll().then(callback)
+      manufacturingService.getAll().then(callback).catch((error: unknown) => {
+        console.error('Error refreshing manufacturing orders after a realtime change:', error)
+      })
     })
     .subscribe()
 }
