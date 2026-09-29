@@ -41,7 +41,11 @@ PGDATABASE="$DB" bash scripts/ci/fresh-db/run_chain.sh sql/migrations "$ORDER"
 "${PSQL[@]}" -f docs/db/posted-history-193/acceptance.sql >/dev/null
 "${PSQL[@]}" -f "$HERE/historical_fixture.sql" >/dev/null
 "${PSQL[@]}" -f sql/migrations/194_stage_wip_posted_cost_boundary.sql >/dev/null
+# Owner-role and trusted-path probes, each in a brand-new backend (no session
+# state): the guard must not rely on a marker that an earlier call defined.
+bash "$HERE/fresh_backend_probes.sh" "$DB"
 "${PSQL[@]}" -f "$HERE/acceptance.sql"
+"${PSQL[@]}" -f "$HERE/acceptance_roles.sql"
 "${PSQL[@]}" -f docs/db/material-consumption-192/acceptance.sql >/dev/null
 "${PSQL[@]}" -f docs/db/material-consumption-192/acceptance_matrix.sql >/dev/null
 python3 docs/db/material-consumption-192/concurrency.py "$DB"
