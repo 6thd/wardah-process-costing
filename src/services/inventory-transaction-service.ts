@@ -2,8 +2,7 @@
  * Inventory Transaction Service
  *
  * Reservations remain simple RLS-scoped writes. Material consumption is routed
- * through rpc_consume_reserved_materials so reservation state, bins, product
- * aggregates, and stock ledger entries are updated in one database transaction.
+ * by the dedicated M192 material-issue command. This service handles reservations.
  */
 
 import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase'
@@ -177,45 +176,10 @@ class InventoryTransactionService {
   }
 
   async consumeReservedMaterials(
-    moId: string,
-    consumptions: MaterialConsumption[],
+    _moId: string,
+    _consumptions: MaterialConsumption[],
   ): Promise<void> {
-    await this.requireOrgId()
-    if (!consumptions.length) return
-
-    const { data, error } = await supabase.rpc(
-      'rpc_consume_reserved_materials',
-      {
-        p_mo_id: moId,
-        p_consumptions: consumptions.map((consumption) => ({
-          item_id: consumption.item_id,
-          quantity: consumption.quantity,
-          warehouse_id: consumption.warehouse_id,
-          location_id: consumption.location_id,
-        })),
-      },
-    )
-
-    if (error) {
-      throw new AppError(
-        'CONSUMPTION_ERROR',
-        `Failed to consume reserved materials: ${error.message}`,
-        500,
-        true,
-        { moId, consumptions, error },
-      )
-    }
-
-    const result = data as { success?: boolean; error?: string } | null
-    if (!result?.success) {
-      throw new AppError(
-        'CONSUMPTION_ERROR',
-        result?.error || 'Material consumption transaction failed',
-        500,
-        true,
-        { moId, consumptions, result },
-      )
-    }
+    throw new AppError('MATERIAL_ISSUE_LEGACY_RETIRED', 'Use the event-bearing M192 material issue command', 410)
   }
 
   async releaseReservation(

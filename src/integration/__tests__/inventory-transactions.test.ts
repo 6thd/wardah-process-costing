@@ -18,7 +18,6 @@ vi.mock('@/services/inventory-transaction-service', () => ({
     reserveMaterials: vi.fn(() => Promise.resolve([])),
     releaseMaterials: vi.fn(() => Promise.resolve()),
     getReservations: vi.fn(() => Promise.resolve([])),
-    consumeReservedMaterials: vi.fn(() => Promise.resolve()),
   },
 }));
 
@@ -79,13 +78,5 @@ describe('Inventory Transactions Integration', () => {
       expect(Array.isArray(availability)).toBe(true);
     });
 
-    it('should consume reserved materials', async () => {
-      const { inventoryTransactionService } = await import('@/services/inventory-transaction-service');
-      
-      // Mock test - service methods are mocked
-      expect(inventoryTransactionService).toBeDefined();
-      expect(inventoryTransactionService.consumeReservedMaterials).toBeDefined();
-    });
   });
 });
-
