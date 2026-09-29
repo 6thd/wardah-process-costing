@@ -24,6 +24,18 @@ function command(): MaterialIssueCommand {
 
 beforeEach(() => vi.mocked(supabase.rpc).mockReset())
 
+function issueResult(input: MaterialIssueCommand, eventId: string) {
+  return { success: true as const, event_id: eventId, mo_id: input.moId,
+    org_id: input.orgId, stage_id: input.stageId, consumption_ids: ['row-1'],
+    consumption_count: 1, material_cost_posted: 3 }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 describe('material issue durable slot', () => {
   it('allocates one event across competing tabs and preserves the ordered request', async () => {
     const input = command()
@@ -107,6 +119,133 @@ describe('material issue durable slot', () => {
     expect(supabase.rpc).toHaveBeenCalledTimes(2)
   })
 
+  it('does not acknowledge a rejection while another tab may still return success', async () => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    const late = deferred<{ data: ReturnType<typeof issueResult>; error: null }>()
+    const firstStarted = deferred<void>()
+    vi.mocked(supabase.rpc).mockImplementationOnce(() => {
+      firstStarted.resolve()
+      return late.promise as never
+    }).mockResolvedValueOnce({ data: null, error: {
+      code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION',
+    } } as never)
+
+    const first = sendMaterialIssue(record.eventId)
+    await firstStarted.promise
+    await expect(sendMaterialIssue(record.eventId)).rejects.toMatchObject({ code: 'P0001' })
+    await expect(acknowledgeRejectedMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_OUTCOME_UNKNOWN')
+    await expect(claimMaterialIssue(input)).rejects.toThrow('MATERIAL_ISSUE_UNRESOLVED')
+    late.resolve({ data: issueResult(input, record.eventId), error: null })
+    expect(await first).toEqual(issueResult(input, record.eventId))
+    await expect(acknowledgeRejectedMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_OUTCOME_UNKNOWN')
+    expect(await sendMaterialIssue(record.eventId)).toEqual(issueResult(input, record.eventId))
+    expect(supabase.rpc).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps an earlier committed success when a second response is a late rejection', async () => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    const late = deferred<{ data: null; error: { code: string; message: string } }>()
+    const secondStarted = deferred<void>()
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: issueResult(input, record.eventId), error: null } as never)
+      .mockImplementationOnce(() => {
+        secondStarted.resolve()
+        return late.promise as never
+      })
+    // Register the delayed call before the first call resolves.
+    const first = sendMaterialIssue(record.eventId)
+    const second = sendMaterialIssue(record.eventId)
+    await secondStarted.promise
+    expect(await first).toEqual(issueResult(input, record.eventId))
+    late.resolve({ data: null, error: { code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION' } })
+    expect(await second).toEqual(issueResult(input, record.eventId))
+    expect(await sendMaterialIssue(record.eventId)).toEqual(issueResult(input, record.eventId))
+    expect(supabase.rpc).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the acknowledgment read and tombstone write in one readwrite transaction', async () => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: null, error: {
+      code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION',
+    } } as never)
+    await expect(sendMaterialIssue(record.eventId)).rejects.toMatchObject({ code: 'P0001' })
+    const transactions: IDBTransaction[] = []
+    // Observe the transaction boundary itself, so a read followed by a write
+    // in separate transactions cannot pass merely because the calls ran in order.
+    const nativeTransaction = IDBDatabase.prototype.transaction
+    const boundary = vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(function (this: IDBDatabase, ...args) {
+      const tx = nativeTransaction.apply(this, args as Parameters<IDBDatabase['transaction']>)
+      transactions.push(tx)
+      return tx
+    })
+    try {
+      await acknowledgeRejectedMaterialIssue(record.eventId)
+      expect(transactions).toHaveLength(1)
+      expect(transactions[0].mode).toBe('readwrite')
+      await expect(sendMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_EVENT_ACKNOWLEDGED')
+    } finally {
+      boundary.mockRestore()
+    }
+  })
+
+  it('registers a retry with its fresh slot read in one readwrite transaction before fetch', async () => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    const reads: IDBTransaction[] = []
+    const writes: IDBTransaction[] = []
+    const nativeGet = IDBObjectStore.prototype.get
+    const nativePut = IDBObjectStore.prototype.put
+    const get = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (this: IDBObjectStore, key) {
+      if (key === record.eventId) reads.push(this.transaction)
+      return nativeGet.call(this, key)
+    })
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value) {
+      if ((value as { eventId?: string }).eventId === record.eventId) writes.push(this.transaction)
+      return nativePut.call(this, value)
+    })
+    const atNetwork = deferred<void>()
+    const server = deferred<{ data: null; error: { code: string; message: string } }>()
+    vi.mocked(supabase.rpc).mockImplementationOnce(() => {
+      atNetwork.resolve()
+      return server.promise as never
+    })
+    try {
+      const sending = sendMaterialIssue(record.eventId)
+      await atNetwork.promise
+      expect(writes).toHaveLength(1)
+      expect(writes[0].mode).toBe('readwrite')
+      expect(reads).toContain(writes[0])
+      server.resolve({ data: null, error: { code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION' } })
+      await expect(sending).rejects.toMatchObject({ code: 'P0001' })
+    } finally {
+      get.mockRestore()
+      put.mockRestore()
+    }
+  })
+
+  it('blocks an acknowledgment when another tab already registered a retry', async () => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: null, error: {
+      code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION',
+    } } as never)
+    await expect(sendMaterialIssue(record.eventId)).rejects.toMatchObject({ code: 'P0001' })
+    const atNetwork = deferred<void>()
+    const server = deferred<{ data: null; error: { code: string; message: string } }>()
+    vi.mocked(supabase.rpc).mockImplementationOnce(() => {
+      atNetwork.resolve()
+      return server.promise as never
+    })
+    const retry = sendMaterialIssue(record.eventId)
+    await atNetwork.promise
+    await expect(acknowledgeRejectedMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_OUTCOME_UNKNOWN')
+    await expect(claimMaterialIssue(input)).rejects.toThrow('MATERIAL_ISSUE_UNRESOLVED')
+    server.resolve({ data: null, error: { code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION' } })
+    await expect(retry).rejects.toMatchObject({ code: 'P0001' })
+  })
+
   it('preserves line order and treats the real Supabase network error shape as unknown', async () => {
     const input = command()
     input.lines.push({ ...input.lines[0], item_id: 'item-2', reservation_id: 'reservation-2', quantity: 1.005 })
@@ -135,6 +274,20 @@ describe('material issue durable slot', () => {
     await expect(acknowledgeRejectedMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_OUTCOME_UNKNOWN')
   })
 
+  it('requires both the exact allowlisted message and database SQLSTATE to acknowledge', async () => {
+    for (const error of [
+      { code: 'PGRST301', message: 'CONSUMPTION_EXCEEDS_RESERVATION' },
+      { code: 'P0001', message: 'CONSUMPTION_EXCEEDS_RESERVATION: extra detail' },
+      { code: 'P0001', message: 'MATERIAL_ISSUE_EVENT_CONFLICT' },
+    ]) {
+      const input = command()
+      const record = await claimMaterialIssue(input)
+      vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: null, error } as never)
+      await expect(sendMaterialIssue(record.eventId)).rejects.toMatchObject(error)
+      await expect(acknowledgeRejectedMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_OUTCOME_UNKNOWN')
+    }
+  })
+
   it.each([
     { event_id: 'other-event' }, { mo_id: 'other-mo' }, { stage_id: 'other-stage' },
     { org_id: 'other-org' }, { consumption_count: 2 },
@@ -151,6 +304,19 @@ describe('material issue durable slot', () => {
     expect((await pendingMaterialIssue(input.userId, input.moId))?.eventId).toBe(record.eventId)
   })
 
+  it.each([
+    { success: false }, { consumption_ids: [] }, { consumption_ids: 'row-1' },
+    { material_cost_posted: '3' }, { material_cost_posted: NaN },
+  ])('rejects a structurally invalid success response %j', async difference => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({
+      data: { ...issueResult(input, record.eventId), ...difference }, error: null,
+    } as never)
+    await expect(sendMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_UNVERIFIED_RESPONSE')
+    expect((await pendingMaterialIssue(input.userId, input.moId))?.eventId).toBe(record.eventId)
+  })
+
   it('rejects extra keys and accepts decimal quantities that binary multiplication misclassifies', async () => {
     const input = command()
     input.lines[0].quantity = 1.005
@@ -159,6 +325,20 @@ describe('material issue durable slot', () => {
     Object.assign(extra.lines[0], { unit_cost: 999 })
     await expect(claimMaterialIssue(extra)).rejects.toThrow('INVALID_MATERIAL_ISSUE_LINE')
     expect(supabase.rpc).not.toHaveBeenCalled()
+  })
+
+  it('rejects a seventh decimal, repeated reservation, and nonpositive quantity before claiming a slot', async () => {
+    for (const amend of [
+      (input: MaterialIssueCommand) => { input.lines[0].quantity = 1.0000001 },
+      (input: MaterialIssueCommand) => { input.lines[0].quantity = 0 },
+      (input: MaterialIssueCommand) => { input.lines.push({ ...input.lines[0] }) },
+      (input: MaterialIssueCommand) => { input.lines[0].consumption_type = 'BACKFLUSH' as 'MANUAL' },
+    ]) {
+      const input = command()
+      amend(input)
+      await expect(claimMaterialIssue(input)).rejects.toThrow('INVALID_MATERIAL_ISSUE_LINE')
+      expect(await pendingMaterialIssue(input.userId, input.moId)).toBeNull()
+    }
   })
 
   it('rejects partial policy reads and sends only a canonical settings array', async () => {
@@ -186,6 +366,15 @@ describe('material issue durable slot', () => {
       org_id: 'org-1', version: 2, allowed_statuses: ['IN_PROGRESS'],
     }, error: null } as never)
     await expect(setMaterialIssuePolicy('org-1', true, false)).rejects.toThrow('MATERIAL_ISSUE_POLICY_MISMATCH')
+  })
+
+  it('does not turn a failed policy read into a default write', async () => {
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: null, error: {
+      code: 'P0001', message: 'POLICY_READ_DENIED',
+    } } as never)
+    await expect(getMaterialIssuePolicy('org-1')).rejects.toMatchObject({ code: 'P0001' })
+    expect(supabase.rpc).toHaveBeenCalledTimes(1)
+    expect(supabase.rpc).toHaveBeenCalledWith('rpc_get_material_issue_wo_statuses', { p_org_id: 'org-1' })
   })
 
   it('blocks a different signed-in actor before sending an old event', async () => {
