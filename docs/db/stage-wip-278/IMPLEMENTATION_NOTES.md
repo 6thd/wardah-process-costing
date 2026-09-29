@@ -50,7 +50,7 @@ final verdict: a fresh, independent closure review of the new head is required.
 |---|---|
 | P1-1 owner branch of the guard was NULL-able | `194_...sql`: the close and material-cost owner/marker/token tests are wrapped in `COALESCE(..., false)`. New in-session and fresh-backend probes. |
 | P2-A `id` not part of the frozen identity | `194_...sql`: `NEW.id`/`OLD.id` joins the identity tuple; probes for direct re-key, `ON CONFLICT (id)` re-key, and re-key with a cost change. |
-| P2-B RBAC mutation baseline not updated | `scripts/ci/security/rbac-mutation-baseline.json`: 327 to 328 signatures (`stage_wip_log` direct update count 2 to 1, one new `rpc_call` signature for the close RPC), candidate total unchanged at 354. The reviewed classification rules are not touched: the new RPC stays `pending_review` in the closure matrix (as do two existing M181 RPCs) for the reviewer to classify. |
+| P2-B RBAC mutation baseline not updated | `scripts/ci/security/rbac-mutation-baseline.json`: 327 to 328 signatures (`stage_wip_log` direct update count 2 to 1, one new `rpc_call` signature for the close RPC), candidate total unchanged at 354. The reviewed classification rules are not touched: the new RPC stays `pending_review` in the closure matrix (as do two existing supplier-invoice RPCs) for the reviewer to classify. |
 | P2-C the M193 runner refuses once M194 exists | `docs/db/posted-history-193/run_local.sh`: the apply order is cut right after 193, the same idiom `stage-wip-278/run_red.sh` uses. |
 | P2-D five mutants survived the acceptance | New `acceptance_roles.sql`, `fresh_backend_probes.sh`, new legacy-shape fixtures and three new two-session scenarios (below). |
 
