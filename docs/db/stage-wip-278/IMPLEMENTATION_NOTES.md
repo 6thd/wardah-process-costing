@@ -167,3 +167,10 @@ folded into #284 to keep it from growing.
     call `run_chain.sh` without exporting `REPORT`, so each local run leaves an
     untracked `chain_report.txt` in the repository root (the M192 runner
     passes it correctly).
+14. `user_organizations.is_active` is nullable and is read two ways: tenant
+    resolution (so row-level security on `stage_wip_log`) counts NULL as
+    active, while `wardah_assert_org_member` and `has_permission` require TRUE,
+    and the MO table's own policy hides the row from such a member. A member
+    whose flag is NULL therefore sees WIP rows and is refused writes by name
+    (`NOT_ORG_MEMBER`); the role suite pins that behavior. The inconsistency is
+    shared code, not specific to M194.
