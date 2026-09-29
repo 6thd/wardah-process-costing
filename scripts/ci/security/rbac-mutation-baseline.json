@@ -2,7 +2,7 @@
   "schema_version": 1,
   "scanner_schema_version": 2,
   "candidate_count": 354,
-  "signature_count": 327,
-  "signature_sha256": "82f8d6a24b6d937e13832eb628830db0a159260170d7d382f0f0f436e7ff8cfb",
-  "note": "Reviewed #273 boundary change: the mounted direct stage_wip_log DELETE signature was intentionally removed; the remaining standard_costs line shifts are unchanged. No new mutation/RPC/invoke signature was introduced."
+  "signature_count": 328,
+  "signature_sha256": "e400feb32313f1acd801f01ab9d7930115a2a863bb5a9e1dfaa3dcec05fe1b7c",
+  "note": "Reviewed #278 boundary change: in supabase-service.ts the direct stage_wip_log close UPDATE was replaced by the audited rpc_close_stage_wip_194 RPC. The direct stage_wip_log update count goes 2 to 1 and one rpc_call signature is added; the candidate total stays 354 and every other signature is unchanged."
 }

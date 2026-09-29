@@ -12,7 +12,8 @@ if [[ "$(psql -X -tAc 'SHOW server_version_num' -d postgres)" != 17* ]]; then
 fi
 DB="wardah_192_green_$$"
 ORDER="$(mktemp)"
-cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -f "$ORDER"; }
+FULL_ORDER="$(mktemp)"
+cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -f "$ORDER" "$FULL_ORDER"; }
 trap cleanup EXIT
 cd "$ROOT"
 echo "checkout: $(git rev-parse HEAD)"
@@ -28,7 +29,10 @@ PSQL=(psql -X -v ON_ERROR_STOP=1 -d "$DB")
 "${PSQL[@]}" -q -f scripts/ci/fresh-db/supabase_shim.sql >/dev/null
 "${PSQL[@]}" -q -f "$BASELINE" >/dev/null 2>&1
 "${PSQL[@]}" -q -f "$REFERENCE" >/dev/null
-python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > "$ORDER"
+python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > "$FULL_ORDER"
+# This acceptance stays valid after later migrations are added: apply exactly
+# the 190..193 chain and never the next migration (M194 has its own acceptance).
+sed -n '1,/^193_posted_material_history_delete_guard.sql$/p' "$FULL_ORDER" > "$ORDER"
 if [[ "$(tail -n 1 "$ORDER")" != '193_posted_material_history_delete_guard.sql' ]]; then
   echo 'REFUSED: M193 must be the sole final migration' >&2; exit 2
 fi
