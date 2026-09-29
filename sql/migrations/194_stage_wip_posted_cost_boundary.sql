@@ -37,6 +37,32 @@ CREATE TEMP TABLE m194_rpc_acl_preimage ON COMMIT DROP AS
 SELECT proacl,prosecdef,proconfig
 FROM pg_proc WHERE oid='public.rpc_consume_material_event(uuid,uuid,uuid,jsonb)'::regprocedure;
 
+-- M190 intentionally revoked client EXECUTE on the internal membership
+-- helper. This narrow DEFINER operation enforces both membership and the
+-- specific WIP permission without exposing the private helper or schema.
+CREATE FUNCTION public.wardah_assert_stage_wip_editor_194(
+  p_org uuid, p_action text
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $fn$
+BEGIN
+  IF p_action NOT IN ('create','update') THEN
+    RAISE EXCEPTION 'WIP_ACTION_INVALID' USING ERRCODE='P0001';
+  END IF;
+  PERFORM public.wardah_assert_org_member(p_org);
+  IF NOT COALESCE(public.has_permission(
+    auth.uid(),p_org,'manufacturing.stage_costs.'||p_action
+  ),false) THEN
+    RAISE EXCEPTION 'WIP_%_PERMISSION_DENIED',upper(p_action)
+      USING ERRCODE='P0001';
+  END IF;
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.wardah_assert_stage_wip_editor_194(uuid,text)
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.wardah_assert_stage_wip_editor_194(uuid,text)
+  TO authenticated;
+
 -- Alphabetical trigger order runs calculate_wip_equivalent_units first. Direct
 -- changes to derived columns cannot persist: it recomputes them from inputs.
 -- The invoker trigger observes the actual executing role: authenticated for
@@ -69,12 +95,7 @@ BEGIN
       RAISE EXCEPTION 'WIP_CLIENT_POSTED_FIELDS_DENIED' USING ERRCODE='P0001';
     END IF;
     IF current_user<>v_owner THEN
-      PERFORM public.wardah_assert_org_member(NEW.org_id);
-      IF NOT COALESCE(public.has_permission(
-        auth.uid(),NEW.org_id,'manufacturing.stage_costs.create'
-      ),false) THEN
-        RAISE EXCEPTION 'WIP_CREATE_PERMISSION_DENIED' USING ERRCODE='P0001';
-      END IF;
+      PERFORM public.wardah_assert_stage_wip_editor_194(NEW.org_id,'create');
     END IF;
     IF NOT COALESCE(NEW.is_closed,false) AND EXISTS (
       SELECT 1 FROM public.stage_wip_log w
@@ -114,12 +135,7 @@ BEGIN
     RAISE EXCEPTION 'WIP_POSTED_MATERIAL_IMMUTABLE' USING ERRCODE='P0001';
   END IF;
   IF current_user<>v_owner THEN
-    PERFORM public.wardah_assert_org_member(OLD.org_id);
-    IF NOT COALESCE(public.has_permission(
-      auth.uid(),OLD.org_id,'manufacturing.stage_costs.update'
-    ),false) THEN
-      RAISE EXCEPTION 'WIP_UPDATE_PERMISSION_DENIED' USING ERRCODE='P0001';
-    END IF;
+    PERFORM public.wardah_assert_stage_wip_editor_194(OLD.org_id,'update');
   END IF;
   RETURN NEW;
 END

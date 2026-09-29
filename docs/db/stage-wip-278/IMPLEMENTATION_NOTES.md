@@ -12,15 +12,17 @@ or the employee issue UI. #229 and #230 remain separate.
   existing row may edit labor and overhead, but cannot re-key or change dates;
   it takes no MO lock while holding the WIP row lock.
 - Ordinary client writes require active org membership and stage-costs
-  create/update permission. The trigger denies direct material-cost changes,
+  create/update permission. A narrow public DEFINER helper performs that
+  check because M190 correctly denies ordinary callers direct EXECUTE on
+  `wardah_assert_org_member`. The trigger denies direct material-cost changes,
   identity/date changes and direct close/reopen. It runs after the existing
   equivalent-unit calculation trigger, so client-supplied derived columns do
   not persist. The M192 owner-run RPC sets a transaction-local marker around
   its cost-only WIP update; the trigger also requires its effective role to be
   the WIP table owner. A client-set marker alone cannot bypass the guard.
   Even the owner cannot insert a posted cost or directly alter it outside this
-  reviewed path. `service_role` is not the owner and needs an authenticated
-  actor and WIP permission for direct changes.
+  reviewed path. `service_role` and `anon` cannot execute the editor helper,
+  so their direct WIP writes fail closed.
 - The audited close RPC takes MO then WIP, checks membership and permission,
   and permits only false/NULL to true. It does not reopen.
 - M192 checks the number of eligible WIP rows under its MO lock before stock
