@@ -202,13 +202,15 @@ its RED probe GREEN and re-runs the existing M190/M191 acceptance suites.
 
 ## 10. Post-reconciliation UI/service gaps — 2026-09-29
 
-A later Bugbot-style scan of manufacturing + inventory on `main` (no feature-branch
-diff) found additional **UI/service** gaps that are **not** owned by the Issues in §5
-or by draft PRs #279/#277/#272/#271. Tracking-only write-up with proposed Issue bodies:
+A later source review of manufacturing + inventory on `main` identified three
+UI/service gaps for owner triage after the current #229/#279 work. This is
+tracking only, with overlaps and evidence limits stated in the linked document:
 
 [`MANUFACTURING_INVENTORY_UI_GAPS_20260929.md`](./MANUFACTURING_INVENTORY_UI_GAPS_20260929.md)
 
-That document authorizes no implementation and does not change the C1–C7 delivery plan
-above. Issues A–F there (stock-truth UI, sales delivery path, warehouse bin guard,
-transfer org context, MES consume quarantine, modules SLE quarantine) need owner
-triage before any code PR.
+That document authorizes no implementation and does not change the C1–C7
+delivery plan above. Its remaining gaps are A (inventory UI stock reads), C
+(warehouse service false success and future guard), and D (transfer draft/list
+organization context). The initial sales claim was disproved; MES consumption
+is already owned by #229/#279; unused modules writers remain a latent cleanup
+note. No new Issues or code PRs are requested during the current #229 work.
