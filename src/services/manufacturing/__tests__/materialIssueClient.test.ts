@@ -58,7 +58,7 @@ describe('material issue durable slot', () => {
     } as never)
     await expect(sendMaterialIssue(first.eventId)).rejects.toMatchObject({ code: 'P0001' })
     await acknowledgeRejectedMaterialIssue(first.eventId)
-    await expect(sendMaterialIssue(first.eventId)).rejects.toThrow('MATERIAL_ISSUE_EVENT_TERMINAL')
+    await expect(sendMaterialIssue(first.eventId)).rejects.toThrow('MATERIAL_ISSUE_EVENT_ACKNOWLEDGED')
     const corrected = await claimMaterialIssue(input)
     expect(corrected.eventId).not.toBe(first.eventId)
     expect(supabase.rpc).toHaveBeenCalledTimes(1)
@@ -78,7 +78,87 @@ describe('material issue durable slot', () => {
     expect(recovered?.eventId).toBe(first.eventId)
     expect((await sendMaterialIssue(recovered!.eventId)).event_id).toBe(first.eventId)
     expect(await pendingMaterialIssue(input.userId, input.moId)).toBeNull()
-    expect(vi.mocked(supabase.rpc).mock.calls.map(([, args]) => (args as { p_consumptions: unknown }).p_consumptions)).toEqual([input.lines, input.lines])
+    expect(vi.mocked(supabase.rpc).mock.calls.map(([, args]) => ({
+      event: (args as { p_event_id: string }).p_event_id,
+      lines: (args as { p_consumptions: unknown }).p_consumptions,
+    }))).toEqual([{ event: first.eventId, lines: input.lines }, { event: first.eventId, lines: input.lines }])
+  })
+
+  it('returns the stored success to a late concurrent response and a stale tab', async () => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    const result = { success: true, event_id: record.eventId, mo_id: input.moId,
+      org_id: input.orgId, stage_id: input.stageId, consumption_ids: ['row-1'],
+      consumption_count: 1, material_cost_posted: 3 }
+    let releaseFirst!: (value: unknown) => void
+    let firstStarted!: () => void
+    const started = new Promise<void>(resolve => { firstStarted = resolve })
+    vi.mocked(supabase.rpc).mockImplementationOnce(() => {
+      firstStarted()
+      return new Promise(resolve => { releaseFirst = resolve }) as never
+    }).mockResolvedValueOnce({ data: result, error: null } as never)
+    const first = sendMaterialIssue(record.eventId)
+    await started
+    const second = sendMaterialIssue(record.eventId)
+    expect(await second).toEqual(result)
+    releaseFirst({ data: result, error: null })
+    expect(await first).toEqual(result)
+    expect(await sendMaterialIssue(record.eventId)).toEqual(result)
+    expect(supabase.rpc).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves line order and treats the real Supabase network error shape as unknown', async () => {
+    const input = command()
+    input.lines.push({ ...input.lines[0], item_id: 'item-2', reservation_id: 'reservation-2', quantity: 1.005 })
+    const record = await claimMaterialIssue(input)
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: null, error: {
+      code: '', message: 'TypeError: Failed to fetch',
+    } } as never).mockResolvedValueOnce({ data: { success: true, event_id: record.eventId,
+      mo_id: input.moId, org_id: input.orgId, stage_id: input.stageId,
+      consumption_ids: ['row-1', 'row-2'], consumption_count: 2, material_cost_posted: 4 }, error: null } as never)
+    await expect(sendMaterialIssue(record.eventId)).rejects.toMatchObject({ code: '' })
+    await expect(acknowledgeRejectedMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_OUTCOME_UNKNOWN')
+    await sendMaterialIssue(record.eventId)
+    expect(vi.mocked(supabase.rpc).mock.calls.map(([, args]) => ({
+      event: (args as { p_event_id: string }).p_event_id,
+      lines: (args as { p_consumptions: unknown }).p_consumptions,
+    }))).toEqual([{ event: record.eventId, lines: input.lines }, { event: record.eventId, lines: input.lines }])
+  })
+
+  it('does not acknowledge an event-ID conflict as proof of a failed first attempt', async () => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: null, error: {
+      code: 'P0001', message: 'MATERIAL_ISSUE_EVENT_CONFLICT',
+    } } as never)
+    await expect(sendMaterialIssue(record.eventId)).rejects.toMatchObject({ code: 'P0001' })
+    await expect(acknowledgeRejectedMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_OUTCOME_UNKNOWN')
+  })
+
+  it.each([
+    { event_id: 'other-event' }, { mo_id: 'other-mo' }, { stage_id: 'other-stage' },
+    { org_id: 'other-org' }, { consumption_count: 2 },
+  ])('rejects a mismatched success response %j without releasing the slot', async difference => {
+    const input = command()
+    const record = await claimMaterialIssue(input)
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: {
+      success: true, event_id: record.eventId, mo_id: input.moId,
+      stage_id: input.stageId, org_id: input.orgId,
+      consumption_count: 1, consumption_ids: ['row-1'], material_cost_posted: 3,
+      ...difference,
+    }, error: null } as never)
+    await expect(sendMaterialIssue(record.eventId)).rejects.toThrow('MATERIAL_ISSUE_UNVERIFIED_RESPONSE')
+    expect((await pendingMaterialIssue(input.userId, input.moId))?.eventId).toBe(record.eventId)
+  })
+
+  it('rejects extra keys and accepts decimal quantities that binary multiplication misclassifies', async () => {
+    const input = command()
+    input.lines[0].quantity = 1.005
+    expect((await claimMaterialIssue(input)).lines[0].quantity).toBe(1.005)
+    const extra = command()
+    Object.assign(extra.lines[0], { unit_cost: 999 })
+    await expect(claimMaterialIssue(extra)).rejects.toThrow('INVALID_MATERIAL_ISSUE_LINE')
+    expect(supabase.rpc).not.toHaveBeenCalled()
   })
 
   it('rejects partial policy reads and sends only a canonical settings array', async () => {
@@ -91,6 +171,21 @@ describe('material issue durable slot', () => {
     expect(supabase.rpc).toHaveBeenLastCalledWith('rpc_set_material_issue_wo_statuses', {
       p_org_id: 'org-1', p_allowed_statuses: ['IN_PROGRESS', 'READY', 'IN_SETUP'],
     })
+  })
+
+  it('rejects invalid independent policy fields and a setter response that disagrees with the request', async () => {
+    for (const invalid of [
+      { org_id: 'other-org', version: 1, allowed_statuses: ['IN_PROGRESS'] },
+      { org_id: 'org-1', version: -1, allowed_statuses: ['IN_PROGRESS'] },
+      { org_id: 'org-1', version: 1, allowed_statuses: ['READY', 'IN_PROGRESS'] },
+    ]) {
+      vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: invalid, error: null } as never)
+      await expect(getMaterialIssuePolicy('org-1')).rejects.toThrow('MATERIAL_ISSUE_POLICY_INVALID')
+    }
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: {
+      org_id: 'org-1', version: 2, allowed_statuses: ['IN_PROGRESS'],
+    }, error: null } as never)
+    await expect(setMaterialIssuePolicy('org-1', true, false)).rejects.toThrow('MATERIAL_ISSUE_POLICY_MISMATCH')
   })
 
   it('blocks a different signed-in actor before sending an old event', async () => {

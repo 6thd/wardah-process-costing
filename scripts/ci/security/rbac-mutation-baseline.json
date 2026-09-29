@@ -3,6 +3,6 @@
   "scanner_schema_version": 2,
   "candidate_count": 354,
   "signature_count": 327,
-  "signature_sha256": "82f8d6a24b6d937e13832eb628830db0a159260170d7d382f0f0f436e7ff8cfb",
-  "note": "Reviewed #273 boundary change: the mounted direct stage_wip_log DELETE signature was intentionally removed; the remaining standard_costs line shifts are unchanged. No new mutation/RPC/invoke signature was introduced."
+  "signature_sha256": "3ab37285676aaa1616efdbc55a422061eba8c22a7aefba76c517f4d50e3a9367",
+  "note": "Reviewed #229 client foundation: removed eventless rpc_consume_reserved_materials, direct material_consumption INSERT and retired backflush_materials calls; added rpc_consume_material_event and the get/set WO-policy RPC calls. Three signatures replaced by three signatures; candidate_count and signature_count remain 354/327."
 }

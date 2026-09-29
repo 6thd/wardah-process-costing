@@ -18,6 +18,12 @@ Stacked on the reviewed #277 contract. This slice implements the event command's
 
 The record is local to one browser profile. A separate device, private window or cleared browser storage can bypass it. There is no server reconciliation or global intent key. Support must not infer rollback from receipt absence alone. The owner must accept this residual risk explicitly or commission an independently reviewed server-side intent mechanism before any limited launch.
 
+## Review follow-up
+
+The independent review of the first head found a late-success race and binary floating-point quantity rejection. A succeeding second tab now causes the first tab and later retries to return the validated stored success; an acknowledged rejection has a distinct local error. Decimal validation uses the JSON-number value rounded to six places. Tests now cover a two-response race, exact event ID and ordered multi-line payload, mismatch responses, PostgREST's returned network-error shape, error classification, independent policy fields, and actual retired service methods. The reviewed RBAC inventory replaces three old write signatures with the three M192 event/policy RPC calls without changing the 354/327 counts.
+
+The CI/CD workflow currently filters pull requests by base branch and does not include this stacked contract branch. Exact-head CI/CD remains unavailable while #279 targets #277; local type-check, lint, focused tests, full tests and build must be recorded separately. After #277 is merged, rebase #279 onto `main` and require the regular exact-head workflow before Ready.
+
 ## Still required before Ready or any Production event
 
 1. Build and mount the permission-gated employee command and Org Admin policy settings UI, with accessible Arabic copy and a complete catalog load that fails closed on org switches. The currently unmounted hooks must be migrated or removed.

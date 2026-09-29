@@ -81,6 +81,9 @@ async function change<T>(work: (store: IDBObjectStore) => Promise<T>): Promise<T
       tx.onabort = () => reject(tx.error || new Error('MATERIAL_ISSUE_STORAGE_ABORTED'))
       tx.onerror = () => reject(tx.error || new Error('MATERIAL_ISSUE_STORAGE_FAILED'))
     })
+    // Attach a rejection handler immediately: an IDB error can precede the
+    // await on work(), especially when the request fails asynchronously.
+    void finished.catch(() => undefined)
     try {
       const value = await work(tx.objectStore(STORE))
       await finished
@@ -105,11 +108,14 @@ function validate(command: MaterialIssueCommand): void {
   }
   const reservations = new Set<string>()
   for (const line of command.lines) {
+    const allowed = new Set(['item_id', 'reservation_id', 'warehouse_id', 'work_order_id',
+      'uom_id', 'quantity', 'consumption_type', 'notes'])
     if (![line.item_id, line.reservation_id, line.warehouse_id, line.work_order_id, line.uom_id].every(Boolean)
       || line.consumption_type !== 'MANUAL' || typeof line.quantity !== 'number'
       || !Number.isFinite(line.quantity) || line.quantity <= 0
-      || !Number.isInteger(line.quantity * 1_000_000)
+      || Number(line.quantity.toFixed(6)) !== line.quantity
       || (line.notes != null && typeof line.notes !== 'string')
+      || Object.keys(line).some(key => !allowed.has(key))
       || reservations.has(line.reservation_id)) {
       throw new Error('INVALID_MATERIAL_ISSUE_LINE')
     }
@@ -146,22 +152,36 @@ function cloneOrNull(record: MaterialIssueRecord | undefined): MaterialIssueReco
 }
 
 /** Registration must commit before the network request starts. */
-async function register(eventId: string): Promise<{ record: MaterialIssueRecord; attempt: number }> {
+function storedSuccess(record: MaterialIssueRecord): MaterialIssueResult {
+  if (!validResult(record.result, record)) throw new Error('MATERIAL_ISSUE_UNVERIFIED_STORED_RESULT')
+  return record.result
+}
+
+async function register(eventId: string): Promise<
+  { record: MaterialIssueRecord; attempt: number; completed: null }
+  | { record: MaterialIssueRecord; attempt: null; completed: MaterialIssueResult }
+> {
   return change(async store => {
     const record = await request<MaterialIssueRecord | undefined>(store.get(eventId))
-    if (!record || record.state !== 'unresolved' || !record.slot) throw new Error('MATERIAL_ISSUE_EVENT_TERMINAL')
+    if (!record) throw new Error('MATERIAL_ISSUE_EVENT_MISSING')
+    if (record.state === 'succeeded') return { record: clone(record), attempt: null, completed: storedSuccess(record) }
+    if (record.state === 'acknowledged') throw new Error('MATERIAL_ISSUE_EVENT_ACKNOWLEDGED')
+    if (!record.slot) throw new Error('MATERIAL_ISSUE_OUTCOME_UNKNOWN')
     const attempt = record.attempts.length === 1 && !record.attempts[0].registered
       ? 0 : record.attempts.push({ state: 'unknown', registered: true }) - 1
     record.attempts[attempt].registered = true
     await request(store.put(record))
-    return { record: clone(record), attempt }
+    return { record: clone(record), attempt, completed: null }
   })
 }
 
-async function settle(eventId: string, attempt: number, outcome: Attempt, result?: MaterialIssueResult): Promise<void> {
-  await change(async store => {
+async function settle(eventId: string, attempt: number, outcome: Attempt, result?: MaterialIssueResult): Promise<MaterialIssueResult | undefined> {
+  return change(async store => {
     const record = await request<MaterialIssueRecord | undefined>(store.get(eventId))
-    if (!record || record.state !== 'unresolved' || !record.attempts[attempt]) throw new Error('MATERIAL_ISSUE_EVENT_TERMINAL')
+    if (!record) throw new Error('MATERIAL_ISSUE_EVENT_MISSING')
+    if (record.state === 'succeeded') return storedSuccess(record)
+    if (record.state === 'acknowledged') throw new Error('MATERIAL_ISSUE_EVENT_ACKNOWLEDGED')
+    if (!record.attempts[attempt]) throw new Error('MATERIAL_ISSUE_OUTCOME_UNKNOWN')
     record.attempts[attempt] = outcome
     if (result) {
       record.result = result
@@ -169,6 +189,7 @@ async function settle(eventId: string, attempt: number, outcome: Attempt, result
       delete record.slot
     }
     await request(store.put(record))
+    return result
   })
 }
 
@@ -201,21 +222,23 @@ export async function sendMaterialIssue(eventId: string): Promise<MaterialIssueR
   if (identityError || !identity.user) throw new Error('MATERIAL_ISSUE_IDENTITY_UNAVAILABLE')
   const pending = await change(async store => request<MaterialIssueRecord | undefined>(store.get(eventId)))
   if (!pending || pending.userId !== identity.user.id) throw new Error('MATERIAL_ISSUE_ACTOR_CHANGED')
-  const { record, attempt } = await register(eventId)
+  const registered = await register(eventId)
+  if (registered.completed) return registered.completed
+  const { record, attempt } = registered
   try {
     const { data, error } = await supabase.rpc('rpc_consume_material_event', {
       p_mo_id: record.moId, p_stage_id: record.stageId, p_event_id: record.eventId,
       p_consumptions: record.lines as unknown as Database['public']['Functions']['rpc_consume_material_event']['Args']['p_consumptions'],
     })
     if (error) {
-      await settle(eventId, attempt, definiteError(error)
+      const committed = await settle(eventId, attempt, definiteError(error)
         ? { state: 'rejected', registered: true, code: error.code, message: error.message }
         : { state: 'unknown', registered: true })
+      if (committed) return committed
       throw error
     }
     if (!validResult(data, record)) throw new Error('MATERIAL_ISSUE_UNVERIFIED_RESPONSE')
-    await settle(eventId, attempt, { state: 'succeeded', registered: true }, data)
-    return data
+    return await settle(eventId, attempt, { state: 'succeeded', registered: true }, data) || data
   } catch (error) {
     // No server response, bad response, storage failure: retain the unknown slot.
     throw error
@@ -245,10 +268,13 @@ export interface MaterialIssuePolicy {
 function parsePolicy(value: unknown, orgId: string): MaterialIssuePolicy {
   if (!value || typeof value !== 'object') throw new Error('MATERIAL_ISSUE_POLICY_UNAVAILABLE')
   const policy = value as Partial<MaterialIssuePolicy>
-  if (policy.org_id !== orgId || !Number.isInteger(policy.version) || !policy.version
+  const canonical = [
+    ['IN_PROGRESS'], ['IN_PROGRESS', 'READY'], ['IN_PROGRESS', 'IN_SETUP'],
+    ['IN_PROGRESS', 'READY', 'IN_SETUP'],
+  ]
+  if (policy.org_id !== orgId || !Number.isInteger(policy.version) || policy.version <= 0
     || !Array.isArray(policy.allowed_statuses) || !policy.allowed_statuses.includes('IN_PROGRESS')
-    || policy.allowed_statuses.some(status => !['IN_PROGRESS', 'READY', 'IN_SETUP'].includes(status))
-    || new Set(policy.allowed_statuses).size !== policy.allowed_statuses.length) {
+    || !canonical.some(statuses => JSON.stringify(statuses) === JSON.stringify(policy.allowed_statuses))) {
     throw new Error('MATERIAL_ISSUE_POLICY_INVALID')
   }
   return policy as MaterialIssuePolicy
@@ -266,5 +292,7 @@ export async function setMaterialIssuePolicy(orgId: string, ready: boolean, inSe
     p_org_id: orgId, p_allowed_statuses: statuses,
   })
   if (error) throw error
-  return parsePolicy(data, orgId)
+  const policy = parsePolicy(data, orgId)
+  if (JSON.stringify(policy.allowed_statuses) !== JSON.stringify(statuses)) throw new Error('MATERIAL_ISSUE_POLICY_MISMATCH')
+  return policy
 }
