@@ -225,24 +225,19 @@ export async function sendMaterialIssue(eventId: string): Promise<MaterialIssueR
   const registered = await register(eventId)
   if (registered.completed) return registered.completed
   const { record, attempt } = registered
-  try {
-    const { data, error } = await supabase.rpc('rpc_consume_material_event', {
-      p_mo_id: record.moId, p_stage_id: record.stageId, p_event_id: record.eventId,
-      p_consumptions: record.lines as unknown as Database['public']['Functions']['rpc_consume_material_event']['Args']['p_consumptions'],
-    })
-    if (error) {
-      const committed = await settle(eventId, attempt, definiteError(error)
-        ? { state: 'rejected', registered: true, code: error.code, message: error.message }
-        : { state: 'unknown', registered: true })
-      if (committed) return committed
-      throw error
-    }
-    if (!validResult(data, record)) throw new Error('MATERIAL_ISSUE_UNVERIFIED_RESPONSE')
-    return await settle(eventId, attempt, { state: 'succeeded', registered: true }, data) || data
-  } catch (error) {
-    // No server response, bad response, storage failure: retain the unknown slot.
+  const { data, error } = await supabase.rpc('rpc_consume_material_event', {
+    p_mo_id: record.moId, p_stage_id: record.stageId, p_event_id: record.eventId,
+    p_consumptions: record.lines as unknown as Database['public']['Functions']['rpc_consume_material_event']['Args']['p_consumptions'],
+  })
+  if (error) {
+    const committed = await settle(eventId, attempt, definiteError(error)
+      ? { state: 'rejected', registered: true, code: error.code, message: error.message }
+      : { state: 'unknown', registered: true })
+    if (committed) return committed
     throw error
   }
+  if (!validResult(data, record)) throw new Error('MATERIAL_ISSUE_UNVERIFIED_RESPONSE')
+  return await settle(eventId, attempt, { state: 'succeeded', registered: true }, data) || data
 }
 
 /** A definitive first rejection is only dismissible when every registered send was rejected. */
