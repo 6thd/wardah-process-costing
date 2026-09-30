@@ -505,16 +505,30 @@ describe('material issue durable slot', () => {
   })
 
   it.each([
-    { org_id: 'other-org', version: 1, allowed_statuses: ['IN_PROGRESS'] },
-    { org_id: 'org-1', version: 0, allowed_statuses: ['IN_PROGRESS'] },
-    { org_id: 'org-1', version: -1, allowed_statuses: ['IN_PROGRESS'] },
-    { org_id: 'org-1', version: 1, allowed_statuses: ['READY'] },
-    { org_id: 'org-1', version: 1 },
-    null,
-  ])('rejects an invalid policy setter response %j', async invalid => {
-    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: invalid, error: null } as never)
-    await expect(setMaterialIssuePolicy('org-1', false, false))
-      .rejects.toThrow('MATERIAL_ISSUE_POLICY_INVALID')
+    {
+      data: { org_id: 'other-org', version: 1, allowed_statuses: ['IN_PROGRESS'] },
+      expected: 'MATERIAL_ISSUE_POLICY_INVALID',
+    },
+    {
+      data: { org_id: 'org-1', version: 0, allowed_statuses: ['IN_PROGRESS'] },
+      expected: 'MATERIAL_ISSUE_POLICY_INVALID',
+    },
+    {
+      data: { org_id: 'org-1', version: -1, allowed_statuses: ['IN_PROGRESS'] },
+      expected: 'MATERIAL_ISSUE_POLICY_INVALID',
+    },
+    {
+      data: { org_id: 'org-1', version: 1, allowed_statuses: ['READY'] },
+      expected: 'MATERIAL_ISSUE_POLICY_INVALID',
+    },
+    {
+      data: { org_id: 'org-1', version: 1 },
+      expected: 'MATERIAL_ISSUE_POLICY_INVALID',
+    },
+    { data: null, expected: 'MATERIAL_ISSUE_POLICY_UNAVAILABLE' },
+  ])('rejects an invalid policy setter response $data', async ({ data, expected }) => {
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data, error: null } as never)
+    await expect(setMaterialIssuePolicy('org-1', false, false)).rejects.toThrow(expected)
   })
 
   it('propagates a policy setter RPC error without retrying or accepting a default', async () => {
