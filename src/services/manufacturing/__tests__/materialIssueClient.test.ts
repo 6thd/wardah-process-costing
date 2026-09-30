@@ -525,10 +525,46 @@ describe('material issue durable slot', () => {
       data: { org_id: 'org-1', version: 1 },
       expected: 'MATERIAL_ISSUE_POLICY_INVALID',
     },
+    {
+      data: { version: 1, allowed_statuses: ['IN_PROGRESS'] },
+      expected: 'MATERIAL_ISSUE_POLICY_INVALID',
+    },
+    {
+      data: { org_id: 'org-1', allowed_statuses: ['IN_PROGRESS'] },
+      expected: 'MATERIAL_ISSUE_POLICY_INVALID',
+    },
+    {
+      data: { org_id: 'org-1', version: 1.5, allowed_statuses: ['IN_PROGRESS'] },
+      expected: 'MATERIAL_ISSUE_POLICY_INVALID',
+    },
+    {
+      data: { org_id: 'org-1', version: 1, allowed_statuses: null },
+      expected: 'MATERIAL_ISSUE_POLICY_INVALID',
+    },
+    {
+      data: { org_id: 'org-1', version: 1, allowed_statuses: ['IN_PROGRESS', 'IN_PROGRESS'] },
+      expected: 'MATERIAL_ISSUE_POLICY_INVALID',
+    },
+    { data: {}, expected: 'MATERIAL_ISSUE_POLICY_INVALID' },
+    { data: 'unavailable', expected: 'MATERIAL_ISSUE_POLICY_UNAVAILABLE' },
+    { data: undefined, expected: 'MATERIAL_ISSUE_POLICY_UNAVAILABLE' },
     { data: null, expected: 'MATERIAL_ISSUE_POLICY_UNAVAILABLE' },
   ])('rejects an invalid policy setter response $data', async ({ data, expected }) => {
     vi.mocked(supabase.rpc).mockResolvedValueOnce({ data, error: null } as never)
     await expect(setMaterialIssuePolicy('org-1', false, false)).rejects.toThrow(expected)
+    expect(supabase.rpc).toHaveBeenCalledTimes(1)
+    expect(supabase.rpc).toHaveBeenCalledWith('rpc_set_material_issue_wo_statuses', {
+      p_org_id: 'org-1', p_allowed_statuses: ['IN_PROGRESS'],
+    })
+  })
+
+  it('rejects noncanonical setter status order even when it contains every requested status', async () => {
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: {
+      org_id: 'org-1', version: 1, allowed_statuses: ['IN_PROGRESS', 'IN_SETUP', 'READY'],
+    }, error: null } as never)
+
+    await expect(setMaterialIssuePolicy('org-1', true, true)).rejects.toThrow('MATERIAL_ISSUE_POLICY_INVALID')
+    expect(supabase.rpc).toHaveBeenCalledTimes(1)
   })
 
   it('propagates a policy setter RPC error without retrying or accepting a default', async () => {
