@@ -1,0 +1,44 @@
+name: Stage WIP M194 disposable acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/194_stage_wip_posted_cost_boundary.sql'
+      - 'docs/db/stage-wip-278/**'
+      - '.github/workflows/stage-wip-278-acceptance.yml'
+      - 'sql/baseline/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: M194 GREEN on disposable PG17
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL client for concurrency tests
+        run: python -m pip install 'psycopg[binary]>=3.2,<4'
+      - name: Prove M194 and prior boundaries
+        run: bash docs/db/stage-wip-278/run_green.sh

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Disposable PostgreSQL 17 only: RED through M192, then M193 GREEN.
+# Disposable PostgreSQL 17 only: legal chain, legacy fixture, M194 and GREEN.
 set -Eeuo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
@@ -12,8 +12,7 @@ if [[ "$(psql -X -tAc 'SHOW server_version_num' -d postgres)" != 17* ]]; then
 fi
 DB="wardah_192_green_$$"
 ORDER="$(mktemp)"
-FULL_ORDER="$(mktemp)"
-cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -f "$ORDER" "$FULL_ORDER"; }
+cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -f "$ORDER"; }
 trap cleanup EXIT
 cd "$ROOT"
 echo "checkout: $(git rev-parse HEAD)"
@@ -29,27 +28,26 @@ PSQL=(psql -X -v ON_ERROR_STOP=1 -d "$DB")
 "${PSQL[@]}" -q -f scripts/ci/fresh-db/supabase_shim.sql >/dev/null
 "${PSQL[@]}" -q -f "$BASELINE" >/dev/null 2>&1
 "${PSQL[@]}" -q -f "$REFERENCE" >/dev/null
-python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > "$FULL_ORDER"
-# This acceptance stays valid after later migrations are added: apply exactly
-# the 190..193 chain and never the next migration (M194 has its own acceptance).
-sed -n '1,/^193_posted_material_history_delete_guard.sql$/p' "$FULL_ORDER" > "$ORDER"
-if [[ "$(tail -n 1 "$ORDER")" != '193_posted_material_history_delete_guard.sql' ]]; then
-  echo 'REFUSED: M193 must be the sole final migration' >&2; exit 2
+python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > "$ORDER"
+if [[ "$(tail -n 1 "$ORDER")" != '194_stage_wip_posted_cost_boundary.sql' ]]; then
+  echo 'REFUSED: M194 must be the sole final migration' >&2; exit 2
 fi
 sed -i '$d' "$ORDER"
-if [[ "$(wc -l < "$ORDER")" != 3 ]]; then
-  echo 'REFUSED: requires exact 190,191,192 pre-chain' >&2; exit 2
+if [[ "$(wc -l < "$ORDER")" != 4 ]]; then
+  echo 'REFUSED: requires exact 190..193 pre-chain' >&2; exit 2
 fi
-REPORT="$(mktemp)"
-trap 'rm -f "$REPORT"; cleanup' EXIT
 PGDATABASE="$DB" bash scripts/ci/fresh-db/run_chain.sh sql/migrations "$ORDER"
 "${PSQL[@]}" -q -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
-"${PSQL[@]}" -f "$HERE/red.sql"
-"${PSQL[@]}" -f sql/migrations/193_posted_material_history_delete_guard.sql >/dev/null
+"${PSQL[@]}" -f docs/db/posted-history-193/acceptance.sql >/dev/null
+"${PSQL[@]}" -f "$HERE/historical_fixture.sql" >/dev/null
+"${PSQL[@]}" -f sql/migrations/194_stage_wip_posted_cost_boundary.sql >/dev/null
+# Owner-role and trusted-path probes, each in a brand-new backend (no session
+# state): the guard must not rely on a marker that an earlier call defined.
+bash "$HERE/fresh_backend_probes.sh" "$DB"
 "${PSQL[@]}" -f "$HERE/acceptance.sql"
-# Preserve the independently reviewed M192 acceptance, including its status
-# matrix and true two-session races, under the newly protected delete grants.
+"${PSQL[@]}" -f "$HERE/acceptance_roles.sql"
 "${PSQL[@]}" -f docs/db/material-consumption-192/acceptance.sql >/dev/null
 "${PSQL[@]}" -f docs/db/material-consumption-192/acceptance_matrix.sql >/dev/null
 python3 docs/db/material-consumption-192/concurrency.py "$DB"
-echo 'GREEN_273_POSTED_HISTORY_ACCEPTANCE'
+python3 "$HERE/concurrency.py" "$DB"
+echo 'GREEN_278_WIP_BOUNDARY_AND_REGRESSIONS'
