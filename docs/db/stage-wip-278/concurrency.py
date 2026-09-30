@@ -8,7 +8,6 @@ import time
 import uuid
 
 import psycopg
-from psycopg import sql
 
 DB = sys.argv[1] if len(sys.argv) == 2 else ""
 if not re.fullmatch(r"wardah_192_green_[0-9]+", DB) or os.getenv("DATABASE_URL"):
@@ -70,10 +69,13 @@ def issue(conn, mo, reservation, work_order, uom):
 
 def holds_row_lock(observer, table, row_id):
     """True when another backend holds a conflicting row lock (NOWAIT probe)."""
+    if table == "manufacturing_orders":
+        query = "SELECT 1 FROM public.manufacturing_orders WHERE id=%s FOR UPDATE NOWAIT"
+    elif table == "stage_wip_log":
+        query = "SELECT 1 FROM public.stage_wip_log WHERE id=%s FOR UPDATE NOWAIT"
+    else:
+        raise ValueError(f"Unsupported lock-probe table: {table}")
     try:
-        query = sql.SQL("SELECT 1 FROM {} WHERE id=%s FOR UPDATE NOWAIT").format(
-            sql.Identifier("public", table)
-        )
         observer.execute(query, (row_id,))
         return False
     except psycopg.errors.LockNotAvailable:
