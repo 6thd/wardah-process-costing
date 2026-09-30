@@ -504,6 +504,30 @@ describe('material issue durable slot', () => {
     await expect(setMaterialIssuePolicy('org-1', true, false)).rejects.toThrow('MATERIAL_ISSUE_POLICY_MISMATCH')
   })
 
+  it.each([
+    { org_id: 'other-org', version: 1, allowed_statuses: ['IN_PROGRESS'] },
+    { org_id: 'org-1', version: 0, allowed_statuses: ['IN_PROGRESS'] },
+    { org_id: 'org-1', version: -1, allowed_statuses: ['IN_PROGRESS'] },
+    { org_id: 'org-1', version: 1, allowed_statuses: ['READY'] },
+    { org_id: 'org-1', version: 1 },
+    null,
+  ])('rejects an invalid policy setter response %j', async invalid => {
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: invalid, error: null } as never)
+    await expect(setMaterialIssuePolicy('org-1', false, false))
+      .rejects.toThrow('MATERIAL_ISSUE_POLICY_INVALID')
+  })
+
+  it('propagates a policy setter RPC error without retrying or accepting a default', async () => {
+    const returnedError = { code: 'P0001', message: 'POLICY_WRITE_DENIED' }
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: null, error: returnedError } as never)
+
+    await expect(setMaterialIssuePolicy('org-1', true, false)).rejects.toBe(returnedError)
+    expect(supabase.rpc).toHaveBeenCalledTimes(1)
+    expect(supabase.rpc).toHaveBeenCalledWith('rpc_set_material_issue_wo_statuses', {
+      p_org_id: 'org-1', p_allowed_statuses: ['IN_PROGRESS', 'READY'],
+    })
+  })
+
   it('does not turn a failed policy read into a default write', async () => {
     vi.mocked(supabase.rpc).mockResolvedValueOnce({ data: null, error: {
       code: 'P0001', message: 'POLICY_READ_DENIED',
