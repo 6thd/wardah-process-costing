@@ -2,7 +2,7 @@
   "schema_version": 1,
   "scanner_schema_version": 2,
   "candidate_count": 354,
-  "signature_count": 327,
-  "signature_sha256": "3ab37285676aaa1616efdbc55a422061eba8c22a7aefba76c517f4d50e3a9367",
-  "note": "Reviewed #229 client foundation: removed eventless rpc_consume_reserved_materials, direct material_consumption INSERT and retired backflush_materials calls; added rpc_consume_material_event and the get/set WO-policy RPC calls. Three signatures replaced by three signatures; candidate_count and signature_count remain 354/327."
+  "signature_count": 328,
+  "signature_sha256": "12f4fc98681b1960fee68ba3fb052656b116afedfb39783f3cd9b98bc3d5face",
+  "note": "Reviewed combined #229 client and #278 stage-WIP boundary: three retired material-consumption/backflush signatures were replaced by the event and get/set WO-policy RPC calls; the direct stage_wip_log close UPDATE became rpc_close_stage_wip_194. The merged inventory has 354 candidates and 328 signatures."
 }

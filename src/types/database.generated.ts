@@ -10990,6 +10990,7 @@ export type Database = {
           user_accepted_count: number
         }[]
       }
+      rpc_close_stage_wip_194: { Args: { p_wip_id: string }; Returns: Json }
       rpc_complete_manufacturing_order: {
         Args: { p_payload: Json }
         Returns: Json
@@ -11790,6 +11791,10 @@ export type Database = {
           }
       wardah_assert_org_admin: { Args: { p_org: string }; Returns: undefined }
       wardah_assert_org_member: { Args: { p_org: string }; Returns: undefined }
+      wardah_assert_stage_wip_editor_194: {
+        Args: { p_action: string; p_org: string }
+        Returns: undefined
+      }
       wardah_create_posted_voucher_gl: {
         Args: {
           p_actor: string
