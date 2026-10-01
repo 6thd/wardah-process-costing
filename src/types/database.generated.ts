@@ -11004,6 +11004,8 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_list_material_issue_orders: { Args: { p_org_id: string }; Returns: Json }
+      rpc_get_material_issue_context: { Args: { p_mo_id: string }; Returns: Json }
       rpc_consume_reserved_materials: {
         Args: { p_consumptions: Json; p_mo_id: string }
         Returns: Json
@@ -12017,4 +12019,3 @@ export const Constants = {
     },
   },
 } as const
-

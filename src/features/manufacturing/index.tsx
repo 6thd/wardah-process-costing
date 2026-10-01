@@ -67,6 +67,8 @@ import { RoutingManagement } from './routing/RoutingManagement'
 import { WorkCenterDashboard } from './mes/WorkCenterDashboard'
 import { CapacityDashboard } from './capacity/CapacityDashboard'
 import { EfficiencyDashboard } from './efficiency/EfficiencyDashboard'
+import { MaterialIssuePage } from './material-issue/MaterialIssuePage'
+import { MaterialIssuePolicyPage } from './material-issue/MaterialIssuePolicyPage'
 
 // Extended types for order with related data
 interface ManufacturingOrderWithItem extends ManufacturingOrder {
@@ -94,6 +96,8 @@ export function ManufacturingModule() {
       <Route index element={<ManufacturingOverview />} />
       <Route path="overview" element={<ManufacturingOverview />} />
       <Route path="orders" element={<ManufacturingOrdersManagement />} />
+      <Route path="material-issue" element={<MaterialIssuePage />} />
+      <Route path="material-issue-policy" element={<MaterialIssuePolicyPage />} />
       <Route path="mes" element={<WorkCenterDashboard />} />
       <Route path="routing/*" element={<RoutingManagement />} />
       <Route path="capacity" element={<CapacityDashboard />} />

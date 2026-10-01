@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 354,
-  "signature_count": 328,
-  "signature_sha256": "12f4fc98681b1960fee68ba3fb052656b116afedfb39783f3cd9b98bc3d5face",
-  "note": "Reviewed combined #229 client and #278 stage-WIP boundary: three retired material-consumption/backflush signatures were replaced by the event and get/set WO-policy RPC calls; the direct stage_wip_log close UPDATE became rpc_close_stage_wip_194. The merged inventory has 354 candidates and 328 signatures."
+  "candidate_count": 356,
+  "signature_count": 330,
+  "signature_sha256": "4816e12aae045d7e029c18f81849592f938838c75d7142a612725772423eed0f",
+  "note": "Reviewed local #229 UI delta: exactly two read-only RPC call signatures added in materialIssueOptions.ts. No new write signature and no removed signature. Reads require consume permission in the separate unallocated DB candidate; live acceptance remains pending. Existing #279/#278 writers unchanged."
 }
