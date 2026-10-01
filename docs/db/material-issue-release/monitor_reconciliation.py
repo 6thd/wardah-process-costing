@@ -77,8 +77,19 @@ def monitor(document, now, shift_hours=8, freshness_minutes=15):
             pending.append({'source_id': source['source_id'], 'org_id': org, 'event_id': event_id,
                             'status': status, 'age_lower_bound_seconds': age,
                             'alert': 'age_unknown' if age is None else 'over_shift' if age >= shift_hours * 3600 else 'pending'})
+    pending_by_org = {}
+    for record in pending:
+        totals = pending_by_org.setdefault(record['org_id'], {'pending_browser_records': 0,
+            'age_unknown': 0, 'over_shift': 0, 'max_age_lower_bound_seconds': None})
+        totals['pending_browser_records'] += 1
+        if record['alert'] in ('age_unknown', 'over_shift'):
+            totals[record['alert']] += 1
+        age = record['age_lower_bound_seconds']
+        if age is not None:
+            totals['max_age_lower_bound_seconds'] = max(totals['max_age_lower_bound_seconds'] or 0, age)
     report = {'release_ready': False, 'coverage': 'declared_sources_only',
               'coverage_problems': problems, 'terminal_counts_by_org': counts, 'pending': pending,
+              'pending_by_org': pending_by_org,
               'pending_count': len(pending), 'shift_hours': shift_hours,
               'read_only_triage': True, 'receipt_or_fence_verified': False}
     # Zero unresolved in the SERVER alone is never evidence of a clear workstation.

@@ -101,6 +101,8 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(report['pending'][0]['status'], 'server_unobserved')
         self.assertEqual(report['pending'][0]['alert'], 'over_shift')
+        self.assertEqual(report['pending_by_org'][self.org]['pending_browser_records'], 1)
+        self.assertEqual(report['pending_by_org'][self.org]['over_shift'], 1)
 
     def test_terminal_receipt_still_needs_browser_ack(self):
         self.add_pending()
@@ -140,6 +142,7 @@ class MonitorTests(unittest.TestCase):
         report, code = monitor(self.document, self.now)
         self.assertEqual(code, 1)
         self.assertEqual(report['pending'][0]['alert'], 'age_unknown')
+        self.assertEqual(report['pending_by_org'][self.org]['age_unknown'], 1)
         self.document['inventory']['sources'].append(copy.deepcopy(self.document['inventory']['sources'][0]))
         with self.assertRaises(ValueError):
             monitor(self.document, self.now)
