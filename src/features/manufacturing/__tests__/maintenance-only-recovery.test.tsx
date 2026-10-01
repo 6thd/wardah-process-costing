@@ -52,7 +52,8 @@ it('exposes a recent pending order beyond 200 entries and refreshes after recove
   fixture.pending.mockResolvedValue(Array.from({ length: 250 }, (_, i) => ({ eventId: `event-${i}`, moId: `mo-${i}`, operation: 'reserve' })))
   fixture.reconcile.mockResolvedValue('closed')
   render(<MaterialIssuePage />)
-  await screen.findByRole('option', { name: 'mo-249' })
+  // Match the same last option without computing 250 accessible names under coverage.
+  await screen.findByText('mo-249', { selector: 'option' })
   fireEvent.change(screen.getByLabelText('materialIssue.mo'), { target: { value: 'mo-249' } })
   await act(async () => fireEvent.click(screen.getByText('materialIssue.reconcileSetup')))
   expect(fixture.reconcile).toHaveBeenCalledWith('mo-249')

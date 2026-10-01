@@ -98,6 +98,12 @@ describe('mounted preparation controls', () => {
     await user.click(button(kind === 'overbalance' ? 'releasePreparationReservation' : 'resizePreparationReservation'))
     expect(manage).not.toHaveBeenCalled(); expect(invalidate).not.toHaveBeenCalled(); expect(screen.getByRole('status')).toHaveTextContent('materialIssue.preparationInvalid')
   })
+  it('does not claim a reservation until its displayed base unit is verified', async () => {
+    unit.mockRejectedValue(new Error('permission')); const user = await open()
+    await user.selectOptions(field('preparationItem'), f.item); await user.type(field('preparationReserveQuantity'), '5')
+    await screen.findByText('materialIssue.preparationUnitFailed'); expect(button('createPreparationReservation')).toBeDisabled()
+    expect(manage).not.toHaveBeenCalled()
+  })
   it('keeps pending recovery reachable while blocking new commands', async () => {
     pending.mockResolvedValue([{ moId: f.mo }]); await open()
     expect(screen.getByText('recovery-independent')).toBeVisible(); expect(screen.getByRole('alert')).toHaveTextContent('materialIssue.preparationPending')

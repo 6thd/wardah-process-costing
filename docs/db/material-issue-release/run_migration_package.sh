@@ -6,7 +6,7 @@ cd "$ROOT"
 [[ "${PGHOST:-}" == 127.0.0.1 && "${PGPORT:-}" =~ ^[0-9]+$ && "$PGPORT" -ge 55000 ]] || exit 2
 [[ "$(psql -X -At -d postgres -c 'SHOW server_version_num')" == 17* ]] || exit 2
 python3 docs/db/material-issue-release/verify_package.py
-DB="wardah_issue_proposed_migrations_$$"
+DB="wardah_issue_maintenance_proposed_$$"
 MIGRATION_DIR="$(mktemp -d /tmp/wardah-issue-proposed-migrations.XXXXXX)"
 cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
