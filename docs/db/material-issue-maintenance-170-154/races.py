@@ -73,7 +73,10 @@ def race(first, second, commit, expected_error=None):
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(second, b)
             blocked(observer, b.info.backend_pid, a.info.backend_pid)
-            a.commit() if commit else a.rollback()
+            if commit:
+                a.commit()
+            else:
+                a.rollback()
             try:
                 result = future.result(timeout=8)
             except psycopg.Error as error:
