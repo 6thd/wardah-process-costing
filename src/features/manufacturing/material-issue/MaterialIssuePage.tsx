@@ -19,12 +19,40 @@ export function MaterialIssuePage() {
   const permissions = usePermissions()
   const { t } = useTranslation()
   const identity = `${auth.user?.id || ''}:${auth.currentOrgId || ''}`
+  const contextReady = !auth.loading && !!auth.user && !!auth.currentOrgId
+    && !permissions.loading && !permissions.error && permissions.permissionIdentityKey === identity
+  const maintenanceAllowed = contextReady && ['manufacturing.material_issue_setup.prepare',
+    'manufacturing.material_reservation.reserve', 'manufacturing.material_reservation.release']
+    .some(key => permissions.hasPermissionKey(key))
   const allowed = !auth.loading && !!auth.user && !!auth.currentOrgId
     && !permissions.loading && !permissions.error && permissions.permissionIdentityKey === identity
     && permissions.hasPermissionKey(CONSUME_KEY)
   if (!isolatedMaterialIssueEnabled()) return <p role="status">{t('materialIssue.hold')}</p>
-  if (!allowed || !auth.user || !auth.currentOrgId) return <p role="status">{t('materialIssue.denied')}</p>
+  if (!allowed || !auth.user || !auth.currentOrgId) {
+    if (maintenanceAllowed && auth.currentOrgId) return <PreparationRecovery key={identity} identity={identity} orgId={auth.currentOrgId} />
+    return <p role="status">{t('materialIssue.denied')}</p>
+  }
   return <IssueForm key={identity} userId={auth.user.id} orgId={auth.currentOrgId} />
+}
+function PreparationRecovery({ identity, orgId }: { identity: string; orgId: string }) {
+  const { t } = useTranslation()
+  const [orders, setOrders] = useState<{ id: string; order_number: string }[]>([])
+  const [mo, setMo] = useState('')
+  useEffect(() => {
+    let active = true
+    void Promise.resolve(supabase.from('manufacturing_orders').select('id,order_number').eq('org_id', orgId)
+      .order('order_number').limit(200)).then(({ data, error }) => {
+        if (active && !error && data) setOrders(data)
+      }).catch(() => undefined)
+    return () => { active = false }
+  }, [orgId])
+  return <section className="material-issue-page space-y-4 p-4">
+    <label>{t('materialIssue.mo')}<select value={mo} onChange={event => setMo(event.target.value)}>
+      <option value="">{t('materialIssue.choose')}</option>
+      {orders.map(row => <option key={row.id} value={row.id}>{row.order_number}</option>)}
+    </select></label>
+    <MaintenanceRecovery identity={identity} moId={mo || undefined} />
+  </section>
 }
 function IssueForm({ userId, orgId }: { userId: string; orgId: string }) {
   const { t } = useTranslation()
