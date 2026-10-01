@@ -1,6 +1,6 @@
 import { chromium, expect } from '@playwright/test'
 const browser = await chromium.launch({ executablePath: process.env.WARDAH_BROWSER_EXECUTABLE || undefined,
-  headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--single-process', '--no-zygote'] })
+  headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] })
 const ids = { product: 'ed000000-0000-4000-8000-0000000000c2', center: 'ed000000-0000-4000-8000-0000000000f2',
   stage: 'ed000000-0000-4000-8000-0000000000f1', item: 'ed000000-0000-4000-8000-0000000000d1' }
 const errors = []; let expectedDenial = false; const realAuth = process.env.WARDAH_REAL_AUTH === 'true'; const rpcRequests = []; const expectedFaults = new Set()
@@ -49,7 +49,7 @@ async function act(page, name) {
   await expect(setup(page).getByLabel('Preparation order', { exact: true })).toBeEnabled()
 }
 try {
-  const { context, page } = await contextPage()
+  const { context, page } = await contextPage(); console.log('OPERATOR_STEP=initial_page')
   const initial = await state(page)
   await open(page)
   await setup(page).getByLabel('Order product', { exact: true }).selectOption(ids.product)
@@ -58,7 +58,7 @@ try {
   await act(page, 'Create draft order')
   const created = await state(page)
   const mo = created.manufacturing_orders.find(r => r.order_number === 'MO-OPERATOR-COMBINED')
-  expect(mo.status).toBe('draft'); expect(mo.item_id).toBeNull()
+  console.log('OPERATOR_STEP=draft_created'); expect(mo.status).toBe('draft'); expect(mo.item_id).toBeNull()
   for (const status of ['confirmed', 'in_progress']) {
     await setup(page).getByLabel('New order status', { exact: true }).selectOption(status)
     await act(page, 'Save order status')
@@ -89,7 +89,7 @@ try {
   const options = page.getByRole('option'); await options.first().click()
   await expect(form.getByLabel('تكلفة العمل')).toHaveCount(0)
   await form.getByRole('button', { name: 'حفظ', exact: true }).click(); await expect(form).toHaveCount(0)
-  const prepared = await state(page); const wip = prepared.stage_wip_log.find(r => r.mo_id === mo.id)
+  console.log('OPERATOR_STEP=wip_opened'); const prepared = await state(page); const wip = prepared.stage_wip_log.find(r => r.mo_id === mo.id)
   expect(wip.cost_material).toBe(0)
   for (const table of ['bins', 'stock_ledger_entries', 'material_consumption', 'gl_entries', 'gl_entry_lines', 'journal_entries', 'journal_lines']) {
     expect(prepared[table]).toEqual(initial[table])
@@ -106,7 +106,7 @@ try {
   await page.evaluate(() => localStorage.setItem('operator:lose-issue', 'true'))
   await page.getByRole('button', { name: 'Issue materials', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Retry saved event', exact: true })).toBeEnabled()
-  const posted = await state(page)
+  console.log('OPERATOR_STEP=committed_lost_response'); const posted = await state(page)
   expect(posted.material_consumption.filter(r => r.mo_id === mo.id)).toHaveLength(1)
   expect(posted.stage_wip_log.find(r => r.id === wip.id).cost_material).toBe(100)
   expect(posted.material_reservations.find(r => r.id === res.id).quantity_consumed).toBe(10)
@@ -122,10 +122,10 @@ try {
   const replayed = await state(page); expect(financial(replayed)).toEqual(financial(posted))
   const calls = (realAuth ? rpcRequests : replayed.trace).filter(r => r.name === 'rpc_consume_material_event')
   expect(calls).toHaveLength(2); expect(calls[1].args).toEqual(calls[0].args)
-  await open(page, mo.id)
+  console.log('OPERATOR_STEP=receipt_replayed'); await open(page, mo.id)
   // Two separate browser profiles share a real server actor, not IndexedDB.
   // A lost-before-send intent keeps its immutable old version; another device advances it.
-  const other = await contextPage(); await open(other.page, mo.id)
+  console.log('OPERATOR_STEP=second_profile'); const other = await contextPage(); await open(other.page, mo.id)
   await setup(page).getByLabel('Preparation work order', { exact: true }).selectOption(wo.id)
   await setup(page).getByLabel('New work order status', { exact: true }).selectOption('ON_HOLD')
   await page.evaluate(() => localStorage.setItem('operator:drop-setup-before-call', 'true'))
@@ -186,11 +186,11 @@ try {
     await expect(page.getByRole('button', { name: 'Sign in locally', exact: true })).toBeVisible()
     console.log('LOCAL_REAL_AUTH_REVOCATION_OLD_JWT_NO_EFFECTS_SIGNOUT_PASS')
   }
-  expect(errors).toEqual([])
+  console.log('OPERATOR_STEP=release_and_denials_verified'); expect(errors).toEqual([])
   console.log('COMBINED_PRODUCT_FORM_PRISTINE_WIP_REAL_PG_PASS')
   console.log('COMBINED_MOUNTED_MO_WO_RESERVE_RESIZE_RELEASE_OPERATOR_PASS')
   console.log('COMBINED_BROWSER_M192_LOST_RESPONSE_RELOAD_REPLAY_STATE_EQUAL_PASS')
   console.log('COMBINED_RELEASE_PRESERVES_HISTORY_STOCK_WIP_GL_PASS')
   console.log(realAuth ? 'LOCAL_REAL_AUTH_POSTGREST_MOUNTED_OPERATOR_REPLAY_RECONCILIATION_PASS — real local password/JWT/PostgREST; network loss simulated; no hosted environment sign-off' : 'COMBINED_TECHNICAL_ACCEPTANCE_PASS — native mounted operator controls + real local PG; identity/network loss simulated; no live Auth or owner UX sign-off')
   await context.close()
-} finally { await browser.close() }
+} catch (error) { console.error(error); throw error } finally { await browser.close() }
