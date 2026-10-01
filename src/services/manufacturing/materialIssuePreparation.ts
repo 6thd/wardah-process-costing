@@ -79,7 +79,8 @@ export function preparationQuantity(text: string, digits = 6, upper = 1_000_000_
   const [whole, fraction = ''] = text.split('.')
   const tail = fraction.replace(/0+$/, '')
   const canonical = whole.replace(/^0+(?=\d)/, '') + (tail ? `.${tail}` : '')
-  if (!new RegExp(`^\\d+(\\.\\d{1,${digits}})?$`).test(text) || !Number.isFinite(value)
+  const pattern = digits === 4 ? /^\d+(\.\d{1,4})?$/ : /^\d+(\.\d{1,6})?$/
+  if (![4, 6].includes(digits) || !pattern.test(text) || !Number.isFinite(value)
     || value <= 0 || value >= upper || String(value) !== canonical || Number(value.toFixed(digits)) !== value) {
     throw new Error('INVALID_BASE_QUANTITY')
   }

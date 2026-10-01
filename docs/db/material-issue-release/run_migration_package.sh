@@ -25,7 +25,7 @@ python3 scripts/ci/fresh-db/build_apply_order.py "$MIGRATION_DIR" 189 > /tmp/war
 REPORT=/tmp/wardah-proposed-migrations-chain.txt bash scripts/ci/fresh-db/run_chain.sh "$MIGRATION_DIR" /tmp/wardah-proposed-migrations-order.txt
 # Migration installation precedes any fixture, unlike the old candidate runner.
 psql -X -v ON_ERROR_STOP=1 -q -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
-psql -X -v ON_ERROR_STOP=1 -q -f docs/db/material-issue-229/seed.sql >/dev/null
+psql -X -v ON_ERROR_STOP=1 -q -f docs/db/material-issue-release/seed_after_containment.sql >/dev/null
 psql -X -v ON_ERROR_STOP=1 -f docs/db/material-issue-229/acceptance.sql
 psql -X -v ON_ERROR_STOP=1 -f docs/db/material-issue-maintenance-170-154/acceptance.sql
 psql -X -v ON_ERROR_STOP=1 -f docs/db/material-issue-maintenance-170-154/reconciliation_acceptance.sql

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 359,
-  "signature_count": 333,
-  "signature_sha256": "6cb6f10c09e8abfbb1da4873ec9ab35d1c62767f859aa8beac5f955007b6326b",
-  "note": "Isolated #170/#154 candidate: one additional write RPC rpc_reconcile_material_issue_setup fences a pending event under the writer lock or returns its receipt. It requires the same exact maintenance role grant and actor/org binding. No existing signature removed; no live coverage or release approval claimed."
+  "candidate_count": 360,
+  "signature_count": 334,
+  "signature_sha256": "e57131fcb6eabc40745bc0b82264298aeaa77035b7e00e9d94781217c63b7fe8",
+  "note": "Mounted isolated preparation adds one occurrence of the existing read-only rpc_get_material_reservation_setup, scoped by org/item with exact reserve grant and user/org revalidation before and after. All prior signatures remain; classification stays follow_up_required under #170 until canonical/live sign-off."
 }

@@ -3,7 +3,7 @@ const browser = await chromium.launch({ executablePath: process.env.WARDAH_BROWS
   headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--single-process', '--no-zygote'] })
 const ids = { product: 'ed000000-0000-4000-8000-0000000000c2', center: 'ed000000-0000-4000-8000-0000000000f2',
   stage: 'ed000000-0000-4000-8000-0000000000f1', item: 'ed000000-0000-4000-8000-0000000000d1' }
-const errors = []; let expectedDenial = false; const realAuth = process.env.WARDAH_REAL_AUTH === 'true'; const rpcRequests = []
+const errors = []; let expectedDenial = false; const realAuth = process.env.WARDAH_REAL_AUTH === 'true'; const rpcRequests = []; const expectedFaults = new Set()
 const state = page => page.evaluate(async () => (await fetch('/state')).json())
 const financial = snapshot => Object.fromEntries(Object.entries(snapshot).filter(([key]) => key !== 'trace'))
 const setup = page => page.getByRole('region', { name: 'Prepare material issue', exact: true })
@@ -13,11 +13,26 @@ async function contextPage() {
   const page = await context.newPage()
   page.on('request', request => { if (realAuth && request.url().endsWith('/rpc/rpc_consume_material_event')) rpcRequests.push({ name: 'rpc_consume_material_event', args: request.postDataJSON() }) })
   page.on('pageerror', e => errors.push(e.message))
-  page.on('console', e => { if (e.type() === 'error' && !(expectedDenial && e.text().startsWith('Failed to load resource:'))) errors.push(e.text()) })
+  page.on('console', e => { if (e.type() === 'error' && !((expectedDenial || expectedFaults.has(e.location().url)) && e.text().startsWith('Failed to load resource:'))) errors.push(e.text()) })
   await page.goto('http://127.0.0.1:4177')
   if (realAuth) {
+    await page.route('**/rest/v1/rpc/rpc_consume_material_event', async route => {
+      const lost = await page.evaluate(() => localStorage.getItem('operator:lose-issue') === 'true')
+      if (lost) {
+        await page.evaluate(() => localStorage.removeItem('operator:lose-issue'))
+        const response = await route.fetch(); expect(response.ok()).toBe(true)
+        expectedFaults.add(route.request().url()); await route.abort('failed')
+      } else await route.continue()
+    })
+    await page.route('**/rest/v1/rpc/rpc_manage_material_issue_setup', async route => {
+      const lost = await page.evaluate(() => localStorage.getItem('operator:drop-setup-before-call') === 'true')
+      if (lost) {
+        await page.evaluate(() => localStorage.removeItem('operator:drop-setup-before-call'))
+        expectedFaults.add(route.request().url()); await route.abort('failed')
+      } else await route.continue()
+    })
     await page.getByLabel('Local fixture email').fill('mfg-red-consumer@example.test')
-    await page.getByLabel('Local fixture password').fill('Disposable-Wardah-Acceptance-Only-2026')
+    await page.getByLabel('Local fixture password').fill(process.env.WARDAH_AUTH_PASSWORD)
     await page.getByRole('button', { name: 'Sign in locally', exact: true }).click()
     await expect(page.getByText('Verified local Auth actor:', { exact: false })).toContainText('ed000000-0000-4000-8000-0000000000a2')
     await expect(page.getByLabel('Manufacturing order', { exact: true })).toBeEnabled()
