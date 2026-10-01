@@ -29,13 +29,13 @@ READS = {
     'material_reservations': "SELECT to_jsonb(t) FROM public.material_reservations t WHERE id=%s AND org_id=%s",
 }
 CATALOG = {
-    'products': "SELECT to_jsonb(t) FROM public.products t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
-    'items': "SELECT to_jsonb(t) FROM public.items t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
-    'manufacturing_orders': "SELECT to_jsonb(t) FROM public.manufacturing_orders t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
-    'work_orders': "SELECT to_jsonb(t) FROM public.work_orders t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
-    'material_reservations': "SELECT to_jsonb(t) FROM public.material_reservations t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
-    'work_centers': "SELECT to_jsonb(t) FROM public.work_centers t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
-    'manufacturing_stages': "SELECT to_jsonb(t) FROM public.manufacturing_stages t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
+    'products': "SELECT to_jsonb(t) FROM public.products t WHERE org_id=%s AND (%s::uuid IS NULL OR id>%s::uuid) ORDER BY id LIMIT %s",
+    'items': "SELECT to_jsonb(t) FROM public.items t WHERE org_id=%s AND (%s::uuid IS NULL OR id>%s::uuid) ORDER BY id LIMIT %s",
+    'manufacturing_orders': "SELECT to_jsonb(t) FROM public.manufacturing_orders t WHERE org_id=%s AND (%s::uuid IS NULL OR id>%s::uuid) ORDER BY id LIMIT %s",
+    'work_orders': "SELECT to_jsonb(t) FROM public.work_orders t WHERE org_id=%s AND (%s::uuid IS NULL OR id>%s::uuid) ORDER BY id LIMIT %s",
+    'material_reservations': "SELECT to_jsonb(t) FROM public.material_reservations t WHERE org_id=%s AND (%s::uuid IS NULL OR id>%s::uuid) ORDER BY id LIMIT %s",
+    'work_centers': "SELECT to_jsonb(t) FROM public.work_centers t WHERE org_id=%s AND (%s::uuid IS NULL OR id>%s::uuid) ORDER BY id LIMIT %s",
+    'manufacturing_stages': "SELECT to_jsonb(t) FROM public.manufacturing_stages t WHERE org_id=%s AND (%s::uuid IS NULL OR id>%s::uuid) ORDER BY id LIMIT %s",
 }
 SNAPSHOTS = {
     'manufacturing_orders': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.manufacturing_orders t",
@@ -111,9 +111,9 @@ class Handler(BaseHTTPRequestHandler):
                     data = conn.execute(query, values).fetchone()[0]
                     trace.append({'name': name, 'args': args})
                 elif request['kind'] == 'catalog':
-                    if request['table'] not in CATALOG or request['org'] != ORG or request['limit'] != 500 or request['offset'] < 0:
+                    if request['table'] not in CATALOG or request['org'] != ORG or request['limit'] != 500 or (request['after'] is not None and not isinstance(request['after'], str)):
                         raise ValueError('UNREVIEWED_FIXTURE_READ')
-                    data = [row[0] for row in conn.execute(CATALOG[request['table']], (ORG, request['limit'], request['offset'])).fetchall()]
+                    data = [row[0] for row in conn.execute(CATALOG[request['table']], (ORG, request['after'], request['after'], request['limit'])).fetchall()]
                 else:
                     table = request['table']
                     if table not in READS:

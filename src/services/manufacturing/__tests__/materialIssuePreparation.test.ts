@@ -15,7 +15,7 @@ beforeEach(() => {
   vi.stubEnv('PROD', false); vi.stubEnv('VITE_MATERIAL_ISSUE_ISOLATED', 'true')
   getUser.mockReset().mockResolvedValue({ data: { user: { id: env.actor } }, error: null })
   from.mockReset().mockImplementation(() => { const query = { select: () => query, eq: () => query,
-    order: () => query, range: async () => ({ data: [], error: null }) }; return query })
+    order: () => query, gt: () => query, limit: async () => ({ data: [], error: null }), range: async () => ({ data: [], error: null }) }; return query })
 })
 describe('displayed preparation intent', () => {
   it.each(['0', '-1', '1e2', ' 1', '١٠', '0.0000001', '1.2345678', '999999999999.999999', '1000000000000', 'NaN', 'Infinity'])('refuses noncanonical quantity %s', text => {
@@ -57,20 +57,49 @@ describe('displayed preparation intent', () => {
   })
 })
 describe('org and actor verified catalog', () => {
-  it('paginates beyond 500 without hiding recent orders', async () => {
-    const rows = Array.from({ length: 501 }, (_, i) => ({ id: `aa000000-0000-4000-8000-${String(i).padStart(12, '0')}`, org_id: env.org }))
-    const ranges = vi.fn(async (start: number, end: number) => ({ data: rows.slice(start, end + 1), error: null }))
-    from.mockImplementation((table: string) => { const q = { select: () => q, eq: () => q, order: () => q,
-      range: table === 'manufacturing_orders' ? ranges : async () => ({ data: [], error: null }) }; return q })
-    expect((await getPreparationCatalog(env.org, env.actor)).manufacturing_orders).toHaveLength(501)
-    expect(ranges.mock.calls).toEqual([[0, 499], [500, 999]])
+  function pagedRows(count: number, cap: number, removeFirst = false) {
+    let rows = Array.from({ length: count }, (_, i) => ({ id: `aa000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, org_id: env.org }))
+    const initial = [...rows]; let calls = 0
+    from.mockImplementation((table: string) => {
+      let after = ''
+      const page = (start: number, size: number) => {
+        if (table !== 'manufacturing_orders') return { data: [], error: null }
+        if (++calls === 2 && removeFirst) rows = rows.slice(1)
+        return { data: rows.filter(row => row.id > after).slice(start, start + Math.min(size, cap)), error: null }
+      }
+      const q = { select: () => q, eq: () => q, order: () => q,
+        gt: (_key: string, value: string) => { after = value; return q },
+        limit: async (size: number) => page(0, size), range: async (start: number, end: number) => page(start, end - start + 1) }
+      return q
+    })
+    return { initial, calls: () => calls }
+  }
+  it.each([100, 500])('reads every order under a server row cap of %s and stops on an empty page', async cap => {
+    const fixture = pagedRows(501, cap)
+    expect((await getPreparationCatalog(env.org, env.actor)).manufacturing_orders).toEqual(fixture.initial)
+    expect(fixture.calls()).toBe(Math.ceil(501 / cap) + 1)
     expect(getUser).toHaveBeenCalledTimes(2)
   })
+  it('does not skip an unread order when an earlier row is deleted between pages', async () => {
+    const fixture = pagedRows(501, 500, true)
+    expect((await getPreparationCatalog(env.org, env.actor)).manufacturing_orders).toEqual(fixture.initial)
+  })
   it.each(['foreign', 'duplicate', 'malformed', 'failure'])('fails closed on %s catalog', kind => {
-    from.mockImplementation(() => { const q = { select: () => q, eq: () => q, order: () => q, range: async () => ({
+    from.mockImplementation(() => { const q = { select: () => q, eq: () => q, order: () => q, gt: () => q, limit: async () => ({
       data: kind === 'foreign' ? [{ ...reservation(), org_id: mo }] : kind === 'duplicate' ? [reservation(), reservation()] : null,
-      error: kind === 'failure' ? new Error('denied') : null }) }; return q })
+      error: kind === 'failure' ? new Error('denied') : null }) }; return { ...q, range: q.limit } })
     return expect(getPreparationCatalog(env.org, env.actor)).rejects.toThrow()
+  })
+  it.each(['unordered', 'replayed', 'invalid_id'])('rejects %s pages instead of looping or returning a partial catalog', kind => {
+    let calls = 0
+    const row = (suffix: string) => ({ id: `aa000000-0000-4000-8000-${suffix.padStart(12, '0')}`, org_id: env.org })
+    from.mockImplementation((table: string) => {
+      const q = { select: () => q, eq: () => q, order: () => q, gt: () => q, limit: async () => ({
+        data: table !== 'manufacturing_orders' ? [] : kind === 'invalid_id' ? [{ id: 'invalid', org_id: env.org }]
+          : kind === 'unordered' ? [row('2'), row('1')] : ++calls === 1 ? [row('2')] : [row('1')], error: null }) }
+      return q
+    })
+    return expect(getPreparationCatalog(env.org, env.actor)).rejects.toThrow('ISSUE_SETUP_CATALOG_UNVERIFIED')
   })
   it('ignores data returned after an identity change', () => {
     getUser.mockResolvedValueOnce({ data: { user: { id: env.actor } }, error: null }).mockResolvedValueOnce({ data: { user: { id: mo } }, error: null })

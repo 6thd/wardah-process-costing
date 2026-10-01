@@ -170,12 +170,13 @@ try {
       await fetch('/fixture-grants', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: ['manufacturing.material_issue_setup.prepare', 'manufacturing.material_reservation.reserve'], enabled: false }) })
       await window.__fixtureRefreshIdentity()
     })
-    // A real snapshot refresh clears/remounts permission-sensitive drafts.
-    await expect(setup(page).getByLabel('Preparation order', { exact: true })).toHaveCount(0)
-    await open(page, mo.id)
-    await setup(page).getByLabel('Reservation to maintain', { exact: true }).selectOption(res.id)
-    await setup(page).getByLabel('Resize total or release quantity', { exact: true }).fill('15')
   } else await page.evaluate(() => window.__setFixtureKeys(['manufacturing.material_consumption.consume', 'manufacturing.material_reservation.release']))
+  // Both loading-free adapter changes and real snapshots clear unsent drafts.
+  await expect(setup(page).getByLabel('Preparation order', { exact: true })).toHaveCount(0)
+  await open(page, mo.id)
+  await expect(setup(page).getByLabel('Resize total or release quantity', { exact: true })).toHaveValue('')
+  await setup(page).getByLabel('Reservation to maintain', { exact: true }).selectOption(res.id)
+  await setup(page).getByLabel('Resize total or release quantity', { exact: true }).fill('15')
   await expect(setup(page).getByRole('button', { name: 'Resize pristine reservation', exact: true })).toBeDisabled()
   await expect(setup(page).getByRole('button', { name: 'Open pristine stage record', exact: true })).toBeDisabled()
   await act(page, 'Release unconsumed quantity')

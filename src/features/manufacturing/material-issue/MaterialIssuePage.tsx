@@ -15,12 +15,18 @@ import { MaterialIssuePreparation } from './MaterialIssuePreparation'
 import { isolatedMaterialIssueEnabled } from './gate'
 import './material-issue.css'
 
+const preparationPermissionKeys = ['manufacturing.material_issue_setup.prepare',
+  'manufacturing.material_reservation.reserve', 'manufacturing.material_reservation.release',
+  'manufacturing.orders.create', 'manufacturing.orders.update', 'manufacturing.stage_costs.create']
 const emptyLine = (): IssueDraftLine => ({ reservation: '', warehouse: '', workOrder: '', uom: '', quantity: '', notes: '' })
 export function MaterialIssuePage() {
   const auth = useAuth()
   const permissions = usePermissions()
   const { t } = useTranslation()
   const identity = `${auth.user?.id || ''}:${auth.currentOrgId || ''}`
+  // Background revalidation keeps loading=false. Bind unsent preparation drafts
+  // to effective operation grants; persisted recovery remains keyed by identity.
+  const preparationSnapshot = preparationPermissionKeys.map(key => permissions.hasPermissionKey(key) ? '1' : '0').join('')
   const contextReady = !auth.loading && !!auth.user && !!auth.currentOrgId
     && !permissions.loading && !permissions.error && permissions.permissionIdentityKey === identity
   const maintenanceAllowed = contextReady && ['manufacturing.material_issue_setup.prepare',
@@ -32,13 +38,13 @@ export function MaterialIssuePage() {
   if (!isolatedMaterialIssueEnabled()) return <p role="status">{t('materialIssue.hold')}</p>
   if (!allowed || !auth.user || !auth.currentOrgId) {
     if (maintenanceAllowed && auth.currentOrgId && auth.user) return <>
-      <MaterialIssuePreparation key={`prepare:${identity}`} userId={auth.user.id} orgId={auth.currentOrgId} />
+      <MaterialIssuePreparation key={`prepare:${identity}:${preparationSnapshot}`} userId={auth.user.id} orgId={auth.currentOrgId} />
       <PreparationRecovery key={identity} identity={identity} orgId={auth.currentOrgId} />
     </>
     return <p role="status">{t('materialIssue.denied')}</p>
   }
   return <>
-    {maintenanceAllowed && <MaterialIssuePreparation key={`prepare:${identity}`} userId={auth.user.id} orgId={auth.currentOrgId} />}
+    {maintenanceAllowed && <MaterialIssuePreparation key={`prepare:${identity}:${preparationSnapshot}`} userId={auth.user.id} orgId={auth.currentOrgId} />}
     <IssueForm key={identity} userId={auth.user.id} orgId={auth.currentOrgId} />
   </>
 }

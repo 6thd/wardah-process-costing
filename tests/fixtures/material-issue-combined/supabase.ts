@@ -20,12 +20,13 @@ export const supabase = {
     return result
   },
   from(table: string) {
-    let id = ''; let org = ''; let offset = 0; let limit = 500
+    let id = ''; let org = ''; let after: string | null = null
     const query = { select: (_columns: string) => query,
       eq: (key: string, value: string) => { if (key === 'id') id = value; if (key === 'org_id') org = value; return query },
       single: () => call({ kind: 'read', table, id }),
       order: (_column: string) => query,
-      range: (start: number, end: number) => { offset = start; limit = end - start + 1; return call({ kind: 'catalog', table, org, offset, limit }) } }
+      gt: (column: string, value: string) => { if (column !== 'id') throw new Error('UNREVIEWED_FIXTURE_READ'); after = value; return query },
+      limit: (size: number) => call({ kind: 'catalog', table, org, after, limit: size }) }
     return query
   },
 }

@@ -39,17 +39,23 @@ export async function getPreparationCatalog(orgId: string, actorId: string): Pro
   await identity()
   const client = supabase as unknown as SupabaseClient
   const entries = await Promise.all(tables.map(async table => {
-    const rows: PreparationRow[] = []; const seen = new Set<string>()
-    for (let offset = 0; ; offset += 500) {
-      const { data, error } = await client.from(table).select('*').eq('org_id', orgId)
-        .order('id').range(offset, offset + 499)
+    const rows: PreparationRow[] = []; const seen = new Set<string>(); let after = ''
+    for (;;) {
+      let query = client.from(table).select('*').eq('org_id', orgId).order('id', { ascending: true })
+      if (after) query = query.gt('id', after)
+      const { data, error } = await query.limit(500)
       if (error) throw error
       if (!Array.isArray(data) || new Set(data.map(row => row?.id)).size !== data.length
         || data.some(row => !row || !uuid(row.id) || row.org_id !== orgId || seen.has(row.id))) {
         throw new Error('ISSUE_SETUP_CATALOG_UNVERIFIED')
       }
-      for (const row of data) { seen.add(row.id); rows.push(row as PreparationRow) }
-      if (data.length < 500) break
+      for (const row of data) {
+        const id = row.id.toLowerCase()
+        if (id <= after) throw new Error('ISSUE_SETUP_CATALOG_UNVERIFIED')
+        after = id; seen.add(row.id); rows.push(row as PreparationRow)
+      }
+      // A hosted row cap may be below 500. Only an empty page ends the scan.
+      if (data.length === 0) break
     }
     return [table, rows] as const
   }))
