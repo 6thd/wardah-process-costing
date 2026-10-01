@@ -18,6 +18,7 @@ assert code == 0 and report['release_ready'] is False
 # Server absence is only an observation; it can never clear a client intent.
 document['inventory']['sources'][0]['pending'] = [{
     'event_id': '00000000-0000-4000-8000-000000000003', 'operation': 'reserve',
+    'org_id': org, 'actor_id': '00000000-0000-4000-8000-000000000002',
     'first_observed_at': None,
 }]
 report, code = monitor(document, now)

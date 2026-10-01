@@ -47,6 +47,7 @@ def monitor(document, now, shift_hours=8, freshness_minutes=15):
     if set(actual_sources) != set(expected_sources):
         problems.append('SOURCE_ROSTER_INCOMPLETE_OR_UNEXPECTED')
     pending = []
+    event_sources = {}
     for source in sources:
         org, actor = uuid(source['org_id']), uuid(source['actor_id'])
         observed = instant(source['observed_at'])
@@ -57,16 +58,26 @@ def monitor(document, now, shift_hours=8, freshness_minutes=15):
         seen = set()
         for record in source['pending']:
             event_id = uuid(record['event_id'])
+            record_org, record_actor = uuid(record['org_id']), uuid(record['actor_id'])
             if event_id in seen or record['operation'] not in OPERATIONS:
                 raise ValueError('PENDING_EVENT_DUPLICATE_OR_INVALID_OPERATION')
             seen.add(event_id)
-            event = events.get((org, event_id))
+            key = (record_org, event_id)
+            if key in event_sources:
+                problems.append('PENDING_EVENT_MULTIPLE_SOURCES: ' + record_org + ':' + event_id)
+            event_sources.setdefault(key, source['source_id'])
+            scope_matches = record_org == org and record_actor == actor
+            if not scope_matches:
+                problems.append('PENDING_RECORD_SCOPE_MISMATCH: ' + source['source_id'] + ':' + event_id)
+            event = events.get(key) if scope_matches else None
             status = 'server_unobserved'
             if event:
                 if uuid(event['actor_id']) != actor or event['operation'] != record['operation']:
                     status = 'identity_or_operation_mismatch'
                 else:
                     status = 'applied_acknowledgement_needed' if event['state'] == 'applied' else 'closed_acknowledgement_needed'
+            if not scope_matches:
+                status = 'inventory_scope_mismatch'
             first = record.get('first_observed_at')
             age = None
             if first is not None:
@@ -74,23 +85,29 @@ def monitor(document, now, shift_hours=8, freshness_minutes=15):
                 if first_time > observed:
                     raise ValueError('FIRST_OBSERVATION_AFTER_INVENTORY')
                 age = (now - first_time).total_seconds()
-            pending.append({'source_id': source['source_id'], 'org_id': org, 'event_id': event_id,
+            pending.append({'source_id': source['source_id'], 'org_id': record_org, 'actor_id': record_actor,
+                            'source_org_id': org, 'source_actor_id': actor, 'event_id': event_id,
                             'status': status, 'age_lower_bound_seconds': age,
                             'alert': 'age_unknown' if age is None else 'over_shift' if age >= shift_hours * 3600 else 'pending'})
     pending_by_org = {}
+    distinct = {}
     for record in pending:
-        totals = pending_by_org.setdefault(record['org_id'], {'pending_browser_records': 0,
+        distinct.setdefault((record['org_id'], record['event_id']), []).append(record)
+    for (org, _), observations in distinct.items():
+        totals = pending_by_org.setdefault(org, {'pending_browser_records': 0,
             'age_unknown': 0, 'over_shift': 0, 'max_age_lower_bound_seconds': None})
         totals['pending_browser_records'] += 1
-        if record['alert'] in ('age_unknown', 'over_shift'):
-            totals[record['alert']] += 1
-        age = record['age_lower_bound_seconds']
-        if age is not None:
-            totals['max_age_lower_bound_seconds'] = max(totals['max_age_lower_bound_seconds'] or 0, age)
+        for alert in ('age_unknown', 'over_shift'):
+            if any(record['alert'] == alert for record in observations):
+                totals[alert] += 1
+        ages = [record['age_lower_bound_seconds'] for record in observations
+                if record['age_lower_bound_seconds'] is not None]
+        if ages:
+            totals['max_age_lower_bound_seconds'] = max(totals['max_age_lower_bound_seconds'] or 0, max(ages))
     report = {'release_ready': False, 'coverage': 'declared_sources_only',
               'coverage_problems': problems, 'terminal_counts_by_org': counts, 'pending': pending,
               'pending_by_org': pending_by_org,
-              'pending_count': len(pending), 'shift_hours': shift_hours,
+              'pending_count': len(distinct), 'pending_observation_count': len(pending), 'shift_hours': shift_hours,
               'read_only_triage': True, 'receipt_or_fence_verified': False}
     # Zero unresolved in the SERVER alone is never evidence of a clear workstation.
     return report, 2 if problems else 1 if pending else 0

@@ -40,7 +40,8 @@ record; independently confirm that the connection is the authorized target.
 
 **Scope limit:** this is a PG17 profile for these 22 functions. It does not prove
 migration history/order/exactly-once application, all M190/M191 functions, trigger
-attachment/enabled state, table/column containment, unrelated writers or the
+attachment/enabled state, table/column containment, M195's quarantined legacy-RPC
+EXECUTE containment, unrelated writers or the
 complete #278 behavior record. Those remain separate release prerequisites.
 An environment-specific owner/ACL difference fails for review; do not regenerate
 expectations from that environment merely to make it pass.
@@ -80,6 +81,8 @@ Inventory shape (timestamps must include timezone):
     "read_succeeded": true,
     "pending": [{
       "event_id": "00000000-0000-4000-8000-000000000003",
+      "org_id": "00000000-0000-4000-8000-000000000001",
+      "actor_id": "00000000-0000-4000-8000-000000000002",
       "operation": "reserve",
       "first_observed_at": null
     }]
@@ -87,8 +90,22 @@ Inventory shape (timestamps must include timezone):
 }
 ```
 
-Use the saved event ID/operation from the pending store or current recovery list,
-not an inferred new intent. This is maintenance setup only; the separate M192
+Use each record's saved event ID, orgId, actorId and operation from the pending
+store; translate the stored orgId/actorId field names to org_id/actor_id. Never
+copy the source's org/user onto a record or infer a new intent. One browser
+profile may contain several orgs/users: partition records into their actual
+scopes, or report the mismatch as incomplete coverage. Missing record identities
+are invalid evidence (exit 2). A source/record mismatch is reported as
+inventory_scope_mismatch, attributed to the stored org/user, and gives exit 2.
+
+The same (stored org_id, event_id) in multiple sources is also a coverage problem
+(exit 2), including actor disagreements. All observations remain visible in
+pending; pending_observation_count counts them. pending_count and per-org
+pending_browser_records count each scoped event once. Age alerts are counted
+once per event; the largest known observation-age lower bound is retained.
+The same event UUID in different orgs is a different scoped event.
+
+This is maintenance setup only; the separate M192
 consumption pending store is outside this report. It is not a fleet discovery
 tool, a receipt verifier or a cross-device deduplicator. A declared complete
 roster is an operator assertion; the tool cannot discover omitted workstations.
@@ -104,6 +121,7 @@ unknown, pass null and escalate the unknown age. Do not change the saved record.
 | applied_acknowledgement_needed | Existing recovery must verify the full receipt and identity before acknowledgement |
 | closed_acknowledgement_needed | Existing reconciliation must verify the fence and identity before acknowledgement |
 | identity_or_operation_mismatch | Stop recovery and investigate the scope; never clear the local record |
+| inventory_scope_mismatch or event in multiple sources | Repair the inventory partition/duplicate evidence; do not treat counts as complete |
 | Missing/stale/failed source | Coverage incomplete; do not report a clear station |
 
 The report never deletes a pending record or calls an RPC. A missing server row
