@@ -8,7 +8,8 @@
     193,
     194,
     195,
-    196
+    196,
+    197
   ],
   "migrations": [
     {
@@ -24,6 +25,13 @@
       "source_path": "docs/db/material-issue-maintenance-170-154/candidate.sql",
       "source_head": "b95384a917d5a0879350f4598e79a43a4c21e4f1",
       "sha256": "cf61b346c56b7e18dbe5bbcc994e3494a330ffbacf9315f81863e7796e44c648"
+    },
+    {
+      "proposed_canonical_path": "sql/migrations/197_material_issue_stale_version.sql",
+      "package_path": "docs/db/material-issue-release/migrations/197_material_issue_stale_version.sql",
+      "derived_from": "frozen M196 rpc_manage_material_issue_setup: exactly three stale-version SQLSTATE substitutions",
+      "source_head": "b95384a917d5a0879350f4598e79a43a4c21e4f1",
+      "sha256": "dc46497b9ec1b5b13ad4f62ecd32b00c1a73a25840192668c0806c805d21f20c"
     }
   ]
 }

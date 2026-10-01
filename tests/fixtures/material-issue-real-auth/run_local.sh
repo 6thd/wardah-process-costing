@@ -48,7 +48,7 @@ psql -X -v ON_ERROR_STOP=1 -q -f "$(field REFERENCE_PATH)" >/dev/null
 python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations 189 > /tmp/wardah-real-auth-order.txt
 [[ "$(wc -l < /tmp/wardah-real-auth-order.txt)" == 5 ]] || exit 2
 bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/wardah-real-auth-order.txt
-for path in docs/db/material-issue-release/migrations/195_material_issue_scope.sql docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql; do
+for path in docs/db/material-issue-release/migrations/195_material_issue_scope.sql docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql docs/db/material-issue-release/migrations/197_material_issue_stale_version.sql; do
  psql -X -v ON_ERROR_STOP=1 -q -f "$path" >/dev/null
 done
 python3 tests/fixtures/material-issue-real-auth/setup.py fixture > /tmp/wardah-auth-business-fixture.sql

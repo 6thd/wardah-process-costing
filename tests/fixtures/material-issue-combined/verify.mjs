@@ -136,7 +136,15 @@ try {
   await act(other.page, 'Save work order eligibility')
   const advanced = await state(page)
   expectedDenial = true
+  const staleResponse = realAuth ? page.waitForResponse(response => response.url().endsWith('/rpc/rpc_manage_material_issue_setup'), { timeout: 5000 }) : null
   await setup(page).getByRole('button', { name: 'Retry selected order preparation', exact: true }).click()
+  if (staleResponse) {
+    const response = await staleResponse
+    expect(response.status()).toBe(400)
+    const rejection = await response.json()
+    expect(rejection.code).toBe('P0001'); expect(rejection.message).toBe('ISSUE_SETUP_STALE_VERSION')
+    console.log('LOCAL_REAL_AUTH_STALE_VERSION_BOUNDED_P0001_PASS')
+  }
   await expect(setup(page).getByText('No saved request was reconciled.', { exact: false })).toBeVisible()
   expectedDenial = false
   expect(financial(await state(page))).toEqual(financial(advanced))

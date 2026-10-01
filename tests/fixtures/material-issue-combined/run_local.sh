@@ -23,7 +23,7 @@ psql -X -v ON_ERROR_STOP=1 -q -f "$(field REFERENCE_PATH)" >/dev/null
 python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations 189 > /tmp/wardah-combined-order.txt
 [[ "$(wc -l < /tmp/wardah-combined-order.txt)" == 5 ]] || exit 2
 bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/wardah-combined-order.txt
-for path in docs/db/manufacturing-inventory-red-20260925/00_fixture.sql docs/db/material-issue-229/seed.sql docs/db/material-issue-229/195_material_issue_scope_candidate.sql docs/db/material-issue-maintenance-170-154/candidate.sql; do
+for path in docs/db/manufacturing-inventory-red-20260925/00_fixture.sql docs/db/material-issue-229/seed.sql docs/db/material-issue-229/195_material_issue_scope_candidate.sql docs/db/material-issue-maintenance-170-154/candidate.sql docs/db/material-issue-release/migrations/197_material_issue_stale_version.sql; do
  psql -X -v ON_ERROR_STOP=1 -q -f "$path" >/dev/null
 done
 psql -X -v ON_ERROR_STOP=1 -q <<'SQL'
