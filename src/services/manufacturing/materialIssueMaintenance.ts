@@ -12,6 +12,10 @@ type MaintenanceDatabase = Omit<Database, 'public'> & {
         Args: { p_org_id: string; p_event_id: string; p_command: Json; p_actor_id: string }
         Returns: Json
       }
+      rpc_reconcile_material_issue_setup: {
+        Args: { p_org_id: string; p_event_id: string; p_command: Json; p_actor_id: string }
+        Returns: Json
+      }
     }
   }
 }
@@ -29,6 +33,7 @@ export interface MaintenancePorts {
   enabled(): boolean
   identity(): Promise<{ orgId: string; actorId: string }>
   post(record: Pending): Promise<{ data: unknown; error: unknown }>
+  reconcile?(record: Pending): Promise<{ data: unknown; error: unknown }>
 }
 const ports: MaintenancePorts = {
   enabled: isolatedMaterialIssueEnabled,
@@ -46,6 +51,22 @@ const ports: MaintenancePorts = {
     })
     return { data: result.data, error: result.error }
   },
+  async reconcile(record) {
+    const client = supabase as unknown as SupabaseClient<MaintenanceDatabase>
+    const result = await client.rpc('rpc_reconcile_material_issue_setup', {
+      p_org_id: record.orgId, p_event_id: record.eventId,
+      p_actor_id: record.actorId, p_command: record.command as Json,
+    })
+    return { data: result.data, error: result.error }
+  },
+}
+function validateScope(command: MaintenanceCommand): void {
+  if (command.operation === 'create_order') {
+    if (command.mo_id !== undefined) throw new Error('INVALID_ISSUE_SETUP_SCOPE')
+  } else if (!['set_order_status', 'create_work_order', 'set_work_order_status', 'open_stage_wip',
+    'reserve', 'resize_reservation', 'release_reservation'].includes(command.operation) || !uuid(command.mo_id)) {
+    throw new Error('INVALID_ISSUE_SETUP_SCOPE')
+  }
 }
 async function database(): Promise<IDBDatabase> {
   if (!globalThis.indexedDB) throw new Error('ISSUE_SETUP_STORAGE_REQUIRED')
@@ -118,6 +139,7 @@ export async function manageMaterialIssueSetup(command: MaintenanceCommand, tran
   if (!transport.enabled()) throw new Error('MATERIAL_ISSUE_RELEASE_HOLD')
   // Clone now; later caller mutation cannot change the saved request or retry.
   const frozen = JSON.parse(JSON.stringify(command)) as MaintenanceCommand
+  validateScope(frozen)
   const identity = await transport.identity()
   if (!uuid(identity.orgId) || !uuid(identity.actorId)) throw new Error('ISSUE_SETUP_IDENTITY_REQUIRED')
   const record = await claim(identity, frozen)
@@ -135,6 +157,15 @@ export async function manageMaterialIssueSetup(command: MaintenanceCommand, tran
     }
     throw error
   }
+  const entity = verifiedReceipt(record, data)
+  const verifiedIdentity = await transport.identity()
+  if (verifiedIdentity.orgId !== record.orgId || verifiedIdentity.actorId !== record.actorId) {
+    throw new Error('ISSUE_SETUP_IDENTITY_CHANGED')
+  }
+  await acknowledge(record)
+  return entity
+}
+function verifiedReceipt(record: Pending, data: unknown): Record<string, unknown> {
   if (!object(data) || data.event_id !== record.eventId || data.org_id !== record.orgId
     || data.operation !== record.command.operation || !object(data.entity) || !uuid(data.entity.id)
     || data.entity.org_id !== record.orgId
@@ -146,11 +177,6 @@ export async function manageMaterialIssueSetup(command: MaintenanceCommand, tran
     || (['resize_reservation', 'release_reservation'].includes(record.command.operation) && data.entity.id !== record.command.reservation_id)) {
     throw new Error('ISSUE_SETUP_RESULT_UNVERIFIED')
   }
-  const verifiedIdentity = await transport.identity()
-  if (verifiedIdentity.orgId !== record.orgId || verifiedIdentity.actorId !== record.actorId) {
-    throw new Error('ISSUE_SETUP_IDENTITY_CHANGED')
-  }
-  await acknowledge(record)
   return data.entity
 }
 
@@ -185,6 +211,48 @@ export async function recoverMaterialIssueSetup(moId?: string, transport: Mainte
   }).finally(() => db.close())
   if (!record) throw new Error('ISSUE_SETUP_NO_PENDING_EVENT')
   return manageMaterialIssueSetup(record.command, transport)
+}
+
+/** Enumerate durable events for this identity, independent of MO age/eligibility. */
+export async function listPendingMaterialIssueSetup(transport: MaintenancePorts = ports): Promise<{ eventId: string; moId?: string; operation: string }[]> {
+  if (!transport.enabled()) throw new Error('MATERIAL_ISSUE_RELEASE_HOLD')
+  const identity = await transport.identity(); const db = await database()
+  const records = await new Promise<Pending[]>((resolve, reject) => {
+    const tx = db.transaction('pending', 'readonly'); const request = tx.objectStore('pending').getAll()
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error)
+  }).finally(() => db.close())
+  const current = await transport.identity()
+  if (current.orgId !== identity.orgId || current.actorId !== identity.actorId) throw new Error('ISSUE_SETUP_IDENTITY_CHANGED')
+  return records.filter(r => r.orgId === identity.orgId && r.actorId === identity.actorId)
+    .map(r => ({ eventId: r.eventId, moId: uuid(r.command.mo_id) ? r.command.mo_id : undefined, operation: r.command.operation }))
+}
+
+/** Server lock + durable fence, never a client inference from a missing receipt. */
+export async function reconcileMaterialIssueSetup(moId?: string, transport: MaintenancePorts = ports): Promise<'applied' | 'closed'> {
+  if (!transport.enabled()) throw new Error('MATERIAL_ISSUE_RELEASE_HOLD')
+  const identity = await transport.identity(); const db = await database()
+  const record = await new Promise<Pending | undefined>((resolve, reject) => {
+    const tx = db.transaction('pending', 'readonly')
+    const request = tx.objectStore('pending').get(`${identity.orgId}:${identity.actorId}:${moId ?? 'create-order'}`)
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error)
+  }).finally(() => db.close())
+  if (!record) throw new Error('ISSUE_SETUP_NO_PENDING_EVENT')
+  // Legacy malformed WIP records are reconciled in their saved slot too; the
+  // server closes their exact event rather than executing an invalid command.
+  const current = await transport.identity()
+  if (current.orgId !== record.orgId || current.actorId !== record.actorId) throw new Error('ISSUE_SETUP_IDENTITY_CHANGED')
+  if (!transport.reconcile) throw new Error('ISSUE_SETUP_RECONCILIATION_UNAVAILABLE')
+  const { data, error } = await transport.reconcile(record)
+  if (error) throw error
+  if (!object(data) || data.event_id !== record.eventId || data.org_id !== record.orgId
+    || data.actor_id !== record.actorId || data.operation !== record.command.operation
+    || !['applied', 'closed'].includes(String(data.state))) throw new Error('ISSUE_SETUP_RESULT_UNVERIFIED')
+  if (data.state === 'applied') verifiedReceipt(record, data.receipt)
+  else if (data.receipt !== null) throw new Error('ISSUE_SETUP_RESULT_UNVERIFIED')
+  const verifiedIdentity = await transport.identity()
+  if (verifiedIdentity.orgId !== record.orgId || verifiedIdentity.actorId !== record.actorId) throw new Error('ISSUE_SETUP_IDENTITY_CHANGED')
+  await acknowledge(record) // Compare-delete: a newer event can never be cleared.
+  return data.state as 'applied' | 'closed'
 }
 
 /** Read-only scoped version snapshot; the RPC checks it again under the MO lock. */

@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePermissions } from '@/hooks/usePermissions'
 import { supabase } from '@/lib/supabase'
+import { listPendingMaterialIssueSetup } from '@/services/manufacturing/materialIssueMaintenance'
 import { Button } from '@/components/ui/button'
 import { claimMaterialIssue, pendingMaterialIssue, sendMaterialIssue, acknowledgeRejectedMaterialIssue,
   getMaterialIssuePolicy, type MaterialIssueRecord, type MaterialIssuePolicy } from '@/services/manufacturing/materialIssueClient'
@@ -36,22 +37,26 @@ export function MaterialIssuePage() {
 }
 function PreparationRecovery({ identity, orgId }: { identity: string; orgId: string }) {
   const { t } = useTranslation()
-  const [orders, setOrders] = useState<{ id: string; order_number: string }[]>([])
+  const [orders, setOrders] = useState<string[]>([])
+  const [reload, setReload] = useState(0)
+  const [storageFailed, setStorageFailed] = useState(false)
   const [mo, setMo] = useState('')
   useEffect(() => {
     let active = true
-    void Promise.resolve(supabase.from('manufacturing_orders').select('id,order_number').eq('org_id', orgId)
-      .order('order_number').limit(200)).then(({ data, error }) => {
-        if (active && !error && data) setOrders(data)
-      }).catch(() => undefined)
+    setStorageFailed(false)
+    listPendingMaterialIssueSetup().then(rows => {
+      if (active) setOrders([...new Set(rows.flatMap(row => row.moId ? [row.moId] : []))])
+    }).catch(() => { if (active) setStorageFailed(true) })
     return () => { active = false }
-  }, [orgId])
+  }, [orgId, identity, reload])
   return <section className="material-issue-page space-y-4 p-4">
     <label>{t('materialIssue.mo')}<select value={mo} onChange={event => setMo(event.target.value)}>
       <option value="">{t('materialIssue.choose')}</option>
-      {orders.map(row => <option key={row.id} value={row.id}>{row.order_number}</option>)}
+      {orders.map(id => <option key={id} value={id}>{id}</option>)}
     </select></label>
-    <MaintenanceRecovery identity={identity} moId={mo || undefined} />
+    <Button onClick={() => setReload(value => value + 1)}>{t('materialIssue.refresh')}</Button>
+    {storageFailed && <p role="alert">{t('materialIssue.storageFailed')}</p>}
+    <MaintenanceRecovery identity={identity} moId={mo || undefined} onRecovered={() => setReload(value => value + 1)} />
   </section>
 }
 function IssueForm({ userId, orgId }: { userId: string; orgId: string }) {

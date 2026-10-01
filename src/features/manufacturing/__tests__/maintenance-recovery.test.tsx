@@ -1,12 +1,12 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-const fixture = vi.hoisted(() => ({ allowed: true, identity: 'actor:org', recover: vi.fn(), dismiss: vi.fn(), invalidate: vi.fn() }))
+const fixture = vi.hoisted(() => ({ allowed: true, identity: 'actor:org', recover: vi.fn(), dismiss: vi.fn(), reconcile: vi.fn(), invalidate: vi.fn() }))
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: fixture.invalidate }) }))
 vi.mock('@/hooks/usePermissions', () => ({ usePermissions: () => ({ loading: false, error: null,
   permissionIdentityKey: fixture.identity, hasPermissionKey: () => fixture.allowed }) }))
 vi.mock('@/services/manufacturing/materialIssueMaintenance', () => ({ recoverMaterialIssueSetup: fixture.recover,
-  acknowledgeRejectedMaterialIssueSetup: fixture.dismiss }))
+  acknowledgeRejectedMaterialIssueSetup: fixture.dismiss, reconcileMaterialIssueSetup: fixture.reconcile }))
 import { MaintenanceRecovery } from '../material-issue/MaintenanceRecovery'
 beforeEach(() => { vi.resetAllMocks(); fixture.allowed = true; fixture.identity = 'actor:org'; fixture.invalidate.mockResolvedValue(undefined) })
 afterEach(cleanup)
@@ -29,6 +29,21 @@ it('disables selected-MO recovery until an order is selected', () => {
   render(<MaintenanceRecovery identity="actor:org" />)
   expect(screen.getByText('materialIssue.retrySetup')).toBeDisabled()
   expect(screen.getByText('materialIssue.dismissRejectedSetup')).toBeDisabled()
+  expect(screen.getByText('materialIssue.reconcileSetup')).toBeDisabled()
+})
+it('closes an unresolved setup only through server reconciliation, without invalidating financial queries', async () => {
+  fixture.reconcile.mockResolvedValue('closed'); const recovered = vi.fn()
+  render(<MaintenanceRecovery identity="actor:org" moId="mo" onRecovered={recovered} />)
+  await act(async () => fireEvent.click(screen.getByText('materialIssue.reconcileSetup')))
+  expect(fixture.reconcile).toHaveBeenCalledWith('mo')
+  expect(screen.getByRole('status')).toHaveTextContent('materialIssue.setupClosed')
+  expect(fixture.invalidate).not.toHaveBeenCalled(); expect(recovered).toHaveBeenCalledTimes(1)
+})
+it('reconciles creation and refreshes only after a verified applied receipt', async () => {
+  fixture.reconcile.mockResolvedValue('applied')
+  render(<MaintenanceRecovery identity="actor:org" />)
+  await act(async () => fireEvent.click(screen.getByText('materialIssue.reconcileOrderCreation')))
+  expect(fixture.reconcile).toHaveBeenCalledWith(undefined); expect(fixture.invalidate).toHaveBeenCalledTimes(1)
 })
 it('dismisses only through the definitive-rejection guard and never invalidates on failure', async () => {
   fixture.dismiss.mockRejectedValue(new Error('ISSUE_SETUP_OUTCOME_UNRESOLVED'))

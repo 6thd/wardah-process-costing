@@ -1,9 +1,13 @@
 // Local simulation ONLY. No Supabase client, network, credentials or live data.
 import { identity, ids } from './identity'
+import { maintenanceRpc } from './maintenance-transport'
+export const getEffectiveTenantId = async () => identity.org
 const read = <T,>(key: string, fallback: T): T => JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback))
 export const supabase = { auth: { getUser: async () => ({ data: { user: { id: identity.user } }, error: null }) },
  rpc: async (name: string, args: Record<string, unknown>) => {
  const trace = read<unknown[]>('fixture:trace', []); trace.push({ name, args, actor: identity.user }); localStorage.setItem('fixture:trace', JSON.stringify(trace))
+ const setup = maintenanceRpc(name, args)
+ if (setup) return setup
  const policy = read('fixture:policy', { org_id: identity.org, version: 1, allowed_statuses: ['IN_PROGRESS'] })
  if (name === 'rpc_get_material_issue_wo_statuses') return { data: policy, error: null }
  if (name === 'rpc_set_material_issue_wo_statuses') {

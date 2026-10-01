@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 358,
-  "signature_count": 332,
-  "signature_sha256": "54630e2d670e06e576d9c2b0cbb95e8cc6358afe546086c300236650b5fcb866",
-  "note": "Reviewed isolated #170/#154 candidate delta: exactly one write RPC rpc_manage_material_issue_setup and one read RPC rpc_get_material_reservation_setup. No old signatures removed. Both require explicit active maintenance grants in an unallocated companion DB candidate; no live coverage or release approval is claimed."
+  "candidate_count": 359,
+  "signature_count": 333,
+  "signature_sha256": "6cb6f10c09e8abfbb1da4873ec9ab35d1c62767f859aa8beac5f955007b6326b",
+  "note": "Isolated #170/#154 candidate: one additional write RPC rpc_reconcile_material_issue_setup fences a pending event under the writer lock or returns its receipt. It requires the same exact maintenance role grant and actor/org binding. No existing signature removed; no live coverage or release approval claimed."
 }

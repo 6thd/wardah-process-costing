@@ -45,6 +45,6 @@
 
     {"id":"reviewed-permission-snapshot","priority":10,"targets":["has_permission","rpc_permission_snapshot"],"verdict":"server_covered_exact_permission","issue":148,"note":"Canonical caller-bound permission helpers enforce exact key and role/org/active/expiry semantics."},
     {"id":"reviewed-reports-insights-edge","priority":10,"target":"reports-insights","verdict":"server_covered_exact_permission","issue":148,"note":"Edge Function authenticates caller JWT, resolves caller org with user-scoped client, checks exact reports.ai_insights.use before quota/service-role work."},
-    {"id":"reviewed-isolated-maintenance-candidate","priority":100,"targets":["rpc_manage_material_issue_setup","rpc_get_material_reservation_setup"],"verdict":"follow_up_required","issue":170,"note":"Isolated non-production consumer. Companion unallocated review SQL requires exact explicit role grants, scope/version checks and event replay. Local acceptance is not canonical/live sign-off."}
+    {"id":"reviewed-isolated-maintenance-candidate","priority":100,"targets":["rpc_manage_material_issue_setup","rpc_get_material_reservation_setup","rpc_reconcile_material_issue_setup"],"verdict":"follow_up_required","issue":170,"note":"Isolated non-production consumer. Companion unallocated review SQL requires exact explicit role grants, scope/version checks and event replay. Local acceptance is not canonical/live sign-off."}
   ]
 }
