@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { LoadingSpinner } from '@/components/ui/loading-state'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
@@ -33,6 +33,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { useManufacturingOrders } from './hooks/useManufacturingOrders'
 import { useManufacturingProducts } from './hooks/useManufacturingProducts'
 import { createManufacturingOrder, getOrderDetails } from './services/manufacturingOrderService'
+import { isolatedMaterialIssueEnabled } from './material-issue/gate'
 import { getStatusLabel, getStatusBadgeVariant, getStatusOptions, validateStatusTransition, prepareStatusUpdate } from './utils/statusHelpers'
 import {
   Plus,
@@ -241,6 +242,9 @@ function ManufacturingOrdersManagement() {
   const canCreateOrder = hasPermissionKey('manufacturing.orders.create')
   // تغيير الحالة تعديل على أمر قائم — لا فعل "اعتماد" منفصل في هذا العنصر.
   const canUpdateOrder = hasPermissionKey('manufacturing.orders.update')
+  const canOpenIssuePreparation = isolatedMaterialIssueEnabled() && ['manufacturing.material_consumption.consume',
+    'manufacturing.material_issue_setup.prepare', 'manufacturing.material_reservation.reserve',
+    'manufacturing.material_reservation.release'].some(key => hasPermissionKey(key))
   const [showAddForm, setShowAddForm] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<ManufacturingOrder | null>(null)
   const [orderDetailsOpen, setOrderDetailsOpen] = useState(false)
@@ -413,6 +417,7 @@ function ManufacturingOrdersManagement() {
         <div>
           <h1 className="text-2xl font-bold">{t('manufacturing.ordersPage.title')}</h1>
           <p className="text-muted-foreground">{t('manufacturing.ordersPage.subtitle')}</p>
+          {canOpenIssuePreparation && <Link className="underline" to="/manufacturing/material-issue">{t('materialIssue.preparationTitle')}</Link>}
         </div>
         {canCreateOrder && (
           <Button onClick={() => setShowAddForm(!showAddForm)}>

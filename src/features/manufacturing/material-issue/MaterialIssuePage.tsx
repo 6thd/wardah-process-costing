@@ -4,26 +4,73 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePermissions } from '@/hooks/usePermissions'
 import { supabase } from '@/lib/supabase'
+import { listPendingMaterialIssueSetup } from '@/services/manufacturing/materialIssueMaintenance'
 import { Button } from '@/components/ui/button'
 import { claimMaterialIssue, pendingMaterialIssue, sendMaterialIssue, acknowledgeRejectedMaterialIssue,
   getMaterialIssuePolicy, type MaterialIssueRecord, type MaterialIssuePolicy } from '@/services/manufacturing/materialIssueClient'
 import { CONSUME_KEY, getIssueOrders, getIssueContext, issueCommand,
   type IssueContext, type IssueOrder, type IssueDraftLine } from '@/services/manufacturing/materialIssueOptions'
+import { MaintenanceRecovery } from './MaintenanceRecovery'
+import { MaterialIssuePreparation } from './MaterialIssuePreparation'
 import { isolatedMaterialIssueEnabled } from './gate'
 import './material-issue.css'
 
+const preparationPermissionKeys = ['manufacturing.material_issue_setup.prepare',
+  'manufacturing.material_reservation.reserve', 'manufacturing.material_reservation.release',
+  'manufacturing.orders.create', 'manufacturing.orders.update', 'manufacturing.stage_costs.create']
 const emptyLine = (): IssueDraftLine => ({ reservation: '', warehouse: '', workOrder: '', uom: '', quantity: '', notes: '' })
 export function MaterialIssuePage() {
   const auth = useAuth()
   const permissions = usePermissions()
   const { t } = useTranslation()
   const identity = `${auth.user?.id || ''}:${auth.currentOrgId || ''}`
+  // Background revalidation keeps loading=false. Bind unsent preparation drafts
+  // to effective operation grants; persisted recovery remains keyed by identity.
+  const preparationSnapshot = preparationPermissionKeys.map(key => permissions.hasPermissionKey(key) ? '1' : '0').join('')
+  const contextReady = !auth.loading && !!auth.user && !!auth.currentOrgId
+    && !permissions.loading && !permissions.error && permissions.permissionIdentityKey === identity
+  const maintenanceAllowed = contextReady && ['manufacturing.material_issue_setup.prepare',
+    'manufacturing.material_reservation.reserve', 'manufacturing.material_reservation.release']
+    .some(key => permissions.hasPermissionKey(key))
   const allowed = !auth.loading && !!auth.user && !!auth.currentOrgId
     && !permissions.loading && !permissions.error && permissions.permissionIdentityKey === identity
     && permissions.hasPermissionKey(CONSUME_KEY)
   if (!isolatedMaterialIssueEnabled()) return <p role="status">{t('materialIssue.hold')}</p>
-  if (!allowed || !auth.user || !auth.currentOrgId) return <p role="status">{t('materialIssue.denied')}</p>
-  return <IssueForm key={identity} userId={auth.user.id} orgId={auth.currentOrgId} />
+  if (!allowed || !auth.user || !auth.currentOrgId) {
+    if (maintenanceAllowed && auth.currentOrgId && auth.user) return <>
+      <MaterialIssuePreparation key={`prepare:${identity}:${preparationSnapshot}`} userId={auth.user.id} orgId={auth.currentOrgId} />
+      <PreparationRecovery key={identity} identity={identity} orgId={auth.currentOrgId} />
+    </>
+    return <p role="status">{t('materialIssue.denied')}</p>
+  }
+  return <>
+    {maintenanceAllowed && <MaterialIssuePreparation key={`prepare:${identity}:${preparationSnapshot}`} userId={auth.user.id} orgId={auth.currentOrgId} />}
+    <IssueForm key={identity} userId={auth.user.id} orgId={auth.currentOrgId} />
+  </>
+}
+function PreparationRecovery({ identity, orgId }: { identity: string; orgId: string }) {
+  const { t } = useTranslation()
+  const [orders, setOrders] = useState<string[]>([])
+  const [reload, setReload] = useState(0)
+  const [storageFailed, setStorageFailed] = useState(false)
+  const [mo, setMo] = useState('')
+  useEffect(() => {
+    let active = true
+    setStorageFailed(false)
+    listPendingMaterialIssueSetup().then(rows => {
+      if (active) setOrders([...new Set(rows.flatMap(row => row.moId ? [row.moId] : []))])
+    }).catch(() => { if (active) setStorageFailed(true) })
+    return () => { active = false }
+  }, [orgId, identity, reload])
+  return <section className="material-issue-page space-y-4 p-4">
+    <label>{t('materialIssue.mo')}<select value={mo} onChange={event => setMo(event.target.value)}>
+      <option value="">{t('materialIssue.choose')}</option>
+      {orders.map(id => <option key={id} value={id}>{id}</option>)}
+    </select></label>
+    <Button onClick={() => setReload(value => value + 1)}>{t('materialIssue.refresh')}</Button>
+    {storageFailed && <p role="alert">{t('materialIssue.storageFailed')}</p>}
+    <MaintenanceRecovery identity={identity} moId={mo || undefined} onRecovered={() => setReload(value => value + 1)} />
+  </section>
 }
 function IssueForm({ userId, orgId }: { userId: string; orgId: string }) {
   const { t } = useTranslation()
@@ -133,6 +180,7 @@ function IssueForm({ userId, orgId }: { userId: string; orgId: string }) {
       <option value="">{choose}</option>{orders?.map(row => <option key={row.id} value={row.id}>{row.label}</option>)}
     </select></label>
     <Button disabled={busy} onClick={() => setReload(value => value + 1)}>{t('materialIssue.refresh')}</Button>
+    <MaintenanceRecovery key={`${userId}:${orgId}`} identity={`${userId}:${orgId}`} moId={mo || undefined} />
     {error && <p role="alert">{error}</p>}
     {receipt && <p role="status">{t('materialIssue.succeeded')} <code>{receipt}</code></p>}
     {policy && <p>{t('materialIssue.policyVersion')}: {policy.version} — {policy.allowed_statuses.join(', ')}</p>}

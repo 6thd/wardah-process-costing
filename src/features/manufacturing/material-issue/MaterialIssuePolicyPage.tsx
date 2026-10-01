@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { getMaterialIssuePolicy, setMaterialIssuePolicy, type MaterialIssuePolicy } from '@/services/manufacturing/materialIssueClient'
 import { CONSUME_KEY } from '@/services/manufacturing/materialIssueOptions'
 import { isolatedMaterialIssueEnabled } from './gate'
+import { MaterialIssueDecisionDraft } from './MaterialIssueDecisionDraft'
 import './material-issue.css'
 export function MaterialIssuePolicyPage() {
   const auth = useAuth()
@@ -79,5 +80,6 @@ function PolicyForm({ orgId, userId }: { orgId: string; userId: string }) {
       {canEdit && <Button disabled={busy || !policy} onClick={() => void save()}>{t('materialIssue.save')}</Button>}
     </fieldset>
     <Button disabled={busy} onClick={() => setReload(value => value + 1)}>{t('materialIssue.refresh')}</Button>
+    {canEdit && <MaterialIssueDecisionDraft key={`${userId}:${orgId}`} orgId={orgId} userId={userId} />}
   </section>
 }

@@ -8,7 +8,11 @@ import '@/globals.css'
 import { MaterialIssuePage } from '@/features/manufacturing/material-issue/MaterialIssuePage'
 import { MaterialIssuePolicyPage } from '@/features/manufacturing/material-issue/MaterialIssuePolicyPage'
 import { changeIdentity, ids } from './identity'
-Object.assign(window, { __fixture: { changeIdentity, ids } })
+import { manageMaterialIssueSetup, recoverMaterialIssueSetup, reconcileMaterialIssueSetup, listPendingMaterialIssueSetup } from '@/services/manufacturing/materialIssueMaintenance'
+Object.assign(window, { __fixture: { changeIdentity, ids, setup: {
+  manage: manageMaterialIssueSetup, recover: recoverMaterialIssueSetup,
+  reconcile: reconcileMaterialIssueSetup, pending: listPendingMaterialIssueSetup,
+} } })
 void i18next.use(initReactI18next).init({ lng: 'en', resources: { en: { translation: en } }, interpolation: { escapeValue: false } })
 function App() { const [policy, setPolicy] = useState(false); return <>
  <nav><button onClick={() => setPolicy(false)}>Employee page</button> <button onClick={() => setPolicy(true)}>Policy page</button></nav>

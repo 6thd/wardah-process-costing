@@ -3,6 +3,8 @@
  * Manufacturing Execution System
  */
 
+import { isolatedMaterialIssueEnabled } from '@/features/manufacturing/material-issue/gate'
+import { issueSetupSnapshot, manageMaterialIssueSetup } from './materialIssueMaintenance'
 import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase'
 const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
@@ -327,6 +329,12 @@ export async function updateWorkOrderStatus(
   status: WorkOrderStatus,
   notes?: string
 ): Promise<WorkOrder> {
+  if (isolatedMaterialIssueEnabled()) {
+    if (notes) throw new Error('ISSUE_SETUP_ELIGIBILITY_ONLY');
+    const row = await issueSetupSnapshot('work_orders', workOrderId);
+    return await manageMaterialIssueSetup({ operation: 'set_work_order_status', mo_id: row.mo_id,
+      work_order_id: workOrderId, status, expected_version: row.maintenance_version }) as unknown as WorkOrder;
+  }
   const { data, error } = await supabase
     .from('work_orders')
     .update({
@@ -346,6 +354,7 @@ export async function updateWorkOrderStatus(
  * إيقاف مؤقت لأمر العمل
  */
 export async function pauseWorkOrder(workOrderId: string, reason?: string): Promise<WorkOrder> {
+  if (isolatedMaterialIssueEnabled()) throw new Error('ISSUE_SETUP_MES_EXECUTION_DEFERRED')
   const orgId = await getEffectiveTenantId()
   
   // تسجيل حدث الإيقاف
@@ -915,3 +924,9 @@ export const mesService = {
 }
 
 export default mesService
+
+/** Explicit manual-issue preparation; never generates or starts MES operations. */
+export async function createMaterialIssueWorkOrder(moId: string, workCenterId: string, name: string, quantity: number): Promise<WorkOrder> {
+  return await manageMaterialIssueSetup({ operation: 'create_work_order', mo_id: moId,
+    work_center_id: workCenterId, name, quantity }) as unknown as WorkOrder
+}
