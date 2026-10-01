@@ -19,6 +19,8 @@
     "analytics": "التحليلات",
     "performance": "الأداء",
     "orders": "الأوامر",
+    "materialIssue": "صرف المواد",
+    "materialIssuePolicy": "سياسة صرف المواد",
     "process-costing": "تكاليف المراحل",
     "stages": "مراحل التصنيع",
     "wipLog": "سجلات WIP",

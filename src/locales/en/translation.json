@@ -19,6 +19,8 @@
     "analytics": "Analytics",
     "performance": "Performance",
     "orders": "Orders",
+    "materialIssue": "Material issue",
+    "materialIssuePolicy": "Material-issue policy",
     "process-costing": "Process Costing",
     "stages": "Manufacturing Stages",
     "wipLog": "WIP Logs",

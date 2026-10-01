@@ -126,8 +126,8 @@ const dashboardChildren = [
 const manufacturingChildren = [
   child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'overview', '/manufacturing/overview', 'navigation.overview'),
   child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'orders', '/manufacturing/orders', 'navigation.orders'),
-  child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'material-issue', '/manufacturing/material-issue', 'materialIssue.title', 'hidden', { blockedByIssue: 229 }),
-  child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'material-issue-policy', '/manufacturing/material-issue-policy', 'materialIssue.policyTitle', 'hidden', { blockedByIssue: 229 }),
+  child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'material-issue', '/manufacturing/material-issue', 'navigation.materialIssue', 'hidden', { blockedByIssue: 229 }),
+  child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'material-issue-policy', '/manufacturing/material-issue-policy', 'navigation.materialIssuePolicy', 'hidden', { blockedByIssue: 229 }),
   child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'mes', '/manufacturing/mes', 'navigation.mes', 'beta'),
   // No manufacturing.routing.* catalog contract exists yet. Keep the product
   // concept in the catalog, but fail closed in navigation until #152 closes.
