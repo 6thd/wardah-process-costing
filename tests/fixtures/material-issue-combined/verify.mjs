@@ -193,4 +193,4 @@ try {
   console.log('COMBINED_RELEASE_PRESERVES_HISTORY_STOCK_WIP_GL_PASS')
   console.log(realAuth ? 'LOCAL_REAL_AUTH_POSTGREST_MOUNTED_OPERATOR_REPLAY_RECONCILIATION_PASS — real local password/JWT/PostgREST; network loss simulated; no hosted environment sign-off' : 'COMBINED_TECHNICAL_ACCEPTANCE_PASS — native mounted operator controls + real local PG; identity/network loss simulated; no live Auth or owner UX sign-off')
   await context.close()
-} catch (error) { console.error(error); throw error } finally { await browser.close() }
+} catch (error) { console.error(error); console.error('BROWSER_DIAGNOSTICS', JSON.stringify(errors)); throw error } finally { await browser.close() }
