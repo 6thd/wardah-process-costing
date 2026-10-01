@@ -11,6 +11,7 @@ import { claimMaterialIssue, pendingMaterialIssue, sendMaterialIssue, acknowledg
 import { CONSUME_KEY, getIssueOrders, getIssueContext, issueCommand,
   type IssueContext, type IssueOrder, type IssueDraftLine } from '@/services/manufacturing/materialIssueOptions'
 import { MaintenanceRecovery } from './MaintenanceRecovery'
+import { MaterialIssuePreparation } from './MaterialIssuePreparation'
 import { isolatedMaterialIssueEnabled } from './gate'
 import './material-issue.css'
 
@@ -30,10 +31,16 @@ export function MaterialIssuePage() {
     && permissions.hasPermissionKey(CONSUME_KEY)
   if (!isolatedMaterialIssueEnabled()) return <p role="status">{t('materialIssue.hold')}</p>
   if (!allowed || !auth.user || !auth.currentOrgId) {
-    if (maintenanceAllowed && auth.currentOrgId) return <PreparationRecovery key={identity} identity={identity} orgId={auth.currentOrgId} />
+    if (maintenanceAllowed && auth.currentOrgId && auth.user) return <>
+      <MaterialIssuePreparation key={`prepare:${identity}`} userId={auth.user.id} orgId={auth.currentOrgId} />
+      <PreparationRecovery key={identity} identity={identity} orgId={auth.currentOrgId} />
+    </>
     return <p role="status">{t('materialIssue.denied')}</p>
   }
-  return <IssueForm key={identity} userId={auth.user.id} orgId={auth.currentOrgId} />
+  return <>
+    {maintenanceAllowed && <MaterialIssuePreparation key={`prepare:${identity}`} userId={auth.user.id} orgId={auth.currentOrgId} />}
+    <IssueForm key={identity} userId={auth.user.id} orgId={auth.currentOrgId} />
+  </>
 }
 function PreparationRecovery({ identity, orgId }: { identity: string; orgId: string }) {
   const { t } = useTranslation()

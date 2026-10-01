@@ -9,7 +9,7 @@ from psycopg.types.json import Jsonb
 if (os.environ.get('PGHOST') != '127.0.0.1'
         or int(os.environ.get('PGPORT', '0')) < 55000
         or not os.environ.get('PGDATABASE', '').startswith('wardah_issue_combined_')
-        or any(os.environ.get(k) for k in ('DATABASE_URL', 'PGSERVICE', 'SUPABASE_DB_URL'))):
+        or any(os.environ.get(k) for k in ('DATABASE_URL', 'PGSERVICE', 'SUPABASE_DB_URL', 'PGHOSTADDR'))):
     raise SystemExit('REFUSED_NON_DISPOSABLE_DATABASE')
 ORG = 'ed000000-0000-4000-8000-000000000001'
 ACTOR = 'ed000000-0000-4000-8000-0000000000a2'
@@ -28,6 +28,15 @@ READS = {
     'work_orders': "SELECT to_jsonb(t) FROM public.work_orders t WHERE id=%s AND org_id=%s",
     'material_reservations': "SELECT to_jsonb(t) FROM public.material_reservations t WHERE id=%s AND org_id=%s",
 }
+CATALOG = {
+    'products': "SELECT to_jsonb(t) FROM public.products t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
+    'items': "SELECT to_jsonb(t) FROM public.items t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
+    'manufacturing_orders': "SELECT to_jsonb(t) FROM public.manufacturing_orders t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
+    'work_orders': "SELECT to_jsonb(t) FROM public.work_orders t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
+    'material_reservations': "SELECT to_jsonb(t) FROM public.material_reservations t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
+    'work_centers': "SELECT to_jsonb(t) FROM public.work_centers t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
+    'manufacturing_stages': "SELECT to_jsonb(t) FROM public.manufacturing_stages t WHERE org_id=%s ORDER BY id LIMIT %s OFFSET %s",
+}
 SNAPSHOTS = {
     'manufacturing_orders': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.manufacturing_orders t",
     'work_orders': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.work_orders t",
@@ -39,6 +48,7 @@ SNAPSHOTS = {
     'products': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.products t",
     'gl_entries': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.gl_entries t",
     'gl_entry_lines': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.gl_entry_lines t",
+    'journal_lines': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.journal_lines t",
     'journal_entries': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.journal_entries t",
 }
 trace = []
@@ -52,16 +62,8 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(value, default=lambda v: float(v)).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', 'http://127.0.0.1:4177')
         self.end_headers()
         self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self.send_header('Access-Control-Allow-Origin', 'http://127.0.0.1:4177')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.end_headers()
 
     def do_GET(self):
         if self.path != '/state':
@@ -72,10 +74,27 @@ class Handler(BaseHTTPRequestHandler):
             for table, query in SNAPSHOTS.items():
                 state[table] = conn.execute(query).fetchone()[0]
             state['events'] = conn.execute('SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY event_id),\'[]\'::jsonb) FROM wardah_internal.material_issue_events t').fetchone()[0]
+            state['setup_events'] = conn.execute("SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY event_id),'[]'::jsonb) FROM wardah_internal.material_issue_maintenance_events t").fetchone()[0]
             state['trace'] = trace.copy()
         self.reply(state)
 
     def do_POST(self):
+        if self.path == '/fixture-grants':
+            request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            keys = request.get('keys')
+            allowed = {'manufacturing.material_issue_setup.prepare', 'manufacturing.material_reservation.reserve',
+                       'manufacturing.material_reservation.release', 'manufacturing.material_consumption.consume'}
+            if not isinstance(keys, list) or any(key not in allowed for key in keys) or not isinstance(request.get('enabled'), bool):
+                self.send_error(400)
+                return
+            with psycopg.connect('') as conn:
+                for key in keys:
+                    if request['enabled']:
+                        conn.execute("INSERT INTO public.role_permissions(role_id,permission_id) SELECT 'ed000000-0000-4000-8000-0000000000b1',id FROM public.permissions WHERE permission_key=%s ON CONFLICT DO NOTHING", (key,))
+                    else:
+                        conn.execute("DELETE FROM public.role_permissions WHERE role_id='ed000000-0000-4000-8000-0000000000b1' AND permission_id IN (SELECT id FROM public.permissions WHERE permission_key=%s)", (key,))
+            self.reply({'fixture_grants_updated': True})
+            return
         if self.path != '/call':
             self.send_error(404)
             return
@@ -91,6 +110,10 @@ class Handler(BaseHTTPRequestHandler):
                     values = [Jsonb(args[k]) if isinstance(args[k], (dict, list)) else args[k] for k in keys]
                     data = conn.execute(query, values).fetchone()[0]
                     trace.append({'name': name, 'args': args})
+                elif request['kind'] == 'catalog':
+                    if request['table'] not in CATALOG or request['org'] != ORG or request['limit'] != 500 or request['offset'] < 0:
+                        raise ValueError('UNREVIEWED_FIXTURE_READ')
+                    data = [row[0] for row in conn.execute(CATALOG[request['table']], (ORG, request['limit'], request['offset'])).fetchall()]
                 else:
                     table = request['table']
                     if table not in READS:

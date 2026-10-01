@@ -1,0 +1,29 @@
+{
+  "state": "proposal_not_allocated_or_applied",
+  "main_checked": "94400e1b78f7f5f1716568df96dba7cde2558d12",
+  "requires_order": [
+    190,
+    191,
+    192,
+    193,
+    194,
+    195,
+    196
+  ],
+  "migrations": [
+    {
+      "proposed_canonical_path": "sql/migrations/195_material_issue_scope.sql",
+      "package_path": "docs/db/material-issue-release/migrations/195_material_issue_scope.sql",
+      "source_path": "docs/db/material-issue-229/195_material_issue_scope_candidate.sql",
+      "source_head": "75b4be4db2ef35dec625c37742812e58807a58d6",
+      "sha256": "d906c72a96468d4869d8341e1cc61c8b20383e5dd43284be0070c876c80987ca"
+    },
+    {
+      "proposed_canonical_path": "sql/migrations/196_material_issue_maintenance.sql",
+      "package_path": "docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql",
+      "source_path": "docs/db/material-issue-maintenance-170-154/candidate.sql",
+      "source_head": "b95384a917d5a0879350f4598e79a43a4c21e4f1",
+      "sha256": "cf61b346c56b7e18dbe5bbcc994e3494a330ffbacf9315f81863e7796e44c648"
+    }
+  ]
+}

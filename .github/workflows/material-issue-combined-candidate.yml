@@ -5,7 +5,9 @@ on:
     paths:
       - 'src/**'
       - 'tests/fixtures/material-issue-combined/**'
+      - 'tests/fixtures/material-issue-real-auth/**'
       - 'docs/db/material-issue-229/COMBINED_OPERATOR_ACCEPTANCE.md'
+      - 'docs/db/material-issue-release/**'
       - '.github/workflows/material-issue-combined-candidate.yml'
 permissions:
   contents: read
@@ -13,6 +15,7 @@ jobs:
   combined:
     name: Combined client and PG17 acceptance
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:17
@@ -57,8 +60,18 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Combined candidate SQL acceptance and races
         run: bash docs/db/material-issue-maintenance-170-154/run_local.sh
+      - name: Proposed migration package installs before fixtures
+        run: bash docs/db/material-issue-release/run_migration_package.sh
       - name: Browser to real disposable PG17 flow
         run: bash tests/fixtures/material-issue-combined/run_local.sh
+      - name: Real local vendor Auth and PostgREST browser acceptance
+        run: bash tests/fixtures/material-issue-real-auth/run_local.sh
+      - name: Print disposable service failures
+        if: failure()
+        run: |
+          for path in /tmp/wardah-real-auth-service.txt /tmp/wardah-real-rest-service.txt /tmp/wardah-real-auth-bridge.txt /tmp/wardah-combined-bridge.txt; do
+            if test -f "$path"; then tail -60 "$path"; fi
+          done
       - name: Upload local adapter diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -67,4 +80,7 @@ jobs:
           path: |
             /tmp/wardah-combined-bridge.txt
             /tmp/wardah-combined-vite.txt
+            /tmp/wardah-real-auth-bridge.txt
+            /tmp/wardah-real-auth-vite.txt
+            /tmp/wardah-real-auth-health.json
           if-no-files-found: ignore

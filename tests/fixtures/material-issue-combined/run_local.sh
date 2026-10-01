@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
-[[ -z "${DATABASE_URL:-}${PGSERVICE:-}${SUPABASE_DB_URL:-}" ]] || exit 2
+[[ -z "${DATABASE_URL:-}${PGSERVICE:-}${SUPABASE_DB_URL:-}${PGHOSTADDR:-}" ]] || exit 2
 [[ "${PGHOST:-}" == 127.0.0.1 && "${PGPORT:-}" =~ ^[0-9]+$ && "$PGPORT" -ge 55000 ]] || exit 2
 [[ "$(psql -X -At -d postgres -c 'SHOW server_version_num')" == 17* ]] || exit 2
 DB="wardah_issue_combined_$$"
@@ -38,4 +38,4 @@ for ((attempt=0; attempt<60; attempt++)); do
  if curl --fail --silent http://127.0.0.1:4177/ >/dev/null && curl --fail --silent http://127.0.0.1:4178/state >/dev/null; then break; fi
  sleep 0.25
 done
-timeout --kill-after=5 120 node tests/fixtures/material-issue-combined/verify.mjs
+timeout --kill-after=5 180 node tests/fixtures/material-issue-combined/verify.mjs
