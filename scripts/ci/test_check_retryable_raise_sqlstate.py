@@ -35,6 +35,8 @@ MUST_REJECT = {
     "handler_by_name": "BEGIN PERFORM 1; EXCEPTION WHEN serialization_failure THEN RAISE EXCEPTION 'busy'; END",
     "handler_or_sqlstate": "BEGIN PERFORM 1; EXCEPTION WHEN unique_violation OR SQLSTATE '40001' THEN NULL; END",
     "non_literal_errcode": "DECLARE c text:='40001'; BEGIN RAISE EXCEPTION USING ERRCODE=c; END",
+    "concatenated_errcode": "BEGIN RAISE EXCEPTION USING ERRCODE='40' || '001',MESSAGE='x'; END",
+    "literal_prefixed_expression": "BEGIN RAISE EXCEPTION USING ERRCODE = '40' || suffix; END",
     "after_comment_and_literal": "BEGIN -- note\n PERFORM 'x--y'; /* a /* b */ */ RAISE SQLSTATE '40001'; END",
 }
 
