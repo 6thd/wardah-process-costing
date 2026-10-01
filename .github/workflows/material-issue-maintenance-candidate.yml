@@ -1,0 +1,43 @@
+name: Material issue maintenance candidate
+on:
+  pull_request:
+    branches: [docs/229-material-issue-db-containment-candidate]
+    paths:
+      - 'docs/db/material-issue-maintenance-170-154/**'
+      - '.github/workflows/material-issue-maintenance-candidate.yml'
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    name: Maintenance candidate on unmodified PG17
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 55432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install local clients
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          python -m pip install 'psycopg[binary]>=3.2,<4'
+      - name: Disposable candidate acceptance and lock races
+        run: bash docs/db/material-issue-maintenance-170-154/run_local.sh
