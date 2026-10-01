@@ -5,10 +5,11 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
 : "${WARDAH_BROWSER_EXECUTABLE:?Point to an installed Chromium executable}"
-: "${WARDAH_BROWSER_OUTPUT:?Select a local output directory}"
-mkdir -p "$WARDAH_BROWSER_OUTPUT"
-npm exec vite -- --config tests/fixtures/material-issue-browser/vite.config.ts > "$WARDAH_BROWSER_OUTPUT/vite.log" 2>&1 &
+# Evidence paths are fixed and shared with verify.mjs; no environment value
+# controls filesystem writes. Copy the output after the run if needed.
+mkdir -p /tmp/wardah-issue-browser
+npm exec vite -- --config tests/fixtures/material-issue-browser/vite.config.ts > /tmp/wardah-issue-browser/vite.log 2>&1 &
 ISSUE_VITE_PID=$!
 trap 'kill "$ISSUE_VITE_PID" 2>/dev/null || true' EXIT
-for i in $(seq 1 60); do if curl --fail --silent http://127.0.0.1:4175/ >/dev/null; then break; fi; sleep 0.25; done
+for ((attempt=0; attempt<60; attempt++)); do if curl --fail --silent http://127.0.0.1:4175/ >/dev/null; then break; fi; sleep 0.25; done
 timeout --kill-after=5 100 node tests/fixtures/material-issue-browser/verify.mjs

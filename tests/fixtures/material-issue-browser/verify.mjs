@@ -1,8 +1,8 @@
 import { chromium, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 const url = 'http://127.0.0.1:4175'
-const output = process.env.WARDAH_BROWSER_OUTPUT || '/tmp/wardah-issue-browser'
-await fs.mkdir(output, { recursive: true })
+// Fixed local evidence paths: caller input never selects a write destination.
+await fs.mkdir('/tmp/wardah-issue-browser', { recursive: true })
 const browser = await chromium.launch({ executablePath: process.env.WARDAH_BROWSER_EXECUTABLE,
  headless: true, timeout: 20000, args: ['--no-sandbox','--disable-dev-shm-usage','--single-process','--no-zygote'] })
 try {
@@ -24,7 +24,7 @@ try {
  }
  const calls = async () => page.evaluate(() => JSON.parse(localStorage.getItem('fixture:trace') || '[]').filter(call => call.name==='rpc_consume_material_event'))
  await page.goto(url); await fill(page)
- await page.screenshot({ path: `${output}/employee.png`, fullPage: true })
+ await page.screenshot({ path: '/tmp/wardah-issue-browser/employee.png', fullPage: true })
  await page.evaluate(() => localStorage.setItem('fixture:lose-next','true'))
  await page.getByRole('button',{name:'Issue materials',exact:true}).click()
  await expect(page.getByRole('button',{name:'Retry saved event'})).toBeEnabled()
@@ -67,7 +67,7 @@ try {
  await page.getByRole('checkbox',{name:'READY',exact:true}).check()
  await page.getByRole('button',{name:'Save policy',exact:true}).click()
  await expect(page.getByText('Policy version: 2',{exact:true})).toBeVisible()
- await page.screenshot({ path: `${output}/policy.png`, fullPage: true })
+ await page.screenshot({ path: '/tmp/wardah-issue-browser/policy.png', fullPage: true })
  await page.evaluate(() => { const p=JSON.parse(localStorage.getItem('fixture:policy')); p.version=3;p.allowed_statuses=['IN_PROGRESS','IN_SETUP'];localStorage.setItem('fixture:policy',JSON.stringify(p));window.dispatchEvent(new Event('focus')) })
  await expect(page.getByText('Policy version: 3',{exact:true})).toBeVisible()
  await expect(page.getByRole('checkbox',{name:'IN_SETUP',exact:true})).toBeChecked()
@@ -82,7 +82,7 @@ try {
  await expect(blocked.getByRole('button',{name:'Issue materials',exact:true})).toBeDisabled()
  expect(errors).toEqual([])
  await expect(page.locator('vite-error-overlay')).toHaveCount(0)
- await fs.writeFile(`${output}/trace.json`,JSON.stringify(await page.evaluate(()=>JSON.parse(localStorage.getItem('fixture:trace'))),null,2))
+ await fs.writeFile('/tmp/wardah-issue-browser/trace.json',JSON.stringify(await page.evaluate(()=>JSON.parse(localStorage.getItem('fixture:trace'))),null,2))
  console.log('NATIVE_STORAGE_FAILURE_BLOCK_PASS')
  console.log('LOCAL_BROWSER_FIXTURE_PASS — simulated accounts/RPC; no database or real identity acceptance')
  await context.close()

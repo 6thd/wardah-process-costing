@@ -78,9 +78,8 @@ physical counts مع #259، وباقي MES مع #154/#230، وbackflush مع #23
 # PostgreSQL 17 disposable فقط، بلا DATABASE_URL/PGSERVICE/SUPABASE_DB_URL
 PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres bash docs/db/material-issue-229/run_local.sh
 PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres bash docs/db/stage-wip-278/run_green.sh
-# executable محلي لـChromium، fixture بلا اتصال بـSupabase
+# executable محلي لـChromium، fixture بلا اتصال بـSupabase؛ الأدلة في /tmp/wardah-issue-browser
 WARDAH_BROWSER_EXECUTABLE=/absolute/path/to/chromium \
-WARDAH_BROWSER_OUTPUT=/tmp/wardah-issue-browser \
 bash tests/fixtures/material-issue-browser/run_local.sh
 ```
 
