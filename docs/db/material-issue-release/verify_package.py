@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+from verify_catalog_readback import verify_sources
 
 package = json.loads(Path('docs/db/material-issue-release/MIGRATION_PACKAGE.json').read_text())
 # Literal paths: no file path is constructed from the manifest or environment.
@@ -50,3 +51,7 @@ for guard, function_text in fingerprints:
     if original.count('AS $$') != 1 or compat.count(guard % prosrc_md5(function_text)) != 1:
         raise SystemExit('M197_FINGERPRINT_GUARD_DRIFT')
 print('MATERIAL_ISSUE_M197_BEFORE_AFTER_FINGERPRINTS_PASS')
+
+# The final catalog profile is pinned to reviewed source bytes, never a target dump.
+verify_sources(package)
+print('MATERIAL_ISSUE_CATALOG_SOURCE_FINGERPRINTS_PASS')

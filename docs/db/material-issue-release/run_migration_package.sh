@@ -29,6 +29,12 @@ psql -X -At -v ON_ERROR_STOP=1 -c "SELECT json_agg(json_build_object('fn',p.oid:
  FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE l.lanname='plpgsql' AND n.nspname NOT IN ('pg_catalog','information_schema')" \
  | python3 scripts/ci/check_retryable_raise_sqlstate.py
+# Export only catalog data; no business RPC runs in this read-only transaction.
+python3 docs/db/material-issue-release/test_readback.py
+psql -X -qAt -v ON_ERROR_STOP=1 -f docs/db/material-issue-release/catalog_readback.sql \
+ | python3 docs/db/material-issue-release/verify_catalog_readback.py --expected-owner postgres
+psql -X -qAt -v ON_ERROR_STOP=1 -f docs/db/material-issue-release/catalog_readback.sql \
+ | python3 docs/db/material-issue-release/test_readback.py --installed
 # Migration installation precedes any fixture, as in both browser runners.
 psql -X -v ON_ERROR_STOP=1 -q -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
 psql -X -v ON_ERROR_STOP=1 -q -f docs/db/material-issue-release/seed_after_containment.sql >/dev/null
@@ -43,4 +49,6 @@ psql -X -v ON_ERROR_STOP=1 -f "$CHECK_DIR/material-issue-maintenance-170-154/acc
 psql -X -v ON_ERROR_STOP=1 -f docs/db/material-issue-maintenance-170-154/reconciliation_acceptance.sql
 python3 docs/db/material-issue-release/compatibility_checks.py races > "$CHECK_DIR/material-issue-maintenance-170-154/races.py"
 python3 "$CHECK_DIR/material-issue-maintenance-170-154/races.py"
+psql -X -qAt -v ON_ERROR_STOP=1 -f docs/db/material-issue-release/reconciliation_readback.sql \
+ | python3 docs/db/material-issue-release/probe_reconciliation_readback.py
 printf '%s\n' 'MATERIAL_ISSUE_PROPOSED_CANONICAL_CHAIN_PASS=8 — disposable only; not allocation/sign-off/application'

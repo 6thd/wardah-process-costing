@@ -33,5 +33,687 @@
       "source_head": "b95384a917d5a0879350f4598e79a43a4c21e4f1",
       "sha256": "e7eb602688c2503a9d6313a0d1525d083e3909b74293805947a078d01fb2ff52"
     }
-  ]
+  ],
+  "catalog_readback": {
+    "format_version": 1,
+    "scope": "Selected effective M192-M197 functions only; not migration history, trigger attachment, all writer inventory or application/behavior sign-off. Owner must be explicitly approved; no automatic baseline capture.",
+    "functions": [
+      {
+        "signature": "public.consume_materials_for_mo(uuid,uuid,jsonb[])",
+        "source_path": "sql/migrations/192_material_consumption_retry_and_policy.sql",
+        "prosrc_md5": "98a7bab7bd7bc517370c41f20e04a976",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": false,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "public.create_role_from_template(uuid,uuid,character varying,uuid)",
+        "source_path": "docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql",
+        "prosrc_md5": "a1f1a85e06a0fe82c2501d3cedd238f0",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "public.rpc_close_stage_wip_194(uuid)",
+        "source_path": "sql/migrations/194_stage_wip_posted_cost_boundary.sql",
+        "prosrc_md5": "ce5276fda9a1de12e9f7fbb0eaeba0d1",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "public.rpc_consume_material_event(uuid,uuid,uuid,jsonb)",
+        "source_path": "sql/migrations/194_stage_wip_posted_cost_boundary.sql",
+        "prosrc_md5": "949a7f880695a4d6b6cd78dde3ed1adc",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "public.rpc_consume_reserved_materials(uuid,jsonb)",
+        "source_path": "sql/migrations/192_material_consumption_retry_and_policy.sql",
+        "prosrc_md5": "98a7bab7bd7bc517370c41f20e04a976",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": false,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "public.rpc_consume_reserved_materials_v2(uuid,uuid,jsonb)",
+        "source_path": "sql/migrations/192_material_consumption_retry_and_policy.sql",
+        "prosrc_md5": "98a7bab7bd7bc517370c41f20e04a976",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "public.rpc_get_material_issue_context(uuid)",
+        "source_path": "docs/db/material-issue-release/migrations/195_material_issue_scope.sql",
+        "prosrc_md5": "2e5ee450d81f7bbb62e0a88fd18bc591",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "public.rpc_get_material_issue_wo_statuses(uuid)",
+        "source_path": "sql/migrations/192_material_consumption_retry_and_policy.sql",
+        "prosrc_md5": "f200fe80686eb35bc97cb68c5bafc8ff",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "public.rpc_get_material_reservation_setup(uuid,uuid)",
+        "source_path": "docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql",
+        "prosrc_md5": "e7365e828f2f757163b13483fbeb86d1",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "public.rpc_list_material_issue_orders(uuid)",
+        "source_path": "docs/db/material-issue-release/migrations/195_material_issue_scope.sql",
+        "prosrc_md5": "6d3f13e66bcbaced576469c44565cd98",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)",
+        "source_path": "docs/db/material-issue-release/migrations/197_material_issue_stale_version.sql",
+        "prosrc_md5": "1576b6962409787f3dcdc5f783c89faf",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "public.rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid)",
+        "source_path": "docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql",
+        "prosrc_md5": "c819a9bc3065144c5d8d55fb5baf7429",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "public.rpc_set_material_issue_wo_statuses(uuid,text[])",
+        "source_path": "sql/migrations/192_material_consumption_retry_and_policy.sql",
+        "prosrc_md5": "2025fc602029597fe97756c901485b33",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "service_role",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "public.wardah_assert_stage_wip_editor_194(uuid,text)",
+        "source_path": "sql/migrations/194_stage_wip_posted_cost_boundary.sql",
+        "prosrc_md5": "cba5479baa73a965d7d34fccc1f8065d",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          },
+          {
+            "grantee": "authenticated",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "wardah_internal.assert_issue_maintenance_permission(uuid,text)",
+        "source_path": "docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql",
+        "prosrc_md5": "1df4a4e9c56fd72f563e6f815e82596e",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "wardah_internal.bump_issue_maintenance_version()",
+        "source_path": "docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql",
+        "prosrc_md5": "aa8a4559e9d1f2a465e2e56aa1d87011",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": false,
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "wardah_internal.deny_manufacturing_history_truncate_193()",
+        "source_path": "sql/migrations/193_posted_material_history_delete_guard.sql",
+        "prosrc_md5": "fe4c5c11fc8daeed734f87d3d70c1259",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": false,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "wardah_internal.guard_posted_consumption_delete_193()",
+        "source_path": "sql/migrations/193_posted_material_history_delete_guard.sql",
+        "prosrc_md5": "bca605bf82016f109199003acf2686b6",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": false,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "wardah_internal.guard_posted_wip_delete_193()",
+        "source_path": "sql/migrations/193_posted_material_history_delete_guard.sql",
+        "prosrc_md5": "e1b14c30f8a91b983225109767a203c9",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": false,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "wardah_internal.guard_posted_wo_delete_193()",
+        "source_path": "sql/migrations/193_posted_material_history_delete_guard.sql",
+        "prosrc_md5": "60f0a65bdfd5ee4daaba1100950a864c",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": false,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "wardah_internal.guard_stage_wip_write_194()",
+        "source_path": "sql/migrations/194_stage_wip_posted_cost_boundary.sql",
+        "prosrc_md5": "2068a97aea07127affa5dc6aef4d3394",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": false,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "wardah_internal.seed_material_issue_wo_policy()",
+        "source_path": "sql/migrations/192_material_consumption_retry_and_policy.sql",
+        "prosrc_md5": "ed953989d89542a1a5c83d273e24dbba",
+        "owner": "$migration_owner",
+        "language": "plpgsql",
+        "kind": "f",
+        "security_definer": true,
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": [
+          {
+            "grantee": "$migration_owner",
+            "grantor": "$migration_owner",
+            "privilege": "EXECUTE",
+            "grantable": false
+          }
+        ],
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      }
+    ]
+  }
 }

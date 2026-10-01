@@ -59,7 +59,13 @@ Proposed197 changes only those permanent business-version rejections to `P0001`,
 - **Non-vacuous revocation check.** The real-Auth fixture adds two assertions: the consumption heading is present before the identity refresh, and release-only preparation remains after it. No existing assertion or timeout changes.
 - **Duplicate intent across devices.** `PROPOSED_198_PARENT_VERSION_DESIGN.md` proposes a parent-version check for `reserve` and `create_work_order`, the two setup commands with neither a version nor a uniqueness backstop. It is design only.
 
-Still open from the review, not implemented here: post-application fingerprint readback for the #278/application record, monitoring of unresolved setup events, keyset catalog pagination (independent of hosted `db-max-rows`), an explicit permission-snapshot key for drafts, and digest-pinned Auth/PostgREST/PG images.
+### Read-only application evidence and reconciliation triage
+
+[READBACK_AND_RECONCILIATION_RUNBOOK.md](READBACK_AND_RECONCILIATION_RUNBOOK.md) provides read-only SQL exports and offline verification. MIGRATION_PACKAGE.json pins 22 selected final function bodies, owner policy, ACL/settings and effective client execution. The candidate runner checks an actual PG17 catalog and runs negative snapshot controls. This is tooling for an application record, not a completed target #278 record or proof of migration history/trigger attachment.
+
+The maintenance events table contains only applied receipts and closed fences. It cannot enumerate unknown outcomes still in IndexedDB. The monitor therefore requires a declared station/profile/org/user roster plus fresh operator observations, shows absent/stale/failed inventory as incomplete, and treats pending records as work even when a server receipt/fence exists. Age is only a lower bound from a first operator observation; frozen browser records have no timestamp. No automatic collection or product-side export is added, and every report retains release_ready=false.
+
+Still open: actual target readback and the complete #278 application/behavior record, approved monitoring ownership/thresholds and automatic collection, the proposed198 decision/implementation if required, keyset catalog pagination (independent of hosted `db-max-rows`), an explicit permission-snapshot key for drafts, and digest-pinned Auth/PostgREST/PG images.
 
 ## Acceptance and evidence boundaries
 
