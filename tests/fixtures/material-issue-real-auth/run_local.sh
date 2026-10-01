@@ -79,7 +79,7 @@ docker run --detach --network host --name "$REST_CONTAINER" \
  postgrest/postgrest:v14.17 >/dev/null
 export WARDAH_LOCAL_ANON_KEY="$(python3 tests/fixtures/material-issue-real-auth/setup.py anon)"
 python3 tests/fixtures/material-issue-combined/bridge.py > /tmp/wardah-real-auth-bridge.txt 2>&1 & BRIDGE_PID=$!
-npm exec vite -- --config tests/fixtures/material-issue-real-auth/vite.config.ts > /tmp/wardah-real-auth-vite.txt 2>&1 & VITE_PID=$!
+node node_modules/vite/bin/vite.js --config tests/fixtures/material-issue-real-auth/vite.config.ts > /tmp/wardah-real-auth-vite.txt 2>&1 & VITE_PID=$!
 for ((attempt=0; attempt<120; attempt++)); do
  if curl --fail --silent http://127.0.0.1:4177/ >/dev/null && curl --fail --silent http://127.0.0.1:55998/ >/dev/null; then break; fi
  sleep 0.25

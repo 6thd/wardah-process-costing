@@ -33,7 +33,7 @@ SELECT 'ed000000-0000-4000-8000-0000000000b1',id FROM public.permissions WHERE p
  'manufacturing.orders.create','manufacturing.orders.update','manufacturing.stage_costs.create') ON CONFLICT DO NOTHING;
 SQL
 python3 tests/fixtures/material-issue-combined/bridge.py > /tmp/wardah-combined-bridge.txt 2>&1 & BRIDGE_PID=$!
-npm exec vite -- --config tests/fixtures/material-issue-combined/vite.config.ts > /tmp/wardah-combined-vite.txt 2>&1 & VITE_PID=$!
+node node_modules/vite/bin/vite.js --config tests/fixtures/material-issue-combined/vite.config.ts > /tmp/wardah-combined-vite.txt 2>&1 & VITE_PID=$!
 for ((attempt=0; attempt<60; attempt++)); do
  if curl --fail --silent http://127.0.0.1:4177/ >/dev/null && curl --fail --silent http://127.0.0.1:4178/state >/dev/null; then break; fi
  sleep 0.25
