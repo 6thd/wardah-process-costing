@@ -1,0 +1,412 @@
+[
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_context",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_consume_material_event",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010",
+      "p_stage_id": "ed000000-0000-4000-8000-0000000000f1",
+      "p_event_id": "01dfbf04-98be-463d-b04f-ab922ba656e0",
+      "p_consumptions": [
+        {
+          "item_id": "ed000000-0000-4000-8000-0000000000d1",
+          "reservation_id": "ed000000-0000-4000-8000-000000000030",
+          "warehouse_id": "ed000000-0000-4000-8000-0000000000e1",
+          "work_order_id": "ed000000-0000-4000-8000-000000000020",
+          "uom_id": "ed000000-0000-4000-8000-000000000040",
+          "quantity": 10,
+          "consumption_type": "MANUAL",
+          "notes": null
+        }
+      ]
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_context",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_consume_material_event",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010",
+      "p_stage_id": "ed000000-0000-4000-8000-0000000000f1",
+      "p_event_id": "01dfbf04-98be-463d-b04f-ab922ba656e0",
+      "p_consumptions": [
+        {
+          "item_id": "ed000000-0000-4000-8000-0000000000d1",
+          "reservation_id": "ed000000-0000-4000-8000-000000000030",
+          "warehouse_id": "ed000000-0000-4000-8000-0000000000e1",
+          "work_order_id": "ed000000-0000-4000-8000-000000000020",
+          "uom_id": "ed000000-0000-4000-8000-000000000040",
+          "quantity": 10,
+          "consumption_type": "MANUAL",
+          "notes": null
+        }
+      ]
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_context",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_context",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_consume_material_event",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010",
+      "p_stage_id": "ed000000-0000-4000-8000-0000000000f1",
+      "p_event_id": "d8134993-894a-48ec-83b8-9373467a39b0",
+      "p_consumptions": [
+        {
+          "item_id": "ed000000-0000-4000-8000-0000000000d1",
+          "reservation_id": "ed000000-0000-4000-8000-000000000030",
+          "warehouse_id": "ed000000-0000-4000-8000-0000000000e1",
+          "work_order_id": "ed000000-0000-4000-8000-000000000020",
+          "uom_id": "ed000000-0000-4000-8000-000000000040",
+          "quantity": 10,
+          "consumption_type": "MANUAL",
+          "notes": null
+        }
+      ]
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_context",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_consume_material_event",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010",
+      "p_stage_id": "ed000000-0000-4000-8000-0000000000f1",
+      "p_event_id": "d8134993-894a-48ec-83b8-9373467a39b0",
+      "p_consumptions": [
+        {
+          "item_id": "ed000000-0000-4000-8000-0000000000d1",
+          "reservation_id": "ed000000-0000-4000-8000-000000000030",
+          "warehouse_id": "ed000000-0000-4000-8000-0000000000e1",
+          "work_order_id": "ed000000-0000-4000-8000-000000000020",
+          "uom_id": "ed000000-0000-4000-8000-000000000040",
+          "quantity": 10,
+          "consumption_type": "MANUAL",
+          "notes": null
+        }
+      ]
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_context",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000002"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000002"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000002"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000002"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a3"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000002"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a3"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000002"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a3"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_set_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001",
+      "p_allowed_statuses": [
+        "IN_PROGRESS",
+        "READY"
+      ]
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_list_material_issue_orders",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_context",
+    "args": {
+      "p_mo_id": "ed000000-0000-4000-8000-000000000010"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  },
+  {
+    "name": "rpc_get_material_issue_wo_statuses",
+    "args": {
+      "p_org_id": "ed000000-0000-4000-8000-000000000001"
+    },
+    "actor": "ed000000-0000-4000-8000-0000000000a2"
+  }
+]

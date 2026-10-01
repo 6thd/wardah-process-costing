@@ -1,0 +1,19 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+ RUN  v3.2.4 /workspace/scratch/8fdbf991ee75/wardah-issue-ui
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+ ✓ src/components/layout/__tests__/sidebar-product-catalog-ratchet.test.ts (3 tests) 5ms
+ ✓ src/config/__tests__/route-permissions.test.ts (36 tests) 22ms
+ ✓ src/config/__tests__/product-catalog.test.ts (13 tests) 25ms
+ ✓ src/services/manufacturing/__tests__/materialIssueClient.test.ts (49 tests) 113ms
+ ✓ src/features/manufacturing/__tests__/material-issue-ui.test.tsx (32 tests) 3757ms
+   ✓ employee issue UI with durable client > requires every selector, sends only canonical fields and invalidates only after acknowledgement  756ms
+   ✓ employee issue UI with durable client > recovers a lost response after unmount and retries the exact event and payload  434ms
+   ✓ employee issue UI with durable client > recovers another tab claim without sending a second event  326ms
+   ✓ employee issue UI with durable client > allows acknowledgement of an exclusively definite rejection  381ms
+
+ Test Files  5 passed (5)
+      Tests  133 passed (133)
+   Start at  07:13:42
+   Duration  6.17s (transform 937ms, setup 1.56s, collect 1.42s, tests 3.92s, environment 2.81s, prepare 532ms)
