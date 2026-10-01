@@ -1,0 +1,70 @@
+name: Material issue combined candidate
+on:
+  pull_request:
+    branches: [feat/229-material-issue-isolated-ui]
+    paths:
+      - 'src/**'
+      - 'tests/fixtures/material-issue-combined/**'
+      - 'docs/db/material-issue-229/COMBINED_OPERATOR_ACCEPTANCE.md'
+      - '.github/workflows/material-issue-combined-candidate.yml'
+permissions:
+  contents: read
+jobs:
+  combined:
+    name: Combined client and PG17 acceptance
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 55432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Assemble disposable combined tree with frozen DB candidate
+        run: |
+          git fetch --no-tags origin b95384a917d5a0879350f4598e79a43a4c21e4f1
+          test "$(git rev-parse b95384a917d5a0879350f4598e79a43a4c21e4f1^{tree})" = 65777022d83e808402913f9465103742614780d2
+          COMBINED_TREE="$(git merge-tree --write-tree HEAD b95384a917d5a0879350f4598e79a43a4c21e4f1)"
+          echo "CLIENT_HEAD=$(git rev-parse HEAD) DB_HEAD=b95384a917d5a0879350f4598e79a43a4c21e4f1 COMBINED_TREE=$COMBINED_TREE"
+          git read-tree --reset -u "$COMBINED_TREE"
+          git diff --exit-code HEAD -- sql scripts/ci/fresh-db
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install disposable test dependencies
+        run: |
+          npm ci --ignore-scripts
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          python -m pip install 'psycopg[binary]>=3.2,<4'
+          npx playwright install --with-deps chromium
+      - name: Combined candidate SQL acceptance and races
+        run: bash docs/db/material-issue-maintenance-170-154/run_local.sh
+      - name: Browser to real disposable PG17 flow
+        run: bash tests/fixtures/material-issue-combined/run_local.sh
+      - name: Upload local adapter diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-local-adapter-diagnostics
+          path: |
+            /tmp/wardah-combined-bridge.txt
+            /tmp/wardah-combined-vite.txt
+          if-no-files-found: ignore

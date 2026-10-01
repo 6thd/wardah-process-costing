@@ -1797,6 +1797,8 @@
     "reconcileOrderCreation": "Resolve pending order creation",
     "reconcileSetup": "Resolve pending preparation",
     "setupClosed": "The pending request was not applied and has been safely closed. You can start a new request.",
+    "wipEditHeld": "Editing existing stage records is unavailable in this pilot.",
+    "wipPristine": "Open a new stage record for material issue. Quantities and costs are recorded through approved posting operations.",
     "setupRecovery": "Recover a saved order preparation request. Unknown outcomes remain saved.",
     "setupRecovered": "The saved request was reconciled.",
     "setupUnresolved": "No saved request was reconciled. An unknown result cannot be dismissed; return to the same account and organization or contact support.",
