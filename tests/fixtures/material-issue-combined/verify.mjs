@@ -170,6 +170,11 @@ try {
       await fetch('/fixture-grants', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: ['manufacturing.material_issue_setup.prepare', 'manufacturing.material_reservation.reserve'], enabled: false }) })
       await window.__fixtureRefreshIdentity()
     })
+    // A real snapshot refresh clears/remounts permission-sensitive drafts.
+    await expect(setup(page).getByLabel('Preparation order', { exact: true })).toHaveCount(0)
+    await open(page, mo.id)
+    await setup(page).getByLabel('Reservation to maintain', { exact: true }).selectOption(res.id)
+    await setup(page).getByLabel('Resize total or release quantity', { exact: true }).fill('15')
   } else await page.evaluate(() => window.__setFixtureKeys(['manufacturing.material_consumption.consume', 'manufacturing.material_reservation.release']))
   await expect(setup(page).getByRole('button', { name: 'Resize pristine reservation', exact: true })).toBeDisabled()
   await expect(setup(page).getByRole('button', { name: 'Open pristine stage record', exact: true })).toBeDisabled()
@@ -189,7 +194,7 @@ try {
     expectedDenial = false
     const afterDenied = await state(page); expect(financial(afterDenied)).toEqual(financial(released))
     await page.evaluate(() => window.__fixtureRefreshIdentity())
-    await expect(page.getByLabel('Manufacturing order', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Material issue', exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: 'Sign out locally', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Sign in locally', exact: true })).toBeVisible()
     console.log('LOCAL_REAL_AUTH_REVOCATION_OLD_JWT_NO_EFFECTS_SIGNOUT_PASS')
