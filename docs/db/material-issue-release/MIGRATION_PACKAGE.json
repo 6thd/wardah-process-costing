@@ -31,7 +31,7 @@
       "package_path": "docs/db/material-issue-release/migrations/197_material_issue_stale_version.sql",
       "derived_from": "frozen M196 rpc_manage_material_issue_setup: exactly three stale-version SQLSTATE substitutions",
       "source_head": "b95384a917d5a0879350f4598e79a43a4c21e4f1",
-      "sha256": "dc46497b9ec1b5b13ad4f62ecd32b00c1a73a25840192668c0806c805d21f20c"
+      "sha256": "e7eb602688c2503a9d6313a0d1525d083e3909b74293805947a078d01fb2ff52"
     }
   ]
 }

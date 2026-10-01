@@ -23,7 +23,13 @@ python3 scripts/ci/fresh-db/build_apply_order.py "$MIGRATION_DIR" 189 > /tmp/war
 [[ "$(wc -l < /tmp/wardah-proposed-migrations-order.txt)" == 8 ]] || exit 2
 [[ "$(cut -d_ -f1 /tmp/wardah-proposed-migrations-order.txt | paste -sd,)" == 190,191,192,193,194,195,196,197 ]] || exit 2
 REPORT=/tmp/wardah-proposed-migrations-chain.txt bash scripts/ci/fresh-db/run_chain.sh "$MIGRATION_DIR" /tmp/wardah-proposed-migrations-order.txt
-# Migration installation precedes any fixture, unlike the old candidate runner.
+# Effective installed bodies only: M196's 40001 raises are replaced by M197.
+python3 scripts/ci/test_check_retryable_raise_sqlstate.py
+psql -X -At -v ON_ERROR_STOP=1 -c "SELECT json_agg(json_build_object('fn',p.oid::regprocedure::text,'src',p.prosrc) ORDER BY p.oid)
+ FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang JOIN pg_namespace n ON n.oid=p.pronamespace
+ WHERE l.lanname='plpgsql' AND n.nspname NOT IN ('pg_catalog','information_schema')" \
+ | python3 scripts/ci/check_retryable_raise_sqlstate.py
+# Migration installation precedes any fixture, as in both browser runners.
 psql -X -v ON_ERROR_STOP=1 -q -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
 psql -X -v ON_ERROR_STOP=1 -q -f docs/db/material-issue-release/seed_after_containment.sql >/dev/null
 psql -X -v ON_ERROR_STOP=1 -f docs/db/material-issue-229/acceptance.sql

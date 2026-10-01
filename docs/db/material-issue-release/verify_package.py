@@ -35,3 +35,18 @@ end = compat.index('END $$;', start) + len('END $$;')
 if compat[start:end] != expected or hashlib.sha256(compat.encode()).hexdigest() != package['migrations'][2]['sha256']:
     raise SystemExit('STALE_CODE_COMPATIBILITY_DRIFT')
 print('MATERIAL_ISSUE_STALE_SQLSTATE_ONLY_DELTA_PASS')
+
+
+# pg_proc.prosrc is the text between the function's opening and closing $$.
+# Tie M197's before/after md5 guards to these exact bytes, without a database.
+def prosrc_md5(function_text):
+    body = function_text[function_text.index('AS $$') + len('AS $$'):-len('$$;')]
+    return hashlib.md5(body.encode()).hexdigest()
+
+
+fingerprints = (("IS DISTINCT FROM '%s' THEN\n  RAISE EXCEPTION 'M197_FROZEN_M196_FUNCTION_DRIFT'", original),
+                ("IS DISTINCT FROM '%s' THEN\n  RAISE EXCEPTION 'M197_REPLACEMENT_FINGERPRINT_MISMATCH'", compat[start:end]))
+for guard, function_text in fingerprints:
+    if original.count('AS $$') != 1 or compat.count(guard % prosrc_md5(function_text)) != 1:
+        raise SystemExit('M197_FINGERPRINT_GUARD_DRIFT')
+print('MATERIAL_ISSUE_M197_BEFORE_AFTER_FINGERPRINTS_PASS')

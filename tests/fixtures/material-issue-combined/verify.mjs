@@ -193,8 +193,12 @@ try {
     expect(denied.error.message).toContain('MATERIAL_CONSUMPTION_PERMISSION_DENIED')
     expectedDenial = false
     const afterDenied = await state(page); expect(financial(afterDenied)).toEqual(financial(released))
+    // Non-vacuity: the consumption heading is rendered before the refresh removes it.
+    await expect(page.getByRole('heading', { name: 'Material issue', exact: true })).toHaveCount(1)
     await page.evaluate(() => window.__fixtureRefreshIdentity())
     await expect(page.getByRole('heading', { name: 'Material issue', exact: true })).toHaveCount(0)
+    // Release-only preparation and recovery stay available without consume.
+    await expect(setup(page)).toHaveCount(1)
     await page.getByRole('button', { name: 'Sign out locally', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Sign in locally', exact: true })).toBeVisible()
     console.log('LOCAL_REAL_AUTH_REVOCATION_OLD_JWT_NO_EFFECTS_SIGNOUT_PASS')

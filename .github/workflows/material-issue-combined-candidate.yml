@@ -8,6 +8,8 @@ on:
       - 'tests/fixtures/material-issue-real-auth/**'
       - 'docs/db/material-issue-229/COMBINED_OPERATOR_ACCEPTANCE.md'
       - 'docs/db/material-issue-release/**'
+      - 'scripts/ci/check_retryable_raise_sqlstate.py'
+      - 'scripts/ci/test_check_retryable_raise_sqlstate.py'
       - '.github/workflows/material-issue-combined-candidate.yml'
 permissions:
   contents: read

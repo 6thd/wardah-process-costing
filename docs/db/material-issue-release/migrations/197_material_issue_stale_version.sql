@@ -262,4 +262,14 @@ BEGIN
      IS DISTINCT FROM ROW(b.proowner,b.proacl,b.prosecdef,b.proconfig,b.provolatile,b.proparallel,b.prorettype,b.proargtypes)) THEN
   RAISE EXCEPTION 'M197_FUNCTION_AUTHORIZATION_OR_SIGNATURE_DRIFT'; END IF;
 END $guard$;
+-- The guard above compares rows that still join; also require the same single
+-- function to exist and its body to be exactly the reviewed replacement.
+DO $guard$
+BEGIN
+ IF (SELECT count(*) FROM issue_stale_197_before b JOIN pg_proc p ON p.oid=b.oid)<>1 THEN
+  RAISE EXCEPTION 'M197_FUNCTION_IDENTITY_CHANGED'; END IF;
+ IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)'::regprocedure)
+    IS DISTINCT FROM '1576b6962409787f3dcdc5f783c89faf' THEN
+  RAISE EXCEPTION 'M197_REPLACEMENT_FINGERPRINT_MISMATCH'; END IF;
+END $guard$;
 COMMIT;
