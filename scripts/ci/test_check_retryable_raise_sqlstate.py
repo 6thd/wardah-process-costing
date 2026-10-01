@@ -43,6 +43,9 @@ MUST_ACCEPT = {
     "nested_block_comment": "BEGIN /* RAISE serialization_failure; /* WHEN deadlock_detected THEN */ */ RETURN; END",
     "message_text": "BEGIN RAISE EXCEPTION 'retry hint: serialization_failure 40001'; END",
     "p0001": "BEGIN RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE='ISSUE_SETUP_STALE_VERSION'; END",
+    # Canonical M171/M186 style: spaced and multi-line literal ERRCODE.
+    "spaced_literal_errcode": "BEGIN RAISE EXCEPTION 'X'\n    USING ERRCODE = '0A000',\n          HINT = 'h'; END",
+    "assign_literal_errcode": "BEGIN RAISE EXCEPTION 'X' USING ERRCODE :=\n '22004'; END",
     "reraise": "BEGIN PERFORM 1; EXCEPTION WHEN unique_violation THEN RAISE; END",
     "escaped_literal": "BEGIN RAISE EXCEPTION E'it\\'s 40001'; END",
 }

@@ -38,7 +38,8 @@ _CODE = rf"'{RETRYABLE}'"
 _LEVEL = r"(?:DEBUG|LOG|INFO|NOTICE|WARNING|EXCEPTION)"
 
 ERRCODE_RETRYABLE_RE = re.compile(rf"\bERRCODE\s*(?::=|=)\s*{_CODE}", re.IGNORECASE)
-ERRCODE_NON_LITERAL_RE = re.compile(r"\bERRCODE\s*(?::=|=)\s*(?!')", re.IGNORECASE)
+# Lookahead spans the whitespace: "\s*(?!')" would backtrack before a quote.
+ERRCODE_NON_LITERAL_RE = re.compile(r"\bERRCODE\s*(?::=|=)(?!\s*')", re.IGNORECASE)
 RAISE_CONDITION_RE = re.compile(
     rf"\bRAISE\s+(?:{_LEVEL}\s+)?(?:SQLSTATE\s+{_CODE}|{RETRYABLE}\b)", re.IGNORECASE)
 HANDLER_RE = re.compile(
