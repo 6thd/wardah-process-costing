@@ -138,6 +138,63 @@ with connection(True) as a, connection(True) as b, connection() as observer:
     assert observer.execute("SELECT count(*) FROM public.material_reservations WHERE id=%s", (one["entity"]["id"],)).fetchone()[0] == 1
 print("CONCURRENT_SETUP_EVENT_REPLAY_PASS")
 
+def reconcile(conn, command, event):
+    return conn.execute("SELECT public.rpc_reconcile_material_issue_setup(%s,%s,%s,%s)",
+                        (ORG, event, Jsonb(command), ACTOR)).fetchone()[0]
+
+
+# An active writer owns the same event lock. Committing returns the exact saved
+# receipt; rolling back lets reconciliation fence the event, never repost it.
+for commit in (True, False):
+    event = uuid.uuid4()
+    with connection(True) as a, connection(True) as b, connection() as observer:
+        receipt = maintenance(a, reserve, event)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(reconcile, b, reserve, event)
+            blocked(observer, b.info.backend_pid, a.info.backend_pid)
+            if commit:
+                a.commit()
+            else:
+                a.rollback()
+            result = future.result(timeout=8)
+            b.commit()
+        assert result['state'] == ('applied' if commit else 'closed')
+        assert result['receipt'] == (receipt if commit else None)
+        assert observer.execute("SELECT count(*) FROM public.material_reservations WHERE id=%s", (receipt['entity']['id'],)).fetchone()[0] == int(commit)
+print("RECONCILE_ACTIVE_COMMIT_ROLLBACK_PASS")
+
+# A late original is genuinely blocked by an uncommitted fence, then denied
+# after commit. It cannot recreate the receipt or touch a reservation.
+event = uuid.uuid4()
+with connection(True) as a, connection(True) as b, connection() as observer:
+    before = observer.execute("SELECT count(*),sum(quantity_reserved) FROM public.material_reservations").fetchone()
+    reconcile(a, reserve, event)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(maintenance, b, reserve, event)
+        blocked(observer, b.info.backend_pid, a.info.backend_pid)
+        a.commit()
+        try:
+            future.result(timeout=8)
+            raise AssertionError("CLOSED_EVENT_WAS_EXECUTED")
+        except psycopg.Error as error:
+            assert (error.sqlstate, error.diag.message_primary) == ('P0001', 'ISSUE_SETUP_EVENT_CLOSED')
+            b.rollback()
+    assert observer.execute("SELECT count(*),sum(quantity_reserved) FROM public.material_reservations").fetchone() == before
+print("RECONCILE_FENCE_LATE_ORIGINAL_DENIED_PASS")
+
+# Two browser profiles reconciling one event leave one identical closed record.
+event = uuid.uuid4()
+with connection(True) as a, connection(True) as b, connection() as observer:
+    one = reconcile(a, reserve, event)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(reconcile, b, reserve, event)
+        blocked(observer, b.info.backend_pid, a.info.backend_pid)
+        a.commit()
+        assert future.result(timeout=8) == one
+        b.commit()
+    assert observer.execute("SELECT count(*) FROM wardah_internal.material_issue_maintenance_events WHERE org_id=%s AND event_id=%s AND state='closed'", (ORG, event)).fetchone()[0] == 1
+print("CONCURRENT_RECONCILE_SINGLE_FENCE_PASS")
+
 # Across different MOs, the shared product prefix prevents oversubscription.
 with connection(True) as a, connection(True) as b, connection() as observer:
     available = observer.execute("""SELECT

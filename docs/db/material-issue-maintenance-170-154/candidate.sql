@@ -40,6 +40,7 @@ REVOKE ALL ON FUNCTION wardah_internal.assert_issue_maintenance_permission(uuid,
 CREATE TABLE wardah_internal.material_issue_maintenance_events (
  org_id uuid NOT NULL REFERENCES public.organizations(id),event_id uuid NOT NULL,
  actor_id uuid NOT NULL,command jsonb NOT NULL,result jsonb NOT NULL,
+ state text NOT NULL DEFAULT 'applied' CHECK(state IN ('applied','closed')),
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),PRIMARY KEY(org_id,event_id)
 );
 REVOKE ALL ON wardah_internal.material_issue_maintenance_events FROM PUBLIC,anon,authenticated,service_role;
@@ -65,7 +66,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE
  op text:=p_command->>'operation'; allowed text[]; required_key text;
  mo public.manufacturing_orders%ROWTYPE; wo public.work_orders%ROWTYPE;
- res public.material_reservations%ROWTYPE; prev jsonb; result jsonb; entity jsonb;
+ res public.material_reservations%ROWTYPE; prev jsonb; result jsonb; entity jsonb; event_state text;
  target uuid; product uuid; persisted uuid; base_uom uuid; qty numeric; available numeric;
  total_reserved numeric; current_remaining numeric; new_status text; response jsonb; line jsonb;
 BEGIN
@@ -119,13 +120,14 @@ BEGIN
  ELSIF op='open_stage_wip' AND NOT public.has_permission(auth.uid(),p_org_id,'manufacturing.stage_costs.create') THEN
   RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='WIP_CREATE_PERMISSION_DENIED';
  END IF;
- SELECT e.command,e.result INTO prev,result FROM wardah_internal.material_issue_maintenance_events e
+ SELECT e.command,e.result,e.state INTO prev,result,event_state FROM wardah_internal.material_issue_maintenance_events e
  WHERE e.org_id=p_org_id AND e.event_id=p_event_id;
  IF FOUND THEN
   IF NOT EXISTS(SELECT 1 FROM wardah_internal.material_issue_maintenance_events e
    WHERE e.org_id=p_org_id AND e.event_id=p_event_id AND e.actor_id=p_actor_id) THEN
    RAISE EXCEPTION 'ISSUE_SETUP_EVENT_ACTOR_MISMATCH'; END IF;
   IF prev IS DISTINCT FROM p_command THEN RAISE EXCEPTION 'ISSUE_SETUP_EVENT_PAYLOAD_MISMATCH'; END IF;
+  IF event_state='closed' THEN RAISE EXCEPTION 'ISSUE_SETUP_EVENT_CLOSED'; END IF;
   RETURN result;
  END IF;
 
@@ -149,6 +151,9 @@ BEGIN
    qty:=(line->>'quantity')::numeric;
    IF qty IS NULL OR qty<=0 OR qty::text IN ('NaN','Infinity','-Infinity') OR qty<>round(qty,6)
     OR qty>=1000000000000 THEN RAISE EXCEPTION 'INVALID_BASE_QUANTITY'; END IF;
+   persisted:=public.wardah_resolve_product_id(p_org_id,(line->>'item_id')::uuid,clock_timestamp());
+   IF NOT EXISTS(SELECT 1 FROM public.products p WHERE p.id=persisted AND p.org_id=p_org_id AND p.is_active) THEN
+    RAISE EXCEPTION 'ISSUE_SETUP_PRODUCT_SCOPE_INVALID'; END IF;
   END LOOP;
   -- New-MO exception: reviewed M191 captures products and locks stock before
   -- inserting a new parent. Legacy entry point stays quarantined for clients.
@@ -157,6 +162,13 @@ BEGIN
    COALESCE(p_command->'materials','[]'::jsonb),p_org_id);
   IF NOT COALESCE((response->>'success')::boolean,false) THEN RAISE EXCEPTION 'ORDER_CREATION_FAILED'; END IF;
   target:=(response->>'mo_id')::uuid;
+  -- Check the products M191 actually captured, after its stock-lock prefix.
+  -- Keep them active through commit; a failure rolls back the entire new MO.
+  PERFORM 1 FROM public.products p WHERE p.id IN
+   (SELECT r.product_id FROM public.material_reservations r WHERE r.mo_id=target) ORDER BY p.id FOR SHARE;
+  IF EXISTS(SELECT 1 FROM public.material_reservations r LEFT JOIN public.products p ON p.id=r.product_id
+   WHERE r.mo_id=target AND (p.org_id IS DISTINCT FROM p_org_id OR p.is_active IS DISTINCT FROM true)) THEN
+   RAISE EXCEPTION 'ISSUE_SETUP_PRODUCT_SCOPE_INVALID'; END IF;
   UPDATE public.manufacturing_orders SET created_by=auth.uid(),auto_backflush=false,backflush_timing='MANUAL'
    WHERE id=target RETURNING * INTO mo;
   entity:=to_jsonb(mo);
@@ -251,6 +263,8 @@ BEGIN
    ELSE
     IF op='resize_reservation' AND (COALESCE(res.quantity_consumed,0)>0 OR COALESCE(res.quantity_released,0)>0) THEN
      RAISE EXCEPTION 'ISSUE_SETUP_HISTORICAL_RESERVATION_IMMUTABLE'; END IF;
+    IF op='resize_reservation' AND (res.uom_id IS DISTINCT FROM base_uom OR res.conversion_factor_snapshot IS DISTINCT FROM 1::numeric) THEN
+     RAISE EXCEPTION 'BASE_UOM_REQUIRED'; END IF;
     SELECT COALESCE(sum(b.actual_qty-COALESCE(b.reserved_qty,0)),0) INTO available FROM public.bins b WHERE b.org_id=p_org_id AND b.product_id=product;
     SELECT COALESCE(sum(r.quantity_reserved-COALESCE(r.quantity_consumed,0)-COALESCE(r.quantity_released,0)),0)
      INTO total_reserved FROM public.material_reservations r WHERE r.org_id=p_org_id AND r.product_id=product
@@ -290,6 +304,46 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid) TO authenticated;
+-- Reconcile under the SAME event lock as the writer. Absence is not merely
+-- observed: a durable closed event fences every delayed original/retry request.
+-- No MO, reservation, WIP, stock or money writes are performed here.
+CREATE FUNCTION public.rpc_reconcile_material_issue_setup(p_org_id uuid,p_event_id uuid,p_command jsonb,p_actor_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE op text:=p_command->>'operation'; required_key text;
+ saved wardah_internal.material_issue_maintenance_events%ROWTYPE;
+BEGIN
+ IF p_org_id IS NULL OR p_event_id IS NULL OR jsonb_typeof(p_command) IS DISTINCT FROM 'object' THEN
+  RAISE EXCEPTION 'INVALID_ISSUE_SETUP_COMMAND'; END IF;
+ CASE op
+ WHEN 'create_order','set_order_status','create_work_order','set_work_order_status','open_stage_wip' THEN
+  required_key:='manufacturing.material_issue_setup.prepare';
+ WHEN 'reserve','resize_reservation' THEN required_key:='manufacturing.material_reservation.reserve';
+ WHEN 'release_reservation' THEN required_key:='manufacturing.material_reservation.release';
+ ELSE RAISE EXCEPTION 'UNSUPPORTED_ISSUE_SETUP_OPERATION'; END CASE;
+ PERFORM wardah_internal.assert_issue_maintenance_permission(p_org_id,required_key);
+ IF p_actor_id IS NULL OR p_actor_id IS DISTINCT FROM auth.uid() THEN
+  RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='ISSUE_SETUP_IDENTITY_CHANGED'; END IF;
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+  'wardah-issue-setup:'||p_org_id::text||':'||p_event_id::text,0));
+ PERFORM wardah_internal.assert_issue_maintenance_permission(p_org_id,required_key);
+ SELECT * INTO saved FROM wardah_internal.material_issue_maintenance_events e
+  WHERE e.org_id=p_org_id AND e.event_id=p_event_id;
+ IF FOUND THEN
+  IF saved.actor_id IS DISTINCT FROM p_actor_id THEN RAISE EXCEPTION 'ISSUE_SETUP_EVENT_ACTOR_MISMATCH'; END IF;
+  IF saved.command IS DISTINCT FROM p_command THEN RAISE EXCEPTION 'ISSUE_SETUP_EVENT_PAYLOAD_MISMATCH'; END IF;
+ ELSE
+  INSERT INTO wardah_internal.material_issue_maintenance_events(org_id,event_id,actor_id,command,result,state)
+   VALUES(p_org_id,p_event_id,p_actor_id,p_command,'{}'::jsonb,'closed') RETURNING * INTO saved;
+  INSERT INTO public.audit_logs(org_id,user_id,action,entity_type,entity_id,metadata)
+   VALUES(p_org_id,p_actor_id,'manufacturing.issue_setup.close_event','material_issue_setup',p_event_id::text,
+    jsonb_build_object('event_id',p_event_id,'source','rpc_reconcile_material_issue_setup','operation',op));
+ END IF;
+ PERFORM wardah_internal.assert_issue_maintenance_permission(p_org_id,required_key);
+ RETURN jsonb_build_object('event_id',p_event_id,'org_id',p_org_id,'actor_id',p_actor_id,
+  'operation',op,'state',saved.state,'receipt',CASE WHEN saved.state='applied' THEN saved.result ELSE NULL END);
+END $$;
+REVOKE ALL ON FUNCTION public.rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid) TO authenticated;
 -- Read-only base-UOM options; no EXECUTE restored on the private product resolver.
 CREATE FUNCTION public.rpc_get_material_reservation_setup(p_org_id uuid,p_item_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
@@ -405,5 +459,9 @@ DO $$ DECLARE role_name text; table_name text; privilege_name text; BEGIN
  OR has_function_privilege('service_role','public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)','EXECUTE')
  OR NOT has_function_privilege('authenticated','public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)','EXECUTE')
  THEN RAISE EXCEPTION 'MAINTENANCE_RPC_GRANT_REGRESSION'; END IF;
+ IF has_function_privilege('anon','public.rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid)','EXECUTE')
+ OR has_function_privilege('service_role','public.rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid)','EXECUTE')
+ OR NOT has_function_privilege('authenticated','public.rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid)','EXECUTE')
+ THEN RAISE EXCEPTION 'RECONCILE_RPC_GRANT_REGRESSION'; END IF;
 END $$;
 COMMIT;

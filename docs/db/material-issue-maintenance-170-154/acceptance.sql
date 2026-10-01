@@ -63,6 +63,9 @@ BEGIN
  PERFORM pg_temp.maintenance_denied(pg_temp.consumer(),jsonb_build_object('operation','reserve',
   'mo_id','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','item_id',pg_temp.raw_item(),'quantity',1),'P0001','ISSUE_SETUP_MO_SCOPE_INVALID');
  -- Ordinary explicit-role actor can prepare; no Admin-only substitute.
+ UPDATE public.products SET is_active=false WHERE id=pg_temp.raw();
+ PERFORM pg_temp.maintenance_denied(pg_temp.consumer(),command,'P0001','ISSUE_SETUP_PRODUCT_SCOPE_INVALID');
+ UPDATE public.products SET is_active=true WHERE id=pg_temp.raw();
  result:=pg_temp.as_user(pg_temp.consumer(),pg_temp.command_sql(command,event));
  mo:=(result->'entity'->>'id')::uuid; entity:=result->'entity';
  IF entity->>'status'<>'draft' OR (entity->>'auto_backflush')::boolean OR entity->>'created_by'<>pg_temp.consumer()::text THEN
@@ -101,6 +104,19 @@ BEGIN
  result:=pg_temp.as_user(pg_temp.consumer(),pg_temp.command_sql(jsonb_build_object('operation','reserve','mo_id',mo,
   'item_id',pg_temp.raw_item(),'uom_id',(SELECT base_uom_id FROM public.products WHERE id=pg_temp.raw()),'quantity',20)));
  res:=(result->'entity'->>'id')::uuid; version:=(result->'entity'->>'maintenance_version')::bigint;
+ -- Reproduce legacy boxes: 24 base = 2 entered at factor 12. Resize must
+ -- preserve the entire row and all accounting state on its precise denial.
+ UPDATE public.material_reservations SET quantity_reserved=24,qty_entered=2,conversion_factor_snapshot=12 WHERE id=res;
+ SELECT maintenance_version INTO version FROM public.material_reservations WHERE id=res;
+ PERFORM pg_temp.maintenance_denied(pg_temp.consumer(),jsonb_build_object('operation','resize_reservation','mo_id',mo,
+  'reservation_id',res,'quantity',36,'expected_version',version),'P0001','BASE_UOM_REQUIRED');
+ UPDATE public.material_reservations SET conversion_factor_snapshot=1,qty_entered=24,
+  uom_id=(SELECT id FROM public.uoms WHERE id<>(SELECT base_uom_id FROM public.products WHERE id=pg_temp.raw()) LIMIT 1) WHERE id=res;
+ SELECT maintenance_version INTO version FROM public.material_reservations WHERE id=res;
+ PERFORM pg_temp.maintenance_denied(pg_temp.consumer(),jsonb_build_object('operation','resize_reservation','mo_id',mo,
+  'reservation_id',res,'quantity',36,'expected_version',version),'P0001','BASE_UOM_REQUIRED');
+ UPDATE public.material_reservations SET uom_id=(SELECT base_uom_id FROM public.products WHERE id=pg_temp.raw()) WHERE id=res;
+ SELECT maintenance_version INTO version FROM public.material_reservations WHERE id=res;
  result:=pg_temp.as_user(pg_temp.consumer(),pg_temp.command_sql(jsonb_build_object('operation','resize_reservation','mo_id',mo,
   'reservation_id',res,'quantity',25,'expected_version',version)));
  version:=(result->'entity'->>'maintenance_version')::bigint;

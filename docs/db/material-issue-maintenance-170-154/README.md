@@ -30,7 +30,7 @@ legacy orders/stage-cost keys are retained. Grant policy still requires owner re
 
 `rpc_get_material_reservation_setup(org,item)` returns the scoped canonical
 product/base UOM under the same explicit reserve grant. No EXECUTE grant is restored
-on `wardah_resolve_product_id`. Both new public RPCs are authenticated-only;
+on `wardah_resolve_product_id`. All three candidate public RPCs are authenticated-only;
 private helper/event objects are not callable/readable by client roles.
 
 Events save immutable commands and receipts per org/event/actor. Identical retries
@@ -38,6 +38,25 @@ return the saved receipt; changed payload/actor is refused. Permission is rechec
 after lock waits and before commit. Existing-object writers use event → MO → children
 → product → bins; creation retains the M191 new-parent exception. Versions advance
 on every MO/WO/reservation UPDATE, including M192 consumption, rejecting stale edits.
+
+`rpc_reconcile_material_issue_setup(org,event,command,actor)` uses the writer's
+event lock and the exact operation-specific maintenance grant (prepare/reserve/release),
+active org membership and persisted actor. It returns a saved receipt, or inserts a
+durable `closed` event if no successful writer exists under that lock. It changes
+only the private event journal and an audit entry. An original request arriving
+after closure is refused with `ISSUE_SETUP_EVENT_CLOSED` before any entity write.
+No time-bound guess about transport/statement timeout and no absence-only receipt
+lookup is used. Closing an event may cancel an intent whose request has not reached
+the server; the operator must explicitly choose reconciliation. Existing grants
+must still be present; revocation fails closed and requires authorized support.
+Applied receipt recovery needs the current maintenance grant, not restoration of
+the additional orders.create/update or WIP-create grant used for the original write.
+
+Legacy reservations can resize only when their UOM is the current base UOM and
+their captured conversion factor is 1. Non-base rows remain unchanged on denial;
+release still preserves their history. Atomic initial-material creation rejects
+inactive raw products before calling M191 and rechecks the captured products under
+row locks after M191. Canonical M191 is unchanged.
 
 The legacy WO status trigger is removed in this candidate: its ambiguous aggregate,
 uppercase parent writes and WO→MO locking are replaced by explicit nonterminal MO
@@ -62,10 +81,15 @@ Denials compare MO/WO/reservations/WIP/consumption/bins/SLE/receipts/audit snaps
 Races assert actual `pg_blocking_pids` relationships before releasing the blocker.
 They cover M192 commit/stale release, rollback/release, both reserve/issue directions,
 WO eligibility commit/rollback, same-event replay and cross-MO stock oversubscription.
+Reconciliation acceptance proves precise actor/payload/org/permission denials,
+no financial effects, idempotent fencing and saved receipt recovery. Three added
+blocker-based races cover active writer commit/rollback, late original after fencing,
+and concurrent reconciliation returning one closed event.
 
 Local implementation evidence passed using PostgreSQL 17.11 with **three startup
 UID checks changed** for this workspace. That is not standard-PG17 proof. The prior
-independent unmodified PGDG17.11 review covered #291, not this new candidate.
+independent unmodified PGDG17.11 review covered #293 at `7fbbde4a967e342a8d1d2a84a8b6448cf5a340a2`.
+That evidence predates the reconciliation/validation corrections in this revision.
 The dedicated CI workflow runs this candidate on the unmodified `postgres:17` image;
 its final exact-head outcome must be verified separately. The baseline #278/M192
 regression runner also passed locally; that run does not apply this candidate.

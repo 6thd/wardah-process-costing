@@ -29,5 +29,6 @@ psql -X -v ON_ERROR_STOP=1 -q -f docs/db/material-issue-229/195_material_issue_s
 psql -X -v ON_ERROR_STOP=1 -q -f "$HERE/candidate.sql"
 psql -X -v ON_ERROR_STOP=1 -f docs/db/material-issue-229/acceptance.sql
 psql -X -v ON_ERROR_STOP=1 -f "$HERE/acceptance.sql"
+psql -X -v ON_ERROR_STOP=1 -f "$HERE/reconciliation_acceptance.sql"
 python3 "$HERE/races.py"
 echo 'MATERIAL_ISSUE_MAINTENANCE_LOCAL_PASS'
