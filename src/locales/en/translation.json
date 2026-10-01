@@ -1793,6 +1793,13 @@
     "lastWriterWins": "IN_PROGRESS is mandatory. Only Org Admin can edit. Concurrent saves use the last saved value; the current version is reloaded after saving.",
     "save": "Save policy",
     "policySaveFailed": "Save was not confirmed. Reload the server policy before any further save.",
-    "storageNotice": "Recovery uses storage in this browser. After clearing storage or changing devices, contact support to reconcile any unresolved issue before creating another one."
+    "storageNotice": "Recovery uses storage in this browser. After clearing storage or changing devices, contact support to reconcile any unresolved issue before creating another one.",
+    "setupRecovery": "Recover a saved order preparation request. Unknown outcomes remain saved.",
+    "setupRecovered": "The saved request was reconciled.",
+    "setupUnresolved": "No saved request was reconciled. An unknown result cannot be dismissed; return to the same account and organization or contact support.",
+    "retryOrderCreation": "Retry saved order creation",
+    "dismissRejectedCreation": "Dismiss rejected order creation",
+    "retrySetup": "Retry selected order preparation",
+    "dismissRejectedSetup": "Dismiss rejected preparation"
   }
 }

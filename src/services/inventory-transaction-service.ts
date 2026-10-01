@@ -1,10 +1,13 @@
 /**
  * Inventory Transaction Service
  *
- * Reservations remain simple RLS-scoped writes. Material consumption is routed
+ * Isolated pilot reservations use the guarded candidate RPC. Legacy reservations
+ * remain quarantined by #291. Material consumption is routed
  * by the dedicated M192 material-issue command. This service handles reservations.
  */
 
+import { isolatedMaterialIssueEnabled } from '@/features/manufacturing/material-issue/gate'
+import { issueSetupSnapshot, manageMaterialIssueSetup } from './manufacturing/materialIssueMaintenance'
 import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase'
 import { InsufficientInventoryError } from '@/lib/errors/InsufficientInventoryError'
 import { AppError } from '@/lib/errors/AppError'
@@ -134,6 +137,21 @@ class InventoryTransactionService {
     expiresAt?: Date,
   ): Promise<MaterialReservation[]> {
     const orgId = await this.requireOrgId()
+    if (isolatedMaterialIssueEnabled()) {
+      // Multi-line initial reservations are atomic in create_order. Standalone
+      // maintenance is one line per event; do not implement a partial batch loop.
+      if (materials.length !== 1 || expiresAt) throw new Error('ISSUE_SETUP_SINGLE_RESERVATION_REQUIRED')
+      const material = materials[0]
+      const { data: setup, error } = await supabase.rpc('rpc_get_material_reservation_setup', {
+        p_org_id: orgId, p_item_id: material.item_id,
+      })
+      if (error) throw error
+      if (!setup || setup.org_id !== orgId || setup.item_id !== material.item_id || !setup.uom_id) {
+        throw new Error('ISSUE_SETUP_RESULT_UNVERIFIED')
+      }
+      return [await manageMaterialIssueSetup({ operation: 'reserve', mo_id: moId,
+        item_id: material.item_id, uom_id: setup.uom_id, quantity: material.quantity }) as unknown as MaterialReservation]
+    }
     const availability = await this.checkAvailability(materials)
     const insufficient = availability.find((item) => !item.sufficient)
 
@@ -198,6 +216,13 @@ class InventoryTransactionService {
       throw new AppError('RESERVATION_NOT_FOUND', 'Reservation not found', 404)
     }
 
+    if (isolatedMaterialIssueEnabled()) {
+      const row = await issueSetupSnapshot('material_reservations', reservationId)
+      const remaining = Number(row.quantity_reserved) - Number(row.quantity_consumed ?? 0) - Number(row.quantity_released ?? 0)
+      await manageMaterialIssueSetup({ operation: 'release_reservation', mo_id: row.mo_id,
+        reservation_id: reservationId, quantity: quantity ?? remaining, expected_version: row.maintenance_version })
+      return
+    }
     const remaining =
       Number(reservation.quantity_reserved || 0) -
       Number(reservation.quantity_consumed || 0) -
@@ -240,6 +265,7 @@ class InventoryTransactionService {
   }
 
   async releaseAllReservations(moId: string): Promise<void> {
+    if (isolatedMaterialIssueEnabled()) throw new Error('ISSUE_SETUP_SINGLE_RESERVATION_REQUIRED')
     const orgId = await this.requireOrgId()
     const { data: reservations, error: fetchError } = await supabase
       .from('material_reservations')

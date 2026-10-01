@@ -3,6 +3,9 @@
  * Extracted from supabase-service.ts to reduce complexity
  */
 
+import { isolatedMaterialIssueEnabled } from '@/features/manufacturing/material-issue/gate';
+import { manageMaterialIssueSetup } from './materialIssueMaintenance';
+import { getEffectiveTenantId } from '@/lib/supabase';
 import { SupabaseClient } from '@supabase/supabase-js';
 
 interface ManufacturingOrderInput {
@@ -164,6 +167,16 @@ export async function createManufacturingOrder(
   materials?: MaterialInput[]
 ): Promise<DataWithItem> {
   const supabase = await getClient();
+  if (isolatedMaterialIssueEnabled()) {
+    if (order.status && order.status !== 'draft') throw new Error('ISSUE_SETUP_INITIAL_DRAFT_REQUIRED');
+    if (order.org_id && order.org_id !== await getEffectiveTenantId()) throw new Error('ISSUE_SETUP_IDENTITY_CHANGED');
+    const allowed = ['order_number', 'product_id', 'item_id', 'quantity', 'notes', 'start_date', 'due_date'];
+    const payload = Object.fromEntries(Object.entries(order).filter(([key]) => allowed.includes(key)));
+    const data = await manageMaterialIssueSetup({ operation: 'create_order', order: payload,
+      materials: (materials ?? []).map(m => ({ item_id: m.item_id, quantity: m.quantity })) }) as DataWithItem;
+    await loadRelatedProductData(supabase, data);
+    return data;
+  }
 
   // ===== المسار الذرّي: RPC واحد يُنشئ الأمر ويحجز المواد في معاملة واحدة =====
   if (materials && materials.length > 0) {

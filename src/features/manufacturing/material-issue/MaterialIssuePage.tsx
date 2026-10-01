@@ -9,6 +9,7 @@ import { claimMaterialIssue, pendingMaterialIssue, sendMaterialIssue, acknowledg
   getMaterialIssuePolicy, type MaterialIssueRecord, type MaterialIssuePolicy } from '@/services/manufacturing/materialIssueClient'
 import { CONSUME_KEY, getIssueOrders, getIssueContext, issueCommand,
   type IssueContext, type IssueOrder, type IssueDraftLine } from '@/services/manufacturing/materialIssueOptions'
+import { MaintenanceRecovery } from './MaintenanceRecovery'
 import { isolatedMaterialIssueEnabled } from './gate'
 import './material-issue.css'
 
@@ -133,6 +134,7 @@ function IssueForm({ userId, orgId }: { userId: string; orgId: string }) {
       <option value="">{choose}</option>{orders?.map(row => <option key={row.id} value={row.id}>{row.label}</option>)}
     </select></label>
     <Button disabled={busy} onClick={() => setReload(value => value + 1)}>{t('materialIssue.refresh')}</Button>
+    <MaintenanceRecovery key={`${userId}:${orgId}`} identity={`${userId}:${orgId}`} moId={mo || undefined} />
     {error && <p role="alert">{error}</p>}
     {receipt && <p role="status">{t('materialIssue.succeeded')} <code>{receipt}</code></p>}
     {policy && <p>{t('materialIssue.policyVersion')}: {policy.version} — {policy.allowed_statuses.join(', ')}</p>}

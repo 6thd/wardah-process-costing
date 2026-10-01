@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 356,
-  "signature_count": 330,
-  "signature_sha256": "4816e12aae045d7e029c18f81849592f938838c75d7142a612725772423eed0f",
-  "note": "Reviewed local #229 UI delta: exactly two read-only RPC call signatures added in materialIssueOptions.ts. No new write signature and no removed signature. Reads require consume permission in the separate unallocated DB candidate; live acceptance remains pending. Existing #279/#278 writers unchanged."
+  "candidate_count": 358,
+  "signature_count": 332,
+  "signature_sha256": "54630e2d670e06e576d9c2b0cbb95e8cc6358afe546086c300236650b5fcb866",
+  "note": "Reviewed isolated #170/#154 candidate delta: exactly one write RPC rpc_manage_material_issue_setup and one read RPC rpc_get_material_reservation_setup. No old signatures removed. Both require explicit active maintenance grants in an unallocated companion DB candidate; no live coverage or release approval is claimed."
 }
