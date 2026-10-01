@@ -7,7 +7,7 @@ try {
   const page = await context.newPage(); const errors = []
   page.on('pageerror', e => errors.push(e.message))
   page.on('console', e => { if (e.type() === 'error') errors.push(e.text()) })
-  const state = () => page.evaluate(async () => (await fetch('http://127.0.0.1:4178/state')).json())
+  const state = () => page.evaluate(async () => (await fetch('/state')).json())
   await page.goto('http://127.0.0.1:4177')
   await expect(page.getByLabel('Manufacturing order')).toBeEnabled()
   const initial = await state()
@@ -32,7 +32,7 @@ try {
   await page.reload()
   await page.getByLabel('Manufacturing order').selectOption(mo.id)
   await expect(page.getByLabel('Reserved material 1')).toBeEnabled()
-  const ctx = await page.evaluate(async id => (await fetch('http://127.0.0.1:4178/call', {
+  const ctx = await page.evaluate(async id => (await fetch('/call', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ kind: 'rpc', name: 'rpc_get_material_issue_context', args: { p_mo_id: id } }),
   })).json(), mo.id)

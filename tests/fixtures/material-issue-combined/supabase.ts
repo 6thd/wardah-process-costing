@@ -3,7 +3,7 @@ import { identity } from '../material-issue-browser/identity'
 export const getEffectiveTenantId = async () => identity.org
 export const getTenantId = getEffectiveTenantId
 const call = async (body: unknown) => {
-  const result = await fetch('http://127.0.0.1:4178/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const result = await fetch('/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   if (!result.ok) throw new Error('DISPOSABLE_BRIDGE_FAILED')
   return result.json()
 }

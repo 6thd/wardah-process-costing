@@ -4,7 +4,6 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psycopg
-from psycopg import sql
 from psycopg.types.json import Jsonb
 
 if (os.environ.get('PGHOST') != '127.0.0.1'
@@ -15,15 +14,33 @@ if (os.environ.get('PGHOST') != '127.0.0.1'
 ORG = 'ed000000-0000-4000-8000-000000000001'
 ACTOR = 'ed000000-0000-4000-8000-0000000000a2'
 RPCS = {
-    'rpc_manage_material_issue_setup': ['p_org_id', 'p_event_id', 'p_command', 'p_actor_id'],
-    'rpc_reconcile_material_issue_setup': ['p_org_id', 'p_event_id', 'p_command', 'p_actor_id'],
-    'rpc_get_material_reservation_setup': ['p_org_id', 'p_item_id'],
-    'rpc_list_material_issue_orders': ['p_org_id'],
-    'rpc_get_material_issue_context': ['p_mo_id'],
-    'rpc_get_material_issue_wo_statuses': ['p_org_id'],
-    'rpc_consume_material_event': ['p_mo_id', 'p_stage_id', 'p_event_id', 'p_consumptions'],
+    'rpc_manage_material_issue_setup': (['p_org_id', 'p_event_id', 'p_command', 'p_actor_id'], "SELECT public.rpc_manage_material_issue_setup(%s,%s,%s,%s)"),
+    'rpc_reconcile_material_issue_setup': (['p_org_id', 'p_event_id', 'p_command', 'p_actor_id'], "SELECT public.rpc_reconcile_material_issue_setup(%s,%s,%s,%s)"),
+    'rpc_get_material_reservation_setup': (['p_org_id', 'p_item_id'], "SELECT public.rpc_get_material_reservation_setup(%s,%s)"),
+    'rpc_list_material_issue_orders': (['p_org_id'], "SELECT public.rpc_list_material_issue_orders(%s)"),
+    'rpc_get_material_issue_context': (['p_mo_id'], "SELECT public.rpc_get_material_issue_context(%s)"),
+    'rpc_get_material_issue_wo_statuses': (['p_org_id'], "SELECT public.rpc_get_material_issue_wo_statuses(%s)"),
+    'rpc_consume_material_event': (['p_mo_id', 'p_stage_id', 'p_event_id', 'p_consumptions'], "SELECT public.rpc_consume_material_event(%s,%s,%s,%s)"),
 }
-READS = {'products', 'manufacturing_orders', 'work_orders', 'material_reservations'}
+READS = {
+    'products': "SELECT to_jsonb(t) FROM public.products t WHERE id=%s AND org_id=%s",
+    'manufacturing_orders': "SELECT to_jsonb(t) FROM public.manufacturing_orders t WHERE id=%s AND org_id=%s",
+    'work_orders': "SELECT to_jsonb(t) FROM public.work_orders t WHERE id=%s AND org_id=%s",
+    'material_reservations': "SELECT to_jsonb(t) FROM public.material_reservations t WHERE id=%s AND org_id=%s",
+}
+SNAPSHOTS = {
+    'manufacturing_orders': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.manufacturing_orders t",
+    'work_orders': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.work_orders t",
+    'material_reservations': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.material_reservations t",
+    'stage_wip_log': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.stage_wip_log t",
+    'material_consumption': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.material_consumption t",
+    'bins': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.bins t",
+    'stock_ledger_entries': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.stock_ledger_entries t",
+    'products': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.products t",
+    'gl_entries': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.gl_entries t",
+    'gl_entry_lines': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.gl_entry_lines t",
+    'journal_entries': "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb) FROM public.journal_entries t",
+}
 trace = []
 
 
@@ -52,10 +69,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         with psycopg.connect('') as conn:
             state = {}
-            for table in ('manufacturing_orders', 'work_orders', 'material_reservations',
-                          'stage_wip_log', 'material_consumption', 'bins', 'stock_ledger_entries',
-                          'products', 'gl_entries', 'gl_entry_lines', 'journal_entries'):
-                state[table] = conn.execute(sql.SQL('SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),\'[]\'::jsonb) FROM public.{} t').format(sql.Identifier(table))).fetchone()[0]
+            for table, query in SNAPSHOTS.items():
+                state[table] = conn.execute(query).fetchone()[0]
             state['events'] = conn.execute('SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY event_id),\'[]\'::jsonb) FROM wardah_internal.material_issue_events t').fetchone()[0]
             state['trace'] = trace.copy()
         self.reply(state)
@@ -72,16 +87,15 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute('SET LOCAL ROLE authenticated')
                 if request['kind'] == 'rpc':
                     name, args = request['name'], request['args']
-                    keys = RPCS[name]
+                    keys, query = RPCS[name]
                     values = [Jsonb(args[k]) if isinstance(args[k], (dict, list)) else args[k] for k in keys]
-                    query = sql.SQL('SELECT public.{}({})').format(sql.Identifier(name), sql.SQL(',').join([sql.Placeholder()] * len(keys)))
                     data = conn.execute(query, values).fetchone()[0]
                     trace.append({'name': name, 'args': args})
                 else:
                     table = request['table']
                     if table not in READS:
                         raise ValueError('UNREVIEWED_FIXTURE_READ')
-                    data = conn.execute(sql.SQL('SELECT to_jsonb(t) FROM public.{} t WHERE id=%s AND org_id=%s').format(sql.Identifier(table)), (request['id'], ORG)).fetchone()
+                    data = conn.execute(READS[table], (request['id'], ORG)).fetchone()
                     data = data[0] if data else None
             self.reply({'data': data, 'error': None})
         except psycopg.Error as error:

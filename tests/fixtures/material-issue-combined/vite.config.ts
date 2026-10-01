@@ -9,5 +9,5 @@ export default defineConfig({ root: path('./'), plugins: [react()],
     { find: '@/contexts/AuthContext', replacement: path('../material-issue-browser/identity.tsx') },
     { find: '@/hooks/usePermissions', replacement: path('../material-issue-browser/identity.tsx') },
     { find: '@', replacement: path('../../../src') }] },
-  server: { host: '127.0.0.1', port: 4177, strictPort: true, fs: { allow: [path('../../../')] } },
+  server: { host: '127.0.0.1', port: 4177, strictPort: true, proxy: { '/call': 'http://127.0.0.1:4178', '/state': 'http://127.0.0.1:4178' }, fs: { allow: [path('../../../')] } },
 })
