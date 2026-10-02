@@ -43,7 +43,13 @@ jobs:
         run: |
           git fetch --no-tags origin b95384a917d5a0879350f4598e79a43a4c21e4f1
           test "$(git rev-parse b95384a917d5a0879350f4598e79a43a4c21e4f1^{tree})" = 65777022d83e808402913f9465103742614780d2
-          COMBINED_TREE="$(git merge-tree --write-tree HEAD b95384a917d5a0879350f4598e79a43a4c21e4f1)"
+          # Only the frozen DB fixture subtree is required. Its older workflow
+          # branch filters conflict with this stacked PR's filters; do not merge
+          # or override workflows when assembling a disposable acceptance tree.
+          test "$(git diff-tree --no-commit-id --name-only -r b95384a917d5a0879350f4598e79a43a4c21e4f1 | grep -v '^docs/db/material-issue-maintenance-170-154/' | wc -l)" = 0
+          git restore --source=b95384a917d5a0879350f4598e79a43a4c21e4f1 --staged --worktree -- docs/db/material-issue-maintenance-170-154
+          test "$(git write-tree --prefix=docs/db/material-issue-maintenance-170-154/)" = "$(git rev-parse b95384a917d5a0879350f4598e79a43a4c21e4f1:docs/db/material-issue-maintenance-170-154)"
+          COMBINED_TREE="$(git write-tree)"
           echo "CLIENT_HEAD=$(git rev-parse HEAD) DB_HEAD=b95384a917d5a0879350f4598e79a43a4c21e4f1 COMBINED_TREE=$COMBINED_TREE"
           git read-tree --reset -u "$COMBINED_TREE"
           git diff --exit-code HEAD -- sql scripts/ci/fresh-db
