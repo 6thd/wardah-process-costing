@@ -127,9 +127,11 @@ for op in ('reserve','create_work_order'):
 
     # Two real actors blocked on the same parent, not a sleep-based race.
     mo=parent(); v=version(mo); cmd=command(op,mo,v); before=snapshot()
-    with connection(ACTOR) as holder, connection(SECOND) as waiter, connection() as observer:
+    with connection() as holder, connection(SECOND) as waiter, connection() as observer:
         holder_pid=holder.info.backend_pid; waiter_pid=waiter.info.backend_pid
         holder.execute('SELECT id FROM public.manufacturing_orders WHERE id=%s FOR UPDATE',(mo,))
+        holder.execute("SELECT set_config('request.jwt.claim.sub',%s,true)",(ACTOR,))
+        holder.execute('SET LOCAL ROLE authenticated')
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future=pool.submit(call,waiter,cmd,uuid.uuid4(),SECOND)
             blocked(observer,waiter_pid,holder_pid)
