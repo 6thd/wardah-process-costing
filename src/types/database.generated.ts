@@ -4067,6 +4067,7 @@ export type Database = {
           due_date: string | null
           id: string
           item_id: string | null
+          maintenance_version: number
           notes: string | null
           order_number: string
           org_id: string
@@ -4092,6 +4093,7 @@ export type Database = {
           due_date?: string | null
           id?: string
           item_id?: string | null
+          maintenance_version?: number
           notes?: string | null
           order_number: string
           org_id: string
@@ -4117,6 +4119,7 @@ export type Database = {
           due_date?: string | null
           id?: string
           item_id?: string | null
+          maintenance_version?: number
           notes?: string | null
           order_number?: string
           org_id?: string
@@ -4398,6 +4401,7 @@ export type Database = {
           expires_at: string | null
           id: string
           item_id: string
+          maintenance_version: number
           mo_id: string
           notes: string | null
           org_id: string
@@ -4419,6 +4423,7 @@ export type Database = {
           expires_at?: string | null
           id?: string
           item_id: string
+          maintenance_version?: number
           mo_id: string
           notes?: string | null
           org_id: string
@@ -4440,6 +4445,7 @@ export type Database = {
           expires_at?: string | null
           id?: string
           item_id?: string
+          maintenance_version?: number
           mo_id?: string
           notes?: string | null
           org_id?: string
@@ -9642,6 +9648,7 @@ export type Database = {
           created_by: string | null
           current_operator_id: string | null
           id: string
+          maintenance_version: number
           mo_id: string
           notes: string | null
           operation_id: string | null
@@ -9672,6 +9679,7 @@ export type Database = {
           created_by?: string | null
           current_operator_id?: string | null
           id?: string
+          maintenance_version?: number
           mo_id: string
           notes?: string | null
           operation_id?: string | null
@@ -9702,6 +9710,7 @@ export type Database = {
           created_by?: string | null
           current_operator_id?: string | null
           id?: string
+          maintenance_version?: number
           mo_id?: string
           notes?: string | null
           operation_id?: string | null
@@ -10237,6 +10246,7 @@ export type Database = {
           due_date: string | null
           id: string
           item_id: string | null
+          maintenance_version: number
           notes: string | null
           order_number: string
           org_id: string
@@ -10475,6 +10485,7 @@ export type Database = {
           created_by: string | null
           current_operator_id: string | null
           id: string
+          maintenance_version: number
           mo_id: string
           notes: string | null
           operation_id: string | null
@@ -10600,6 +10611,7 @@ export type Database = {
           created_by: string | null
           current_operator_id: string | null
           id: string
+          maintenance_version: number
           mo_id: string
           notes: string | null
           operation_id: string | null
@@ -10928,6 +10940,7 @@ export type Database = {
           due_date: string | null
           id: string
           item_id: string | null
+          maintenance_version: number
           notes: string | null
           order_number: string
           org_id: string
@@ -11084,8 +11097,16 @@ export type Database = {
           status: string
         }[]
       }
+      rpc_get_material_issue_context: {
+        Args: { p_mo_id: string }
+        Returns: Json
+      }
       rpc_get_material_issue_wo_statuses: {
         Args: { p_org_id: string }
+        Returns: Json
+      }
+      rpc_get_material_reservation_setup: {
+        Args: { p_item_id: string; p_org_id: string }
         Returns: Json
       }
       rpc_get_org_uom_engine_enabled: {
@@ -11124,6 +11145,10 @@ export type Database = {
         Args: { p_issue_id: string; p_note?: string; p_org_id: string }
         Returns: Json
       }
+      rpc_list_material_issue_orders: {
+        Args: { p_org_id: string }
+        Returns: Json
+      }
       rpc_list_periods: {
         Args: { p_fiscal_year?: number; p_tenant?: string }
         Returns: Json
@@ -11142,6 +11167,15 @@ export type Database = {
       }
       rpc_list_uom_receivable_purchase_orders: {
         Args: { p_org_id: string }
+        Returns: Json
+      }
+      rpc_manage_material_issue_setup: {
+        Args: {
+          p_actor_id: string
+          p_command: Json
+          p_event_id: string
+          p_org_id: string
+        }
         Returns: Json
       }
       rpc_manual_stock_movement: {
@@ -11223,6 +11257,15 @@ export type Database = {
           p_work_center: string
         }
         Returns: string
+      }
+      rpc_reconcile_material_issue_setup: {
+        Args: {
+          p_actor_id: string
+          p_command: Json
+          p_event_id: string
+          p_org_id: string
+        }
+        Returns: Json
       }
       rpc_remove_org_member: { Args: { p_payload: Json }; Returns: Json }
       rpc_replace_user_roles: { Args: { p_payload: Json }; Returns: Json }
@@ -11412,6 +11455,7 @@ export type Database = {
           created_by: string | null
           current_operator_id: string | null
           id: string
+          maintenance_version: number
           mo_id: string
           notes: string | null
           operation_id: string | null
