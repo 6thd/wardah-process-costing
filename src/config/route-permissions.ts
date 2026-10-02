@@ -206,16 +206,11 @@ const MANUFACTURING_ROUTES: RoutePattern[] = [
   { pattern: '/bom', requirement: { key: 'manufacturing.boms.read' } },
   { pattern: '/bom/new', requirement: { key: 'manufacturing.boms.create' } },
   { pattern: '/bom/:bomId/edit', requirement: { key: 'manufacturing.boms.update' } },
-  // QualityControlManagement (the component actually mounted at /quality)
-  // is a static "coming soon" EmptyState — it queries nothing, the same
-  // class of route as /inventory/bins above. There is no quality.* catalog
-  // resource because there is no quality data yet to protect; this is not a
-  // "nearest resource" approximation for a real query, since no query
-  // exists. manufacturing.orders.read gates entry to this inert page for
-  // consistency with the rest of the module; update this comment (and the
-  // key, if warranted) when a real quality-control component with actual
-  // queries replaces the placeholder.
-  { pattern: '/quality', requirement: { key: 'manufacturing.orders.read' } },
+  // QualityControlManagement reads only through the Migration 199 RPCs, which
+  // require manufacturing.quality_inspections.read themselves. Writing
+  // (inspections, quality holds) is decided by the server-computed
+  // capabilities, not by this entry key.
+  { pattern: '/quality', requirement: { key: 'manufacturing.quality_inspections.read' } },
 ];
 
 // ============================================================
@@ -352,7 +347,10 @@ const SETTINGS_ORGANIZATION: RouteRequirement = { key: 'settings.organization.re
 // أي منها كافٍ لدخول الشاشة نفسها، لا organization.read وحده. مطابق لنمط anyOf
 // المستخدم في نظرة كل موديول آخر (sales/purchasing/inventory/...).
 const SETTINGS_OVERVIEW: RouteRequirement = {
-  anyOf: ['settings.organization.read', 'settings.users.read', 'settings.roles.read'],
+  anyOf: [
+    'settings.organization.read', 'settings.users.read', 'settings.roles.read',
+    'manufacturing.quality_inspections.read',
+  ],
 };
 
 const SETTINGS_ROUTES: RoutePattern[] = [
@@ -377,6 +375,9 @@ const SETTINGS_ROUTES: RoutePattern[] = [
   { pattern: '/system', requirement: SETTINGS_ORGANIZATION },
   { pattern: '/integrations', requirement: SETTINGS_ORGANIZATION },
   { pattern: '/backup', requirement: SETTINGS_ORGANIZATION },
+  // Quality policy (Migration 199): readable by anyone who can read quality;
+  // rpc_set_quality_policy itself admits only an organization admin.
+  { pattern: '/quality', requirement: { key: 'manufacturing.quality_inspections.read' } },
 ];
 
 // ============================================================

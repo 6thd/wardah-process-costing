@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 354,
-  "signature_count": 328,
-  "signature_sha256": "e400feb32313f1acd801f01ab9d7930115a2a863bb5a9e1dfaa3dcec05fe1b7c",
-  "note": "Reviewed #278 boundary change: in supabase-service.ts the direct stage_wip_log close UPDATE was replaced by the audited rpc_close_stage_wip_194 RPC. The direct stage_wip_log update count goes 2 to 1 and one rpc_call signature is added; the candidate total stays 354 and every other signature is unchanged."
+  "candidate_count": 359,
+  "signature_count": 333,
+  "signature_sha256": "3e6f016eaf63abe4d388f29daf7b28dfe3a31817818328399d178247254b37fe",
+  "note": "Reviewed Migration 199 quality-control UI: the unused mesService.createQualityInspection direct quality_inspections insert is removed (quality_inspections has no client grants after M199), and six literal rpc_call signatures are added in src/services/manufacturing/qualityService.ts: rpc_get_quality_policy, rpc_set_quality_policy, rpc_list_quality_inspections, rpc_get_mo_quality_status, rpc_record_quality_inspection, rpc_set_mo_quality_hold. Candidates 354 to 359; every other signature is unchanged."
 }

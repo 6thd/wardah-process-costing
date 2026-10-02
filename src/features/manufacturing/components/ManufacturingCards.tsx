@@ -29,6 +29,7 @@ interface ManufacturingCardsProps {
   canReadWorkCenters: boolean
   canReadStageCosts: boolean
   canReadStages: boolean
+  canReadQuality: boolean
 }
 
 interface ManufacturingLinkCardProps {
@@ -94,6 +95,7 @@ export const ManufacturingCards: React.FC<ManufacturingCardsProps> = ({
   canReadWorkCenters,
   canReadStageCosts,
   canReadStages,
+  canReadQuality,
 }) => {
   const activeOrders = orders.filter(order => isActiveOrder(order.status as ManufacturingOrderStatus))
 
@@ -167,9 +169,8 @@ export const ManufacturingCards: React.FC<ManufacturingCardsProps> = ({
         />
       )}
 
-      {/* الجودة مربوطة في route-permissions.ts بـ manufacturing.orders.read
-          (لا مورد "quality" مخصص بعد — صفحة قيد الإنشاء بلا بيانات). */}
-      {canReadOrders && (
+      {/* الجودة: نفس مفتاح مسار /manufacturing/quality (Migration 199). */}
+      {canReadQuality && (
         <ManufacturingLinkCard
           to="/manufacturing/quality"
           icon={CheckCircle}

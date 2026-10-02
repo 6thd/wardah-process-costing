@@ -9,10 +9,12 @@ import {
   Shield,
   Cog,
   Database,
+  ClipboardCheck,
 } from 'lucide-react'
 import { CompanySettings } from './CompanySettings'
 import { SystemSettingsPage } from './SystemSettingsPage'
 import { BackupSettingsPage } from './BackupSettingsPage'
+import { QualitySettingsPage } from './QualitySettingsPage'
 import { usePermissions } from '@/hooks/usePermissions'
 
 export function SettingsModule() {
@@ -25,19 +27,21 @@ export function SettingsModule() {
       <Route path="/system" element={<SystemSettingsPage />} />
       <Route path="/integrations" element={<Navigate to="/settings" replace />} />
       <Route path="/backup" element={<BackupSettingsPage />} />
+      <Route path="/quality" element={<QualitySettingsPage />} />
       <Route path="*" element={<Navigate to="/settings" replace />} />
     </Routes>
   )
 }
 
 function SettingsOverview() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = (i18n.resolvedLanguage ?? i18n.language).toLowerCase().startsWith('ar')
   const tr = (ar: string, en: string) => isRTL ? ar : en
   const { hasPermissionKey } = usePermissions()
   const canReadOrganization = hasPermissionKey('settings.organization.read')
   const canReadUsers = hasPermissionKey('settings.users.read')
   const canReadRoles = hasPermissionKey('settings.roles.read')
+  const canReadQuality = hasPermissionKey('manufacturing.quality_inspections.read')
 
   const settingsCategories = [
     {
@@ -113,6 +117,21 @@ function SettingsOverview() {
         tr('تصدير الجداول الرئيسية', 'Main-table export'),
       ],
       visible: canReadOrganization,
+    },
+    {
+      title: t('quality.settings.cardTitle'),
+      description: t('quality.settings.cardDescription'),
+      icon: ClipboardCheck,
+      href: '/settings/quality',
+      color: 'text-emerald-600',
+      bgColor: 'bg-emerald-50',
+      options: [
+        t('quality.settings.cardOptions.gate'),
+        t('quality.settings.cardOptions.scope'),
+        t('quality.settings.cardOptions.sod'),
+      ],
+      // يطابق متطلب /settings/quality في route-permissions.ts
+      visible: canReadQuality,
     },
   ].filter(category => category.visible)
 
