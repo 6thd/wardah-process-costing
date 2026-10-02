@@ -5984,60 +5984,109 @@ export type Database = {
           attachments: Json | null
           corrective_action: string | null
           created_at: string | null
+          disposition: string | null
           failed_quantity: number | null
           findings: string | null
           id: string
           inspection_date: string | null
           inspection_number: string
+          inspection_seq: number | null
           inspection_type: string | null
           inspector_id: string | null
+          mo_id: string | null
           org_id: string
           passed_quantity: number | null
+          qc_cycle: number | null
+          request_hash: string | null
+          request_id: string | null
           result: string | null
           sample_size: number | null
           specifications: string | null
+          stage_id: string | null
           updated_at: string | null
-          work_order_id: string
+          work_order_id: string | null
         }
         Insert: {
           attachments?: Json | null
           corrective_action?: string | null
           created_at?: string | null
+          disposition?: string | null
           failed_quantity?: number | null
           findings?: string | null
           id?: string
           inspection_date?: string | null
           inspection_number: string
+          inspection_seq?: number | null
           inspection_type?: string | null
           inspector_id?: string | null
+          mo_id?: string | null
           org_id: string
           passed_quantity?: number | null
+          qc_cycle?: number | null
+          request_hash?: string | null
+          request_id?: string | null
           result?: string | null
           sample_size?: number | null
           specifications?: string | null
+          stage_id?: string | null
           updated_at?: string | null
-          work_order_id: string
+          work_order_id?: string | null
         }
         Update: {
           attachments?: Json | null
           corrective_action?: string | null
           created_at?: string | null
+          disposition?: string | null
           failed_quantity?: number | null
           findings?: string | null
           id?: string
           inspection_date?: string | null
           inspection_number?: string
+          inspection_seq?: number | null
           inspection_type?: string | null
           inspector_id?: string | null
+          mo_id?: string | null
           org_id?: string
           passed_quantity?: number | null
+          qc_cycle?: number | null
+          request_hash?: string | null
+          request_id?: string | null
           result?: string | null
           sample_size?: number | null
           specifications?: string | null
+          stage_id?: string | null
           updated_at?: string | null
-          work_order_id?: string
+          work_order_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "quality_inspections_mo_id_fkey"
+            columns: ["mo_id"]
+            isOneToOne: false
+            referencedRelation: "manufacturing_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quality_inspections_mo_id_fkey"
+            columns: ["mo_id"]
+            isOneToOne: false
+            referencedRelation: "v_manufacturing_orders_full"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quality_inspections_mo_id_fkey"
+            columns: ["mo_id"]
+            isOneToOne: false
+            referencedRelation: "wip_by_stage"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quality_inspections_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "manufacturing_stages"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "quality_inspections_work_order_id_fkey"
             columns: ["work_order_id"]
@@ -11109,6 +11158,7 @@ export type Database = {
         Args: { p_item_id: string; p_org_id: string }
         Returns: Json
       }
+      rpc_get_mo_quality_status: { Args: { p_mo_id: string }; Returns: Json }
       rpc_get_org_uom_engine_enabled: {
         Args: { p_org_id: string }
         Returns: boolean
@@ -11126,6 +11176,7 @@ export type Database = {
         Args: { p_org_id: string; p_product_id: string }
         Returns: Json
       }
+      rpc_get_quality_policy: { Args: { p_org_id: string }; Returns: Json }
       rpc_get_trial_balance: {
         Args: { p_as_of_date?: string; p_tenant: string }
         Returns: {
@@ -11151,6 +11202,10 @@ export type Database = {
       }
       rpc_list_periods: {
         Args: { p_fiscal_year?: number; p_tenant?: string }
+        Returns: Json
+      }
+      rpc_list_quality_inspections: {
+        Args: { p_limit?: number; p_mo_id?: string; p_org_id: string }
         Returns: Json
       }
       rpc_list_supplier_invoice_candidates: {
@@ -11267,6 +11322,10 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_record_quality_inspection: {
+        Args: { p_mo_id: string; p_payload: Json; p_request_id: string }
+        Returns: Json
+      }
       rpc_remove_org_member: { Args: { p_payload: Json }; Returns: Json }
       rpc_replace_user_roles: { Args: { p_payload: Json }; Returns: Json }
       rpc_reset_customer_receipt_to_draft: {
@@ -11298,6 +11357,15 @@ export type Database = {
         Args: { p_allowed_statuses: string[]; p_org_id: string }
         Returns: Json
       }
+      rpc_set_mo_quality_hold: {
+        Args: {
+          p_action: string
+          p_expected_version: number
+          p_mo_id: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
       rpc_set_org_admin: {
         Args: { p_org_id: string; p_target_user_id: string; p_value: boolean }
         Returns: Json
@@ -11327,6 +11395,10 @@ export type Database = {
           p_use_for_purchase?: boolean
           p_use_for_sale?: boolean
         }
+        Returns: Json
+      }
+      rpc_set_quality_policy: {
+        Args: { p_expected_version: number; p_org_id: string; p_policy: Json }
         Returns: Json
       }
       rpc_subledger_gl_reconciliation: {

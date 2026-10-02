@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 360,
-  "signature_count": 334,
-  "signature_sha256": "e57131fcb6eabc40745bc0b82264298aeaa77035b7e00e9d94781217c63b7fe8",
-  "note": "Mounted isolated preparation adds one occurrence of the existing read-only rpc_get_material_reservation_setup, scoped by org/item with exact reserve grant and user/org revalidation before and after. All prior signatures remain; classification stays follow_up_required under #170 until canonical/live sign-off."
+  "candidate_count": 365,
+  "signature_count": 339,
+  "signature_sha256": "865f9de40893072242b7deecea6104ff45794e18281b1200c47f7f8bae5efbdf",
+  "note": "Isolated integration of frozen #301 and #304: preserves mounted material-issue preparation, removes the retired direct quality_inspections insert, and adds the six literal quality RPC calls. Recomputed union: 365 candidates, 339 signatures. All operational owner decisions and deployment holds remain pending."
 }

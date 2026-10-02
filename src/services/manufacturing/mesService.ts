@@ -120,26 +120,6 @@ export interface LaborTimeTracking {
   updated_at: string
 }
 
-export interface QualityInspection {
-  id: string
-  org_id: string
-  work_order_id: string
-  inspection_number: string
-  inspection_type: 'INCOMING' | 'IN_PROCESS' | 'FINAL' | 'RANDOM'
-  inspector_id?: string
-  sample_size?: number
-  passed_quantity?: number
-  failed_quantity?: number
-  result?: 'PASS' | 'FAIL' | 'CONDITIONAL'
-  inspection_date: string
-  specifications?: string
-  findings?: string
-  corrective_action?: string
-  attachments?: Record<string, unknown>
-  created_at: string
-  updated_at: string
-}
-
 export interface MaterialConsumption {
   id: string
   org_id: string
@@ -534,58 +514,7 @@ export async function clockOut(
   return data
 }
 
-// =====================================================
-// Quality Inspections
-// =====================================================
-
-/**
- * الحصول على فحوصات الجودة لأمر عمل
- */
-export async function getQualityInspections(workOrderId: string): Promise<QualityInspection[]> {
-  const { data, error } = await supabase
-    .from('quality_inspections')
-    .select('*')
-    .eq('work_order_id', workOrderId)
-    .order('inspection_date', { ascending: false })
-  
-  if (error) throw error
-  return data || []
-}
-
-/**
- * إنشاء فحص جودة
- */
-export async function createQualityInspection(
-  workOrderId: string,
-  inspectionData: {
-    inspection_type: QualityInspection['inspection_type']
-    sample_size: number
-    passed_quantity: number
-    failed_quantity: number
-    result: QualityInspection['result']
-    specifications?: string
-    findings?: string
-    corrective_action?: string
-  }
-): Promise<QualityInspection> {
-  const orgId = await getEffectiveTenantId()
-  const inspectionNumber = `QI-${Date.now()}`
-  
-  const { data, error } = await supabase
-    .from('quality_inspections')
-    .insert({
-      org_id: orgId,
-      work_order_id: workOrderId,
-      inspection_number: inspectionNumber,
-      ...inspectionData,
-      inspection_date: new Date().toISOString()
-    })
-    .select()
-    .single()
-  
-  if (error) throw error
-  return data
-}
+// Quality inspections moved to qualityService.ts (Migration 199 RPCs only).
 
 // =====================================================
 // Material Consumption / Backflushing
@@ -897,10 +826,6 @@ export const mesService = {
   getLaborTimeRecords,
   clockIn,
   clockOut,
-  
-  // Quality
-  getQualityInspections,
-  createQualityInspection,
   
   // Materials
   getMaterialConsumption,
