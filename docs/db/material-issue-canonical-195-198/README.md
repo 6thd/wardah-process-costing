@@ -33,7 +33,11 @@ or editing the frozen profile and tests into this DB-only PR.
 values, the manifest, and that exact clean harness checkout. `run_local.sh` applies
 **this PR's actual canonical files**, without copying candidate SQL into the apply
 directory. It refuses non-loopback/low-port/non-PG17 endpoints and connection
-URL/service/PGHOSTADDR overrides, creates a uniquely named disposable database,
+URL/service/PGHOSTADDR overrides, printing `CANONICAL_RUNNER_REFUSED: <reason>`
+before exit 2. The proof stays anchored to the cutoff-189 Baseline pair (resolved
+with `before_cutoff 190`) and to the apply order cut at 198, so a later Baseline
+regeneration or a migration 199+ does not turn this workflow red or change what it
+proves. It creates a uniquely named disposable database,
 and drops it on exit. Before fixtures it verifies the final installed 22-function
 body/owner/ACL/settings profile and the retryable-SQLSTATE gate. It then reuses the
 unchanged containment and M198 behavior/race/guard-mutation probes, and verifies
@@ -59,11 +63,27 @@ change, not a re-review of the accepted SQL/P2s or permission policy.
 The existing M186 positive client contract invokes the legacy
 `rpc_create_mo_with_reservation`, which M195 intentionally quarantines. Its
 unchanged green/RED/race assertions therefore run through M194 using a baseline
-below 195 and a bounded apply order. After those historical assertions, that same job applies 195–198 and proves
-real 42501 denials for authenticated, anon and service_role with unchanged
-orders/reservations/bins/SLE. The final-chain canonical job repeats that probe
-and the full frozen containment acceptance; the pinned #298 native acceptance
-proves the reviewed replacement. No legacy privilege is restored to make a test green.
+below 195 and a bounded apply order. After those historical assertions, that same
+job applies **every** migration from 195 on (not only 195–198) and runs
+`acceptance_195_legacy_mo_quarantine.sql`. That probe pins the exact 12-signature
+roster M195 quarantines (a new overload, missing function or changed signature
+fails), makes a real NULL-argument call to each one and real
+INSERT/UPDATE/DELETE/TRUNCATE attempts on `manufacturing_orders`, `work_orders` and
+`material_reservations`, as authenticated, anon and service_role. All 72 probes
+must fail with the exact 42501 privilege message, and
+orders/work orders/reservations/bins/SLE must be unchanged. The probe also checks
+effective table/all-column privileges for INSERT, UPDATE, DELETE,
+TRUNCATE, REFERENCES and TRIGGER across all three roles and tables. Nine native
+negative controls reopen only `UPDATE(notes)` (one role/table pair each), require
+the specific grant-remains error, roll the grant back and recheck positive
+acceptance after every case. Both the canonical runner and M186 job run these
+controls. The job then re-runs the
+M186 GREEN file on that final chain with only the `$reservation_contract$` block
+(the sole caller of the quarantined RPC) excluded, so the shape, compatibility ACL,
+balance and wrapper invariants keep covering later migrations. The canonical job
+repeats the quarantine probe and the full frozen containment acceptance; the pinned
+#298 native acceptance proves the reviewed replacement. No legacy privilege is
+restored to make a test green.
 
 The #298 candidate workflow separately proves the matching M198 client with both
 native browser modes. This DB-only workflow proves canonical installation and
