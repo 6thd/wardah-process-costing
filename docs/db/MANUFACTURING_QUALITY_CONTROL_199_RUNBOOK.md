@@ -21,7 +21,7 @@
 | بيانات الفحص | أعمدة إضافية nullable على `quality_inspections`: `mo_id`, `stage_id`, `qc_cycle`, `inspection_seq`, `disposition`, `request_id`, `request_hash`؛ و`work_order_id` صار nullable (الجدول فارغ حيًا) |
 | ثبات التاريخ | trigger يرفض `UPDATE` و`DELETE` على أي فحص مسجل حتى من المالك (`QUALITY_INSPECTION_IMMUTABLE`) — التصحيح فحص جديد |
 | سطح الكتابة | سحب كل منح العميل (`anon`/`authenticated`) عن `quality_inspections`؛ الكتابة والقراءة عبر RPC فقط |
-| بوابة الإفراج | trigger `zq_quality_release_gate_199` على `manufacturing_orders` عند الانتقال إلى `done` |
+| بوابة الإفراج | trigger `zq_quality_release_gate_199` على `manufacturing_orders` عند الانتقال إلى `done`، وtrigger إدراج يطبّق البوابة نفسها على أمر يُدرج بحالة `done` ويفتح الدورة 1 لأمر يُدرج بحالة `quality_check` |
 | دورات الفحص | `wardah_internal.mo_quality_cycles`: يزيد الرقم عند كل دخول إلى `quality_check`؛ الفحص النهائي يُفرج فقط عن دورته |
 | RPCs | `rpc_get_quality_policy`, `rpc_set_quality_policy`, `rpc_record_quality_inspection`, `rpc_set_mo_quality_hold`, `rpc_list_quality_inspections`, `rpc_get_mo_quality_status` — كلها `authenticated` فقط |
 | القوالب | `create_role_from_template` يستثني مفاتيح الجودة من التوسيع بالـwildcard (مثل `manufacturing.%` في قالب مدير الإنتاج) إلا إذا سمّاها القالب حرفيًا؛ بقية الجسم مطابق لـ196 |
@@ -66,7 +66,7 @@
 
 - `request_id` إلزامي: نفس الطلب ونفس المستخدم ⇒ إعادة الرد دون صف جديد؛ نفس المعرف
   بمحتوى مختلف ⇒ `QUALITY_REQUEST_ID_REUSED`.
-- `inspector_id` و`qc_cycle` والرقم (`QI-000001` عدّاد لكل مؤسسة) يحددها الخادم.
+- `inspector_id` و`qc_cycle` والرقم (`QI-000001` عدّاد لكل مؤسسة) يحددها الخادم؛ أي رقم يحمله صف قديم يُتخطّى ولا يتصادم.
 - `FINAL` يتطلب `quality_check` وبلا مرحلة؛ `IN_PROCESS` يتطلب مرحلة من المؤسسة والأمر
   في `in_progress` أو `quality_check`.
 - كمية مرفوضة > 0 ⇒ `disposition` إلزامي (`scrap`/`rework`، أو `use_as_is` مع
@@ -110,8 +110,9 @@ SELECT has_table_privilege('authenticated','public.quality_inspections','SELECT'
     OR has_table_privilege('authenticated','public.quality_inspections','INSERT')
     OR has_table_privilege('anon','public.quality_inspections','INSERT') AS client_surface; -- false
 SELECT tgname, tgenabled FROM pg_trigger
-WHERE tgname IN ('zq_quality_release_gate_199','deny_quality_inspection_change_199',
-                 'seed_quality_policy_199');                                         -- 3 × O
+WHERE tgname IN ('zq_quality_release_gate_199','zq_quality_release_gate_insert_199',
+                 'zq_quality_cycle_open_insert_199','deny_quality_inspection_change_199',
+                 'seed_quality_policy_199');                                         -- 5 × O
 ```
 
 ## 7) التراجع
@@ -134,11 +135,13 @@ WHERE tgname IN ('zq_quality_release_gate_199','deny_quality_inspection_change_1
 189 ثم 190→198:
 
 - **RED (قبل 199):** لا مفتاح جودة؛ `anon`/`authenticated` يكتبان الفحوص؛ عضو قراءة
-  فقط يسجل `PASS` بلا مفتش ثم يعيد كتابته؛ الأمر يخرج من `quality_check` إلى `done` بلا فحص.
-- **GREEN (بعد 199):** 66 تأكيدًا تشمل: الصلاحيات وعزل المستأجر، والقفل التفاؤلي
+  فقط يسجل `PASS` بلا مفتش ثم يعيد كتابته؛ الأمر يخرج من `quality_check` إلى `done` بلا فحص،
+  أو يُدرج مباشرة بحالة `done`.
+- **GREEN (بعد 199):** 70 تأكيدًا تشمل: الصلاحيات وعزل المستأجر، والقفل التفاؤلي
   للإعدادات والأمر، وidempotency، والثبات حتى للمالك، والبوابة بكل أسبابها، ودورة
   إعادة التشغيل، والفصل بين المهام، والإفراج المشروط، ونطاق المراحل، وتراجع المخزون
-  التام عند الرفض، واستثناء القوالب.
+  التام عند الرفض، واستثناء القوالب، والأوامر المُدرجة بحالة `done` أو `quality_check`،
+  وتخطي أرقام الفحص القديمة.
 - **عقد DEFINER** على الكتالوج (مع selftest الطافرات الأربع) و`acceptance_reference_rbac`.
 - **تزامن حقيقي بجلستين:** ترقيم متمايز، وطلب مكرر يُكتب مرة واحدة، وسباق `FAIL`
   ضد الإتمام يتسلسل دائمًا.
