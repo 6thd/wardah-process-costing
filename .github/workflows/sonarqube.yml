@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, 'feature/**']
   pull_request:
-    branches: [main, feat/229-material-issue-client, feat/229-material-issue-isolated-ui, docs/229-material-issue-db-containment-candidate]
+    branches: [main, feat/229-material-issue-client, feat/229-material-issue-isolated-ui, docs/229-material-issue-db-containment-candidate, feat/170-154-material-issue-maintenance-client, feat/198-material-issue-parent-version-db]
     types: [opened, synchronize, reopened]
 
 jobs:

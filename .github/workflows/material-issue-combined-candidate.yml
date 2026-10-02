@@ -1,13 +1,14 @@
 name: Material issue combined candidate
 on:
   pull_request:
-    branches: [feat/229-material-issue-isolated-ui]
+    branches: [feat/229-material-issue-isolated-ui, feat/170-154-material-issue-maintenance-client, feat/198-material-issue-parent-version-db]
     paths:
       - 'src/**'
       - 'tests/fixtures/material-issue-combined/**'
       - 'tests/fixtures/material-issue-real-auth/**'
       - 'docs/db/material-issue-229/COMBINED_OPERATOR_ACCEPTANCE.md'
       - 'docs/db/material-issue-release/**'
+      - 'docs/db/material-issue-parent-version-198/**'
       - 'scripts/ci/check_retryable_raise_sqlstate.py'
       - 'scripts/ci/test_check_retryable_raise_sqlstate.py'
       - '.github/workflows/material-issue-combined-candidate.yml'
@@ -42,7 +43,20 @@ jobs:
         run: |
           git fetch --no-tags origin b95384a917d5a0879350f4598e79a43a4c21e4f1
           test "$(git rev-parse b95384a917d5a0879350f4598e79a43a4c21e4f1^{tree})" = 65777022d83e808402913f9465103742614780d2
-          COMBINED_TREE="$(git merge-tree --write-tree HEAD b95384a917d5a0879350f4598e79a43a4c21e4f1)"
+          # Reproduce the last accepted merge at its frozen revisions, then add
+          # only its 13 missing DB fixture files. Keep current workflows intact.
+          BASE=c6255e03536d2dff1ffa0a9130cdab6778fa5637
+          FIXTURE_TREE="$(git merge-tree --write-tree "$BASE" b95384a917d5a0879350f4598e79a43a4c21e4f1)"
+          test "$FIXTURE_TREE" = 2010bc96b53417f1dc4ace6a1c14b0f56ce734da
+          test "$(git diff --name-only --diff-filter=CDMRTUXB "$BASE" "$FIXTURE_TREE" -- docs/db | wc -l)" = 0
+          git diff --name-only --diff-filter=A "$BASE" "$FIXTURE_TREE" -- docs/db > /tmp/wardah-frozen-db-files.txt
+          test "$(wc -l < /tmp/wardah-frozen-db-files.txt)" = 13
+          while IFS= read -r path; do
+            case "$path" in docs/db/material-issue-229/*|docs/db/material-issue-maintenance-170-154/*) ;; *) exit 2 ;; esac
+            test ! -e "$path"
+            git restore --source="$FIXTURE_TREE" --staged --worktree -- "$path"
+          done < /tmp/wardah-frozen-db-files.txt
+          COMBINED_TREE="$(git write-tree)"
           echo "CLIENT_HEAD=$(git rev-parse HEAD) DB_HEAD=b95384a917d5a0879350f4598e79a43a4c21e4f1 COMBINED_TREE=$COMBINED_TREE"
           git read-tree --reset -u "$COMBINED_TREE"
           git diff --exit-code HEAD -- sql scripts/ci/fresh-db
@@ -64,6 +78,9 @@ jobs:
         run: bash docs/db/material-issue-maintenance-170-154/run_local.sh
       - name: Proposed migration package installs before fixtures
         run: bash docs/db/material-issue-release/run_migration_package.sh
+      - name: M198 candidate parent-version acceptance
+        if: hashFiles('docs/db/material-issue-parent-version-198/candidate.sql') != ''
+        run: bash docs/db/material-issue-parent-version-198/run_local.sh
       - name: Browser to real disposable PG17 flow
         run: bash tests/fixtures/material-issue-combined/run_local.sh
       - name: Real local vendor Auth and PostgREST browser acceptance
