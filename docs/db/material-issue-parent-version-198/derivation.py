@@ -11,7 +11,7 @@ def function(text):
     return text[start:text.index('END $$;', start) + len('END $$;')]
 
 def fingerprint(fn):
-    return hashlib.md5(fn[fn.index('AS $$') + 5:-3].encode()).hexdigest()
+    return hashlib.sha256(fn[fn.index('AS $$') + 5:-3].encode()).hexdigest()
 
 def replacement():
     source = function(BASE.read_text())

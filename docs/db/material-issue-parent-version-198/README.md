@@ -21,6 +21,11 @@ fetching a new version at submit would erase the stale-draft guarantee.
 
 `CANDIDATE.json` pins this supplemental artifact and the frozen release manifest.
 It does not allocate a canonical number or modify the accepted195–197 package.
+Local source-body comparisons use SHA-256 (before_prosrc_sha256 and
+after_prosrc_sha256). Existing prosrc_md5 fields are retained only for the frozen
+PostgreSQL catalog/SQL guard contract; their values and candidate SQL bytes do not
+change. The installed catalog remains independently checked by PG17. No analyzer
+suppressions or migration changes are introduced by this cleanup.
 The independent runner installs cutoff189 then190→…→198 before fixtures in a new
 loopback disposable PG17 database. The overlay verifies the reviewed198 body
 first, then reuses the frozen22-function profile for all other body and
