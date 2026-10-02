@@ -31,5 +31,6 @@ bash scripts/ci/fresh-db/test_195_legacy_mo_quarantine_column_grants.sh
 psql -X -q -v ON_ERROR_STOP=1 -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
 psql -X -q -v ON_ERROR_STOP=1 -f docs/db/material-issue-release/seed_after_containment.sql >/dev/null
 psql -X -v ON_ERROR_STOP=1 -f docs/db/material-issue-quality-integration/acceptance.sql
+python3 docs/db/material-issue-quality-integration/test_replay_determinism.py
 readback
 echo 'QC_MATERIAL_SHARED_PG17_PASS chain=10 readback=22'

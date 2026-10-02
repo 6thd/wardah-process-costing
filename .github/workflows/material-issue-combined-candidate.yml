@@ -106,6 +106,7 @@ jobs:
           set -Eeuo pipefail
           bash docs/db/material-issue-quality-integration/run_local.sh 2>&1 | tee /tmp/material-issue-quality-shared.out
           grep -Fq 'QC_MATERIAL_SHARED_PG17_PASS chain=10 readback=22' /tmp/material-issue-quality-shared.out
+          grep -Fq 'QC_REPLAY_DETERMINISM_PASS runs=60 mutants=2' /tmp/material-issue-quality-shared.out
       - name: Real local vendor Auth and PostgREST browser acceptance
         env:
           WARDAH_PARENT_VERSION_198: 'true'

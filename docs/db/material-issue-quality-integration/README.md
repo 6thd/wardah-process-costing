@@ -42,6 +42,9 @@ baseline does not close any pending RBAC classification or operational decision.
 
 `verify_sources.mjs` recomputes the four-conflict merge and checks all 889 `src/`
 paths against that union, including the explicitly resolved imports and JSON.
+The sole later source exception is the exact three promise-handling repairs in
+useQuality.ts; the verifier derives those literal edits from the frozen hook and
+rejects the old body or any additional hook edit.
 All existing SQL/baseline bytes equal frozen main (except the manifest entry),
 and M199 equals the accepted #306 bytes. The original QC RED, 70-assertion SQL
 and concurrency files equal #304. No canonical 195–198 migration was rewritten.
@@ -64,6 +67,10 @@ nine column-grant controls. Owner-run fixtures do not replace canonical function
 - The pre-return M198 version is stale; refreshing it allows one reservation/version increment.
 - Recorded material replay still has no effects after return/reservation, and a new material event posts.
 
+The complete material command is captured once, including its reservation ID.
+Both replays reuse that command byte-for-byte; new events replace only the event
+UUID. The snapshot also covers GL entries, GL lines and products.stock_quantity.
+
 M199 legitimately replaces `create_role_from_template`. The new readback overlay
 requires its exact reviewed body MD5 `5cb026fc706caef1914dbf9a1aa5236b` first,
 then maps only that proved hash to the prior M196 fingerprint for the unchanged
@@ -81,12 +88,12 @@ This is not stock `postgres:17` or GitHub-hosted evidence; CI uses Node 22.
 | Control | Local result |
 | --- | --- |
 | TypeScript | Pass |
-| Full Vitest | 4961/4961 tests, 337/337 files |
+| Corrected full Vitest | 4961/4961 tests, 337/337 files with CLI timeout=60s; default timeout gives two unchanged settings-test timeouts (4959 pass) |
 | Build/password gate | Pass, `DEMO_PASSWORD_BUILD_GATE_PASS files=79` |
 | RBAC scan/classifier/baseline | Pass, 365 candidates / 339 signatures |
 | Source union | Pass, 889 files, four conflicts; changed client gate and M198 file independently refused, then restored |
 | Complete repaired QC runner | Pass: two prefix refusals, 14 mutation refusals, 70 assertions, four DEFINER mutants, reference RBAC and concurrency |
-| Shared 190–199 runner | Pass: 11 assertions, quarantine 72 + column controls 9, two 22-function readbacks and four readback mutants per capture |
+| Shared 190–199 runner after repair | Pass: 11 assertions, 60 forced-order repetitions, two original-bug refusals, quarantine 72 + column controls 9, two 22-function readbacks and four readback mutants per capture |
 | Workflow scope | YAML parses; CI/CD and Sonar changes only add the proposal's target branch; deploy conditions unchanged |
 
 Run from repository root with an independently provisioned disposable PG17 on
@@ -100,9 +107,12 @@ bash docs/db/material-issue-quality-integration/run_local.sh
 
 The combined workflow targets #301's branch so this stacked proposal can run the
 full tests. It retains the canonical 190–198 and both original native material
-browser modes, and adds complete M199 and shared SQL steps. Those existing browser
+browser modes, and adds complete M199 and shared SQL steps (including 60 forced-order repetitions and two negative controls). Those existing browser
 installers stop at **198**: they are not native QC-browser or combined-199 evidence.
-No GitHub exact-head results are claimed until the resulting head actually runs.
+The original head 90f3e07b failed hosted shared acceptance and Sonar. Its single
+local shared pass was insufficient evidence of determinism. The independent review
+FAIL and narrow repair are recorded in [REVIEW_REPAIR_20261002.md](REVIEW_REPAIR_20261002.md).
+No corrected-head GitHub results are claimed before that head actually runs.
 
 ## Open gates and next stage
 

@@ -37,6 +37,20 @@ const actualPaths = [...new Set(git(['ls-files', 'src']).trim().split('\n'))];
 assert.deepEqual(actualPaths.sort(), [...sourcePaths].sort());
 for (const path of sourcePaths) {
   if (conflicts.includes(path)) continue;
+  if (path === 'src/hooks/manufacturing/useQuality.ts') {
+    // Only three explicit promise-handling repairs to the frozen hook are allowed.
+    const before = git(['show', `${tree}:${path}`]);
+    const after = before.replace(
+      "      queryClient.invalidateQueries({ queryKey: [...qualityKeys.all, 'mo-status'] })",
+      "      return queryClient.invalidateQueries({ queryKey: [...qualityKeys.all, 'mo-status'] })",
+    ).replace(
+      "  return () => {\n    queryClient.invalidateQueries({ queryKey: qualityKeys.all })\n    queryClient.invalidateQueries({ queryKey: ['manufacturing-quality-queue'] })\n  }",
+      "  return () => Promise.all([\n    queryClient.invalidateQueries({ queryKey: qualityKeys.all }),\n    queryClient.invalidateQueries({ queryKey: ['manufacturing-quality-queue'] }),\n  ])",
+    );
+    assert.notEqual(after, before);
+    assert.equal(fs.readFileSync(path, 'utf8'), after, `quality promise repair drift: ${path}`);
+    continue;
+  }
   assert.equal(fs.readFileSync(path, 'utf8'), git(['show', `${tree}:${path}`]), `automatic source union drift: ${path}`);
 }
 const index = 'src/features/manufacturing/index.tsx';

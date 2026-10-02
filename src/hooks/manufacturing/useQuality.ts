@@ -43,7 +43,7 @@ export function useSaveQualityPolicy() {
     onSuccess: (policy) => {
       queryClient.setQueryData(qualityKeys.policy(currentOrgId), policy)
       // Release readiness depends on the policy.
-      queryClient.invalidateQueries({ queryKey: [...qualityKeys.all, 'mo-status'] })
+      return queryClient.invalidateQueries({ queryKey: [...qualityKeys.all, 'mo-status'] })
     },
   })
 }
@@ -67,10 +67,10 @@ export function useMoQualityStatus(moId: string | null, options?: { enabled?: bo
 
 function useInvalidateQuality() {
   const queryClient = useQueryClient()
-  return () => {
-    queryClient.invalidateQueries({ queryKey: qualityKeys.all })
-    queryClient.invalidateQueries({ queryKey: ['manufacturing-quality-queue'] })
-  }
+  return () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: qualityKeys.all }),
+    queryClient.invalidateQueries({ queryKey: ['manufacturing-quality-queue'] }),
+  ])
 }
 
 export function useRecordQualityInspection() {

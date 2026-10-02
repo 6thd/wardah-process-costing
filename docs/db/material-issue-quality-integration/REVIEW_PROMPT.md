@@ -1,7 +1,9 @@
 # Independent review prompt: frozen material-issue/QC source integration
 
 Review the Draft integration proposal against base #301, then against frozen main.
-First resolve its exact remote head/tree and PR state. Do not trust PASS claims as
+The prior head 90f3e07b received FAIL for an unstable test request. Review the
+repair against that parent as well as the complete proposal. First resolve its
+exact remote head/tree and PR state. Do not trust PASS claims as
 execution evidence. Record full SHAs and re-resolve them after the review.
 
 Inputs are frozen in README.md: main 3acea30d, #301 0e462611, #304 1781c981,
@@ -16,7 +18,8 @@ apply to a target, access Production/Staging, deploy or remove holds.
    or overwrite other agents' work.
 2. Verify that the proposal is a source union, with exactly the four documented
    parent conflicts. Run/review verify_sources.mjs and independently reproduce the
-   merge. Check all material-issue and QC source, route imports, both complete
+   merge. Check all material-issue and QC source, with only the exact three documented
+   promise-handling repairs to useQuality.ts beyond the parent union; route imports, both complete
    translations and generated types. Recompute RBAC, including the removed direct
    INSERT and six added literal RPCs: 365 candidates, 339 signatures, the documented
    hash. Baseline acceptance does not approve pending security classifications.
@@ -25,7 +28,9 @@ apply to a target, access Production/Staging, deploy or remove holds.
    equal #304. Confirm the accepted repair/checkpoint identity and no live-ledger claim.
 4. Inspect the new shared SQL fixture and all denials. Check exact diagnostic,
    parent-version behavior, exact receipt replay and unchanged financial/state
-   snapshots. Verify fixtures never replace canonical functions. Distinguish
+   snapshots, including GL entries/lines and product stock. Require one captured
+   command for both replays and replacement of only the UUID for new events.
+   Verify fixtures never replace canonical functions. Distinguish
    existing-event replay from new consumption during hold.
 5. Audit the M199 role-template readback overlay. Prove the new body MD5 from the
    reviewed SQL, not merely from a constant. Only that body fingerprint may be
@@ -36,7 +41,10 @@ apply to a target, access Production/Staging, deploy or remove holds.
    complete M199 runner and shared 190–199 runner on disposable PG17. Require all
    two prefix/14 mutation/70 assertion/concurrency markers, quarantine 72 plus nine
    column-grant controls, 11 shared assertions, and two readbacks with four mutants
-   each. Run local-only refusal controls and detect wrong-chain/source drift.
+   each. Require 60 successful repetitions with both UUID orderings forced before
+   consumption, then separately restore each old call-construction bug and require
+   MATERIAL_ISSUE_EVENT_CONFLICT / CONSUMPTION_EXCEEDS_RESERVATION respectively.
+   Run local-only refusal controls and detect wrong-chain/source drift.
 7. Inspect workflow branch/path changes, deploy conditions, checkout identity,
    logging and artifacts. Full CI must run on the exact proposal head. The existing
    browser modes still install only 190–198; do not label them native QC/199 proof.
