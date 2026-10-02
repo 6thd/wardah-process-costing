@@ -6,6 +6,7 @@
  * inspection number and QC cycle are assigned by the server.
  */
 import { supabase } from '@/lib/supabase'
+import type { Json } from '@/types/database.generated'
 
 export type ReleaseGateMode = 'off' | 'all_orders' | 'routing_flagged'
 export type InspectionScope = 'final_only' | 'stages_and_final'
@@ -183,31 +184,24 @@ export function extractQualityErrorCode(message: string | null | undefined): Qua
   return match
 }
 
-async function callRpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
-  // The generated types return Json for these RPCs; the payloads are validated
-  // server-side, so the call is typed at this one boundary. Called as a method
-  // so the client keeps its `this`.
-  const client = supabase as unknown as {
-    rpc: (fn: string, params: Record<string, unknown>) =>
-      PromiseLike<{ data: unknown; error: { message: string } | null }>
-  }
-  const { data, error } = await client.rpc(name, args)
+/** Unwraps a quality RPC response; errors carry the server's code. */
+function unwrap<T>({ data, error }: { data: unknown; error: { message: string } | null }): T {
   if (error) {
     throw new QualityRpcError(error.message, extractQualityErrorCode(error.message))
   }
   return data as T
 }
 
-export function getQualityPolicy(orgId: string): Promise<QualityPolicy> {
-  return callRpc<QualityPolicy>('rpc_get_quality_policy', { p_org_id: orgId })
+export async function getQualityPolicy(orgId: string): Promise<QualityPolicy> {
+  return unwrap<QualityPolicy>(await supabase.rpc('rpc_get_quality_policy', { p_org_id: orgId }))
 }
 
-export function setQualityPolicy(
+export async function setQualityPolicy(
   orgId: string,
   settings: QualityPolicySettings,
   expectedVersion: number
 ): Promise<QualityPolicy> {
-  return callRpc<QualityPolicy>('rpc_set_quality_policy', {
+  return unwrap<QualityPolicy>(await supabase.rpc('rpc_set_quality_policy', {
     p_org_id: orgId,
     p_policy: {
       release_gate_mode: settings.release_gate_mode,
@@ -217,23 +211,24 @@ export function setQualityPolicy(
       admins_subject_to_quality_controls: settings.admins_subject_to_quality_controls,
     },
     p_expected_version: expectedVersion,
-  })
+  }))
 }
 
-export function listQualityInspections(
+export async function listQualityInspections(
   orgId: string,
   moId?: string | null,
   limit = 100
 ): Promise<QualityInspectionRow[]> {
-  return callRpc<QualityInspectionRow[] | null>('rpc_list_quality_inspections', {
+  const rows = unwrap<QualityInspectionRow[] | null>(await supabase.rpc('rpc_list_quality_inspections', {
     p_org_id: orgId,
-    p_mo_id: moId ?? null,
+    p_mo_id: moId ?? undefined,
     p_limit: limit,
-  }).then((rows) => rows ?? [])
+  }))
+  return rows ?? []
 }
 
-export function getMoQualityStatus(moId: string): Promise<MoQualityStatus> {
-  return callRpc<MoQualityStatus>('rpc_get_mo_quality_status', { p_mo_id: moId })
+export async function getMoQualityStatus(moId: string): Promise<MoQualityStatus> {
+  return unwrap<MoQualityStatus>(await supabase.rpc('rpc_get_mo_quality_status', { p_mo_id: moId }))
 }
 
 /** Only the fields the server contract accepts; blanks are omitted. */
@@ -259,30 +254,30 @@ export function buildInspectionPayload(input: RecordInspectionInput): Record<str
  * on retry, so a timed-out submit that actually landed replays instead of
  * writing a second inspection.
  */
-export function recordQualityInspection(
+export async function recordQualityInspection(
   moId: string,
   requestId: string,
   input: RecordInspectionInput
 ): Promise<RecordInspectionResult> {
-  return callRpc<RecordInspectionResult>('rpc_record_quality_inspection', {
+  return unwrap<RecordInspectionResult>(await supabase.rpc('rpc_record_quality_inspection', {
     p_mo_id: moId,
     p_request_id: requestId,
-    p_payload: buildInspectionPayload(input),
-  })
+    p_payload: buildInspectionPayload(input) as Json,
+  }))
 }
 
-export function setMoQualityHold(
+export async function setMoQualityHold(
   moId: string,
   action: QualityHoldAction,
   expectedVersion: number,
   reason?: string
 ): Promise<QualityHoldResult> {
-  return callRpc<QualityHoldResult>('rpc_set_mo_quality_hold', {
+  return unwrap<QualityHoldResult>(await supabase.rpc('rpc_set_mo_quality_hold', {
     p_mo_id: moId,
     p_action: action,
     p_expected_version: expectedVersion,
-    p_reason: reason?.trim() || null,
-  })
+    p_reason: reason?.trim() || undefined,
+  }))
 }
 
 export const qualityService = {

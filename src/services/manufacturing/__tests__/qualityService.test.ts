@@ -104,11 +104,11 @@ describe('RPC calls', () => {
     }))
   })
 
-  it('sends a null reason for a blank hold reason', async () => {
+  it('omits a blank hold reason', async () => {
     rpc.mockResolvedValue({ data: {}, error: null })
     await setMoQualityHold('mo-1', 'hold', 7, '   ')
     expect(rpc).toHaveBeenCalledWith('rpc_set_mo_quality_hold', {
-      p_mo_id: 'mo-1', p_action: 'hold', p_expected_version: 7, p_reason: null,
+      p_mo_id: 'mo-1', p_action: 'hold', p_expected_version: 7, p_reason: undefined,
     })
   })
 
