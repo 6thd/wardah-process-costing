@@ -37,6 +37,14 @@ const actualPaths = [...new Set(git(['ls-files', 'src']).trim().split('\n'))];
 assert.deepEqual(actualPaths.sort(), [...sourcePaths].sort());
 for (const path of sourcePaths) {
   if (conflicts.includes(path)) continue;
+  if (path === 'src/features/settings/__tests__/SettingsOverview.test.tsx') {
+    const before = git(['show', `${tree}:${path}`]);
+    const decorativeMock = "// Decorative SVGs are outside this route/permission/localization contract.\n// Keep every heading, link and visibility assertion; avoid cold jsdom SVG style work.\nvi.mock('lucide-react', () => ({\n  Settings: () => null, Building: () => null, Users: () => null,\n  Shield: () => null, Cog: () => null, Database: () => null, ClipboardCheck: () => null,\n}))\n\n";
+    const after = before.replace("vi.mock('@/components/ui/page-header'", decorativeMock + "vi.mock('@/components/ui/page-header'");
+    assert.notEqual(before, after);
+    assert.equal(fs.readFileSync('src/features/settings/__tests__/SettingsOverview.test.tsx', 'utf8'), after, 'settings fixture drift');
+    continue;
+  }
   if (path === 'src/hooks/manufacturing/useQuality.ts') {
     // Only three explicit promise-handling repairs to the frozen hook are allowed.
     const before = git(['show', `${tree}:${path}`]);

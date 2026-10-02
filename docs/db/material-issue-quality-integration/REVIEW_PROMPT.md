@@ -24,7 +24,10 @@ apply to a target, access Production/Staging, deploy or remove holds.
 2. Verify that the proposal is a source union, with exactly the four documented
    parent conflicts. Run/review verify_sources.mjs and independently reproduce the
    merge. Check all material-issue and QC source, with only the exact three documented
-   promise-handling repairs to useQuality.ts beyond the parent union; route imports, both complete
+   promise-handling repairs to useQuality.ts and the decorative-icon mock in
+   SettingsOverview.test.tsx beyond the parent union; prove all its original
+   assertions byte-preserved and require an altered assertion to be refused;
+   route imports, both complete
    translations and generated types. Recompute RBAC, including the removed direct
    INSERT and six added literal RPCs: 365 candidates, 339 signatures, the documented
    hash. Baseline acceptance does not approve pending security classifications.

@@ -104,3 +104,28 @@ M198, M199 and QC acceptance are each still refused.
 
 The next hosted head still requires CI and independent re-review; this follow-up
 does not turn the 9691f227 failure into success retrospectively.
+
+## Hosted follow-up on 47c94c00 and settings fixture repair
+
+Combined run 37061984050/job111020555155 passes on 47c94c00, including real
+M199 controls, 60 forced-order shared passes, both original-bug refusals and
+the formerly skipped local vendor Auth/PostgREST browser mode. Codacy and
+Test & Build also pass. Sonar's test step fails only at the unchanged English
+SettingsOverview five-second deadline, before analysis; no rerun bypassed it.
+
+A temporary timing probe was removed after measurement: language change 1.87ms,
+render 68.85ms, first heading role query 4358.50ms, total English assertions
+5853.80ms. Decorative SVG DOM inflates cold jsdom accessibility/style work.
+The test now mocks only lucide-react decorations, not the page/permissions/
+translations under test. All original assertions are byte-preserved; no timeout
+was raised. The same test passes under the default deadline at 1636ms, all
+eight cases pass, and TypeScript/source verification pass.
+
+The exact mock insertion is the only additional test-source exception. Source
+verification refuses an altered Quality-card link assertion. No application
+component changed in this follow-up. Full-default frontend and new-head CI
+results must be reported from their actual runs, not borrowed from 47c94c00.
+
+The final executor full run with the unchanged default timeout passes all
+4961 tests / 337 files in 152.20s after the decorative fixture repair. There
+are no skipped assertions or tests and no repository deadline changes.

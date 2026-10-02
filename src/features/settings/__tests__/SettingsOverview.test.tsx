@@ -4,6 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import { SettingsModule } from '../index'
 
+// Decorative SVGs are outside this route/permission/localization contract.
+// Keep every heading, link and visibility assertion; avoid cold jsdom SVG style work.
+vi.mock('lucide-react', () => ({
+  Settings: () => null, Building: () => null, Users: () => null,
+  Shield: () => null, Cog: () => null, Database: () => null, ClipboardCheck: () => null,
+}))
+
 vi.mock('@/components/ui/page-header', () => ({
   PageHeader: ({ title, description }: { title: string; description?: string }) => (
     <header>

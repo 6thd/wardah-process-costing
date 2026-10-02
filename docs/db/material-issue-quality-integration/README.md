@@ -42,9 +42,10 @@ baseline does not close any pending RBAC classification or operational decision.
 
 `verify_sources.mjs` recomputes the four-conflict merge and checks all 889 `src/`
 paths against that union, including the explicitly resolved imports and JSON.
-The sole later source exception is the exact three promise-handling repairs in
-useQuality.ts; the verifier derives those literal edits from the frozen hook and
-rejects the old body or any additional hook edit.
+Later source exceptions are the exact three promise-handling repairs in
+useQuality.ts and a decorative-icon mock in SettingsOverview.test.tsx. The
+verifier derives only those literal edits from the frozen inputs; all original
+settings assertions remain byte-preserved and an altered assertion is refused.
 All existing SQL/baseline bytes equal frozen main (except the manifest entry),
 and M199 equals the accepted #306 bytes. The original QC RED, 70-assertion SQL
 and concurrency files equal #304. The prerequisite-test snapshot later excludes
@@ -90,7 +91,7 @@ This is not stock `postgres:17` or GitHub-hosted evidence; CI uses Node 22.
 | Control | Local result |
 | --- | --- |
 | TypeScript | Pass |
-| Corrected full Vitest | 4961/4961 tests, 337/337 files with CLI timeout=60s; default timeout gives two unchanged settings-test timeouts (4959 pass) |
+| Final full Vitest | 4961/4961 tests, 337/337 files with the default timeout after the decorative settings-fixture repair; earlier timeout failures/comparison are recorded separately |
 | Build/password gate | Pass, `DEMO_PASSWORD_BUILD_GATE_PASS files=79` |
 | RBAC scan/classifier/baseline | Pass, 365 candidates / 339 signatures |
 | Source union | Pass, 889 files, four conflicts; changed client gate and M198 file independently refused, then restored |
