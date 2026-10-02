@@ -71,7 +71,13 @@ fails), makes a real NULL-argument call to each one and real
 INSERT/UPDATE/DELETE/TRUNCATE attempts on `manufacturing_orders`, `work_orders` and
 `material_reservations`, as authenticated, anon and service_role. All 72 probes
 must fail with the exact 42501 privilege message, and
-orders/work orders/reservations/bins/SLE must be unchanged. The job then re-runs the
+orders/work orders/reservations/bins/SLE must be unchanged. The probe also checks
+effective table/all-column privileges for INSERT, UPDATE, DELETE,
+TRUNCATE, REFERENCES and TRIGGER across all three roles and tables. Nine native
+negative controls reopen only `UPDATE(notes)` (one role/table pair each), require
+the specific grant-remains error, roll the grant back and recheck positive
+acceptance after every case. Both the canonical runner and M186 job run these
+controls. The job then re-runs the
 M186 GREEN file on that final chain with only the `$reservation_contract$` block
 (the sole caller of the quarantined RPC) excluded, so the shape, compatibility ACL,
 balance and wrapper invariants keep covering later migrations. The canonical job

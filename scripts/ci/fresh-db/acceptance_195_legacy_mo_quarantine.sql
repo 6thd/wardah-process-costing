@@ -46,6 +46,26 @@ BEGIN
  END IF;
 END $$;
 
+-- A single-column UPDATE can leave the id-only execution probe denied. Check
+-- effective table and all-column privileges as well, including PUBLIC and
+-- inherited grants, rather than treating that unrelated denial as closure.
+DO $$
+DECLARE client text; tbl text; priv text;
+BEGIN
+ FOREACH client IN ARRAY ARRAY['authenticated','anon','service_role'] LOOP
+  FOREACH tbl IN ARRAY ARRAY['manufacturing_orders','work_orders','material_reservations'] LOOP
+   FOREACH priv IN ARRAY ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+    IF has_table_privilege(client,'public.'||tbl,priv)
+      OR (CASE WHEN priv IN ('INSERT','UPDATE','REFERENCES')
+          THEN has_any_column_privilege(client,'public.'||tbl,priv) ELSE false END) THEN
+     RAISE EXCEPTION 'LEGACY_MO_QUARANTINE_TABLE_GRANT_REMAINS: role=% table=% privilege=%',client,tbl,priv;
+    END IF;
+   END LOOP;
+  END LOOP;
+ END LOOP;
+ RAISE NOTICE 'LEGACY_MO_QUARANTINE_EFFECTIVE_TABLE_ACL_PASS roles=3 tables=3 privileges=6';
+END $$;
+
 -- The call carries NULL for every argument. A denied EXECUTE fails before the
 -- body runs; a reopened grant reaches the body and cannot satisfy the exact
 -- privilege error, so it fails this probe either way.

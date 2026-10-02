@@ -9,6 +9,7 @@ on:
       - 'scripts/ci/fresh-db/acceptance_186_stock_moves_contract_red.sql'
       - 'scripts/ci/fresh-db/acceptance_186_reservation_concurrency.sh'
       - 'scripts/ci/fresh-db/acceptance_195_legacy_mo_quarantine.sql'
+      - 'scripts/ci/fresh-db/test_195_legacy_mo_quarantine_column_grants.sh'
       - '.github/workflows/stock-moves-contract-186-acceptance.yml'
       - 'sql/baseline/**'
       - 'sql/migrations/**'
@@ -118,6 +119,10 @@ jobs:
             -f scripts/ci/fresh-db/acceptance_195_legacy_mo_quarantine.sql \
             2>&1 | tee /tmp/stock-186-quarantine.out
           grep -q 'M195_198_LEGACY_MO_QUARANTINE_PASS' /tmp/stock-186-quarantine.out
+          PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/test_195_legacy_mo_quarantine_column_grants.sh \
+            2>&1 | tee /tmp/stock-186-quarantine-column-controls.out
+          grep -q 'QUARANTINE_COLUMN_GRANT_CONTROLS_PASS controls=9' /tmp/stock-186-quarantine-column-controls.out
 
       - name: Re-prove M186 invariants on the final chain
         shell: bash

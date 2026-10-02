@@ -39,6 +39,7 @@ APPLY_ORDER="$(cut -d_ -f1 "$TASK_DIR/order.txt" | paste -sd,)"
   || refuse "apply order after cutoff 189 must be 190..198 (got $APPLY_ORDER)"
 REPORT="$TASK_DIR/chain.txt" bash scripts/ci/fresh-db/run_chain.sh sql/migrations "$TASK_DIR/order.txt"
 psql -X -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/acceptance_195_legacy_mo_quarantine.sql
+bash scripts/ci/fresh-db/test_195_legacy_mo_quarantine_column_grants.sh
 (cd "$HARNESS" && python3 scripts/ci/test_check_retryable_raise_sqlstate.py)
 psql -X -At -v ON_ERROR_STOP=1 -c "SELECT json_agg(json_build_object('fn',p.oid::regprocedure::text,'src',p.prosrc) ORDER BY p.oid) FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang JOIN pg_namespace n ON n.oid=p.pronamespace WHERE l.lanname='plpgsql' AND n.nspname NOT IN ('pg_catalog','information_schema')" | (cd "$HARNESS" && python3 scripts/ci/check_retryable_raise_sqlstate.py)
 psql -X -qAt -v ON_ERROR_STOP=1 -f "$HARNESS/docs/db/material-issue-release/catalog_readback.sql" | (cd "$HARNESS" && python3 docs/db/material-issue-parent-version-198/verify_readback.py --expected-owner postgres)
