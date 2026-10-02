@@ -70,3 +70,37 @@ Independent re-review and corrected-head CI are required. Native QC browser on
 boundary, 33 owner decisions, eight operational gates, hosted/target identity,
 pause/in-flight/pending recovery, current #278, devices/monitoring, DB-first paired
 cutover and NO-GO/M192 holds remain open. No target access, merge or release occurred.
+
+## Hosted follow-up on 9691f227
+
+Test & Build and both Sonar checks succeeded; the three floating promises are
+closed in hosted evidence. The combined job 111016112368 stopped earlier than
+the shared step: M199's prerequisite snapshot reported trigger_always residue.
+No workflow retry was used to bypass it.
+
+The snapshot included physical pg_class counters. A controlled ANALYZE on the
+local M196 database changed relpages/reltuples in permissions and its indexes,
+while every other snapshot section remained equal. This reproduces a false
+residue comparison; the exact fields in the hosted before/after were not logged,
+so background maintenance there remains an inference, not a recovered diff.
+
+The follow-up excludes only relpages, reltuples, relallvisible, relfrozenxid and
+relminmxid from relation rows. Schema, OIDs, file identity, ownership, ACL, RLS,
+options, functions, attributes, triggers, policies, constraints and seed rows
+remain compared. PostgreSQL documents these physical estimates/horizons at
+https://www.postgresql.org/docs/17/catalog-pg-class.html .
+
+New real controls prove ANALYZE is accepted, ACL revocation and trigger disabling
+are detected, and rollback restores the snapshot. Full M199 passes again:
+maintenance=1, semantic=2, prefixes=2, mutations=14, 70 assertions and concurrency.
+The combined workflow requires the new snapshot-control marker. M199 SQL and
+#306/#304 original branches remain unchanged.
+
+Codacy annotations on 9691f227 identified four dynamic filesystem reads in the
+source verifier. Known hook/index/translation reads now use literal filenames;
+other source/QC/M199 byte comparisons use raw Git blob hashes. No suppression was
+added. The source verifier passes and changes to the material client, QC hook,
+M198, M199 and QC acceptance are each still refused.
+
+The next hosted head still requires CI and independent re-review; this follow-up
+does not turn the 9691f227 failure into success retrospectively.

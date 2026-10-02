@@ -48,20 +48,22 @@ for (const path of sourcePaths) {
       "  return () => Promise.all([\n    queryClient.invalidateQueries({ queryKey: qualityKeys.all }),\n    queryClient.invalidateQueries({ queryKey: ['manufacturing-quality-queue'] }),\n  ])",
     );
     assert.notEqual(after, before);
-    assert.equal(fs.readFileSync(path, 'utf8'), after, `quality promise repair drift: ${path}`);
+    assert.equal(fs.readFileSync('src/hooks/manufacturing/useQuality.ts', 'utf8'), after, `quality promise repair drift: ${path}`);
     continue;
   }
-  assert.equal(fs.readFileSync(path, 'utf8'), git(['show', `${tree}:${path}`]), `automatic source union drift: ${path}`);
+  assert.equal(git(['hash-object', '--no-filters', '--', path]).trim(), git(['rev-parse', `${tree}:${path}`]).trim(), `automatic source union drift: ${path}`);
 }
 const index = 'src/features/manufacturing/index.tsx';
 const resolvedIndex = git(['show', `${tree}:${index}`]).split('\n')
   .filter(line => !/^(<<<<<<<|=======|>>>>>>>)/.test(line)).join('\n');
-assert.equal(fs.readFileSync(index, 'utf8'), resolvedIndex.trimEnd() + '\n');
+assert.equal(fs.readFileSync('src/features/manufacturing/index.tsx', 'utf8'), resolvedIndex.trimEnd() + '\n');
 for (const language of ['ar', 'en']) {
   const path = `src/locales/${language}/translation.json`;
   const client = JSON.parse(git(['show', `${CLIENT}:${path}`]));
   const quality = JSON.parse(git(['show', `${QUALITY}:${path}`]));
-  const actual = JSON.parse(fs.readFileSync(path, 'utf8'));
+  const actual = JSON.parse(language === 'ar'
+    ? fs.readFileSync('src/locales/ar/translation.json', 'utf8')
+    : fs.readFileSync('src/locales/en/translation.json', 'utf8'));
   assert.deepEqual(actual, { ...client, quality: quality.quality });
 }
 assert.equal(git(['diff', '--name-only', MAIN, '--', 'sql/baseline']).trim(), '');
@@ -70,9 +72,9 @@ for (const path of git(['ls-tree', '-r', '-z', '--name-only', MAIN, '--', 'sql']
   assert.equal(git(['hash-object', '--', path]).trim(), git(['rev-parse', `${MAIN}:${path}`]).trim(), `existing SQL drift: ${path}`);
 }
 const migration = 'sql/migrations/199_manufacturing_quality_control.sql';
-assert.equal(fs.readFileSync(migration, 'utf8'), git(['show', `${REPAIR}:${migration}`]));
+assert.equal(git(['hash-object', '--no-filters', '--', migration]).trim(), git(['rev-parse', `${REPAIR}:${migration}`]).trim());
 for (const path of ['acceptance.sql', 'red.sql', 'concurrency.py']) {
   const full = `docs/db/quality-control-199/${path}`;
-  assert.equal(fs.readFileSync(full, 'utf8'), git(['show', `${QUALITY}:${full}`]));
+  assert.equal(git(['hash-object', '--no-filters', '--', full]).trim(), git(['rev-parse', `${QUALITY}:${full}`]).trim());
 }
 console.log(`QC_MATERIAL_SOURCE_UNION_PASS files=${sourcePaths.length} conflicts=4 canonical=unchanged M199=reviewed`);

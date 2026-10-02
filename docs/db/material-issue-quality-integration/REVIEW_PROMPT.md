@@ -8,7 +8,12 @@ execution evidence. Record full SHAs and re-resolve them after the review.
 
 Inputs are frozen in README.md: main 3acea30d, #301 0e462611, #304 1781c981,
 #306 e29b4e5a, #307 1690d2e5, and harness #298 d71a1657. Resolve the full SHAs and
-trees there. Keep original branches untouched. Do not merge, push, trigger workflows,
+trees there. Also compare the follow-up with 9691f227: its hosted frontend/Sonar passed,
+but its prerequisite snapshot failed and Codacy reported four dynamic paths.
+Require ANALYZE stability, ACL/trigger mutation detection and full rollback; verify
+only the five documented physical pg_class fields are omitted. Check raw blob
+comparisons/literal filesystem paths still reject all source/SQL drift.
+Keep original branches untouched. Do not merge, push, trigger workflows,
 apply to a target, access Production/Staging, deploy or remove holds.
 
 ## Scope and required checks

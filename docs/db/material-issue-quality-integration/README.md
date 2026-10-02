@@ -47,7 +47,9 @@ useQuality.ts; the verifier derives those literal edits from the frozen hook and
 rejects the old body or any additional hook edit.
 All existing SQL/baseline bytes equal frozen main (except the manifest entry),
 and M199 equals the accepted #306 bytes. The original QC RED, 70-assertion SQL
-and concurrency files equal #304. No canonical 195–198 migration was rewritten.
+and concurrency files equal #304. The prerequisite-test snapshot later excludes
+only five physical relation counters and adds real maintenance/ACL/trigger controls;
+the M199 SQL remains exactly #306. No canonical 195–198 migration was rewritten.
 The generated types are the automatic parent union; they have not been regenerated
 against a live or hosted database. Production hard-disable of isolated material
 issue is retained.
@@ -112,7 +114,9 @@ installers stop at **198**: they are not native QC-browser or combined-199 evide
 The original head 90f3e07b failed hosted shared acceptance and Sonar. Its single
 local shared pass was insufficient evidence of determinism. The independent review
 FAIL and narrow repair are recorded in [REVIEW_REPAIR_20261002.md](REVIEW_REPAIR_20261002.md).
-No corrected-head GitHub results are claimed before that head actually runs.
+On 9691f227, frontend and Sonar passed but the prerequisite snapshot failed before
+the shared step; the follow-up and Codacy findings are documented in that repair record.
+No later-head GitHub results are claimed before that head actually runs.
 
 ## Open gates and next stage
 

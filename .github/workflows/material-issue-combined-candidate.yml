@@ -101,6 +101,7 @@ jobs:
           bash docs/db/quality-control-199/run_local.sh 2>&1 | tee /tmp/material-issue-quality.out
           grep -Fq 'M199_PREREQUISITE_CONTROLS_PASS prefixes=2 mutations=14 restored=true' /tmp/material-issue-quality.out
           grep -Fq 'GREEN_M199_QUALITY_CONTROL_ACCEPTANCE' /tmp/material-issue-quality.out
+          grep -Fq 'M199_SNAPSHOT_CONTROLS_PASS maintenance=1 semantic=2 restored=true' /tmp/material-issue-quality.out
       - name: Shared QC hold, material replay and M198 parent-version controls
         run: |
           set -Eeuo pipefail

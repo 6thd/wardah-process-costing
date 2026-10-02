@@ -28,7 +28,9 @@ WITH relations AS (
 )
 SELECT jsonb_build_object(
   'functions',(SELECT jsonb_agg(to_jsonb(p) ORDER BY p.oid) FROM functions p),
-  'relations',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.oid) FROM pg_class c WHERE c.oid IN (SELECT oid FROM relations)),
+  -- VACUUM/ANALYZE can update physical estimates/horizons independently of
+  -- this transaction. Keep every schema/owner/ACL/RLS/option/identity field.
+  'relations',(SELECT jsonb_agg(to_jsonb(c) - ARRAY['relpages','reltuples','relallvisible','relfrozenxid','relminmxid'] ORDER BY c.oid) FROM pg_class c WHERE c.oid IN (SELECT oid FROM relations)),
   'attributes',(SELECT jsonb_agg(to_jsonb(a) ORDER BY a.attrelid,a.attnum) FROM pg_attribute a WHERE a.attrelid IN (SELECT oid FROM relations)),
   'triggers',(SELECT jsonb_agg(to_jsonb(t) ORDER BY t.oid) FROM pg_trigger t WHERE t.tgrelid IN (SELECT oid FROM relations)),
   'policies',(SELECT jsonb_agg(to_jsonb(p) ORDER BY p.oid) FROM pg_policy p WHERE p.polrelid IN (SELECT oid FROM relations)),
@@ -38,6 +40,28 @@ SELECT jsonb_build_object(
   'quality_inspections',(SELECT jsonb_agg(to_jsonb(q) ORDER BY q.id) FROM public.quality_inspections q)
 )
 """
+
+
+def snapshot_controls(conn):
+    before = conn.execute(SNAPSHOT).fetchone()[0]
+    # Real maintenance must not masquerade as failed rollback.
+    conn.execute("ANALYZE public.permissions")
+    if conn.execute(SNAPSHOT).fetchone()[0] != before:
+        raise AssertionError("M199_SNAPSHOT_MAINTENANCE_FALSE_RED")
+    for label, mutation in [
+        ("acl", "REVOKE ALL ON public.permissions FROM PUBLIC,anon,authenticated,service_role"),
+        ("trigger", "ALTER TABLE public.manufacturing_orders DISABLE TRIGGER zz_issue_maintenance_version"),
+    ]:
+        conn.execute("BEGIN")
+        try:
+            conn.execute(mutation)
+            if conn.execute(SNAPSHOT).fetchone()[0] == before:
+                raise AssertionError("M199_SNAPSHOT_FALSE_GREEN: " + label)
+        finally:
+            conn.rollback()
+        if conn.execute(SNAPSHOT).fetchone()[0] != before:
+            raise AssertionError("M199_SNAPSHOT_CONTROL_RESIDUE: " + label)
+    print("M199_SNAPSHOT_CONTROLS_PASS maintenance=1 semantic=2 restored=true", flush=True)
 
 
 def refuse(conn, migration, label, expected, mutation=None):
@@ -99,6 +123,7 @@ def main():
     trigger_error = "M199_REQUIRES_FROZEN_PARENT_VERSION_TRIGGER"
     with psycopg.connect(dbname=database, autocommit=True) as conn:
         verify_start(conn)
+        snapshot_controls(conn)
         refuse(conn, migration, "chain_196", setup_error)
         conn.execute((ROOT / "sql/migrations/197_material_issue_stale_version.sql").read_text())
         refuse(conn, migration, "chain_197", setup_error)
