@@ -57,13 +57,23 @@ def _verify_migration(root, entry, name, digest, harness):
 
 
 def _git_read(harness, query):
-    queries = {'head': ('rev-parse', 'HEAD'), 'tree': ('rev-parse', 'HEAD^{tree}'),
-               'tracked_status': ('status', '--porcelain', '--untracked-files=no')}
     # Fixed system executable and allowlisted argv; the resolved directory is
     # passed as cwd, never command text. Disable optional writes and fsmonitor.
-    argv = ['/usr/bin/git', '--no-optional-locks', '-c', 'core.fsmonitor=false', *queries[query]]
-    return subprocess.check_output(  # nosec B603
-        argv, cwd=harness.resolve(strict=True), shell=False, text=True, timeout=30).strip()
+    directory = harness.resolve(strict=True)
+    if query == 'head':
+        return subprocess.check_output(
+            ['/usr/bin/git', '--no-optional-locks', '-c', 'core.fsmonitor=false', 'rev-parse', 'HEAD'],  # nosec B603
+            cwd=directory, shell=False, text=True, timeout=30).strip()
+    if query == 'tree':
+        return subprocess.check_output(
+            ['/usr/bin/git', '--no-optional-locks', '-c', 'core.fsmonitor=false', 'rev-parse', 'HEAD^{tree}'],  # nosec B603
+            cwd=directory, shell=False, text=True, timeout=30).strip()
+    if query == 'tracked_status':
+        return subprocess.check_output(
+            ['/usr/bin/git', '--no-optional-locks', '-c', 'core.fsmonitor=false',  # nosec B603
+             'status', '--porcelain', '--untracked-files=no'],
+            cwd=directory, shell=False, text=True, timeout=30).strip()
+    raise KeyError(query)
 
 
 def _verify_harness(harness):
