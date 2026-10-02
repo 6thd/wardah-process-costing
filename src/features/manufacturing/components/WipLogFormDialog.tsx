@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { stageWipLogService } from '@/services/supabase-service'
+import { useTranslation } from 'react-i18next'
+import { isolatedMaterialIssueEnabled } from '../material-issue/gate'
 
 export interface WipLogFormValues {
   mo_id: string
@@ -91,6 +93,8 @@ export function WipLogFormDialog({
   open, onOpenChange, editing, manufacturingOrders, stages, canSubmit,
 }: WipLogFormDialogProps) {
   const queryClient = useQueryClient()
+  const { t } = useTranslation()
+  const isolated = isolatedMaterialIssueEnabled()
   const [values, setValues] = useState<WipLogFormValues>(EMPTY)
 
   useEffect(() => {
@@ -101,6 +105,7 @@ export function WipLogFormDialog({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (isolated && editing) throw new Error(t('materialIssue.wipEditHeld'))
       if (!canSubmit) {
         throw new Error(editing ? 'لا تملك صلاحية تعديل سجلات WIP' : 'لا تملك صلاحية إنشاء سجلات WIP')
       }
@@ -113,6 +118,8 @@ export function WipLogFormDialog({
       if (values.period_end < values.period_start) {
         throw new Error('نهاية الفترة قبل بدايتها')
       }
+      if (isolated) return stageWipLogService.create({ mo_id: values.mo_id, stage_id: values.stage_id,
+        period_start: values.period_start, period_end: values.period_end })
       // Material issue cost and equivalent-unit results are server-owned.
       // Do not replay an older form snapshot over a newly posted M192 issue.
       const editable = {
@@ -165,6 +172,7 @@ export function WipLogFormDialog({
             {editing ? 'تعديل سجل WIP' : 'سجل WIP جديد'}
           </DialogTitle>
         </DialogHeader>
+        {isolated && <p role="status">{t(editing ? 'materialIssue.wipEditHeld' : 'materialIssue.wipPristine')}</p>}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -201,6 +209,7 @@ export function WipLogFormDialog({
               onChange={(e) => setValues((p) => ({ ...p, period_end: e.target.value }))} />
           </div>
 
+          {!isolated && <>
           <div>
             <Label htmlFor="wip-u-beg">وحدات بداية WIP</Label>
             <Input id="wip-u-beg" type="number" min="0" value={values.units_beginning_wip} onChange={setNum('units_beginning_wip')} />
@@ -250,20 +259,21 @@ export function WipLogFormDialog({
             <Input id="wip-notes" value={values.notes}
               onChange={(e) => setValues((p) => ({ ...p, notes: e.target.value }))} />
           </div>
+          </>}
         </div>
 
         {/* معاينة المشتقات المحسوبة آلياً */}
-        <div className="bg-muted/50 rounded-lg p-3 text-sm text-right space-y-1">
+        {!isolated && <div className="bg-muted/50 rounded-lg p-3 text-sm text-right space-y-1">
           <div>الإجمالي: <span className="font-medium">{derived.cost_total.toFixed(2)}</span></div>
           <div>
             EU مواد: <span className="font-medium">{derived.equivalent_units_material.toFixed(2)}</span>
             {' · '}EU تحويل: <span className="font-medium">{derived.equivalent_units_conversion.toFixed(2)}</span>
           </div>
-        </div>
+        </div>}
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>إلغاء</Button>
-          {canSubmit && (
+          {canSubmit && !(isolated && editing) && (
             <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
               {saveMutation.isPending ? 'جارٍ الحفظ…' : (editing ? 'تحديث' : 'حفظ')}
             </Button>

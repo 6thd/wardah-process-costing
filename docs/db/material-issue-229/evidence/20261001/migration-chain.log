@@ -1,0 +1,5 @@
+PASS 190_material_consumption_authorization_boundary.sql
+PASS 191_f2_stock_write_concurrency_closure.sql
+PASS 192_material_consumption_retry_and_policy.sql
+PASS 193_posted_material_history_delete_guard.sql
+PASS 194_stage_wip_posted_cost_boundary.sql

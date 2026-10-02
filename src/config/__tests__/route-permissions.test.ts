@@ -293,3 +293,15 @@ describe('satisfiesRouteRequirement', () => {
     ).toBe(false);
   });
 });
+
+describe('isolated material issue preparation entry', () => {
+  it.each(['manufacturing.material_consumption.consume', 'manufacturing.material_issue_setup.prepare',
+    'manufacturing.material_reservation.reserve', 'manufacturing.material_reservation.release'])('allows exact %s entry without unrelated grants', key => {
+    const requirement = resolveRoutePermission('manufacturing', '/material-issue')
+    expect(requirement && satisfiesRouteRequirement(requirement, candidate => candidate === key)).toBe(true)
+  })
+  it('does not treat ordinary MO or MES permission as issue preparation', () => {
+    const requirement = resolveRoutePermission('manufacturing', '/material-issue')
+    expect(requirement && satisfiesRouteRequirement(requirement, key => ['manufacturing.orders.create', 'manufacturing.work_orders.update'].includes(key))).toBe(false)
+  })
+})

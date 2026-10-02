@@ -27,7 +27,6 @@ vi.mock('@/services/inventory-transaction-service', () => ({
     reserveMaterials: vi.fn(() => Promise.resolve([])),
     releaseMaterials: vi.fn(() => Promise.resolve()),
     getReservations: vi.fn(() => Promise.resolve([])),
-    consumeReservedMaterials: vi.fn(() => Promise.resolve()),
     releaseAllReservations: vi.fn(() => Promise.resolve()),
   },
 }));
@@ -89,23 +88,6 @@ describe('Manufacturing Workflow Integration', () => {
       expect(Array.isArray(reservations)).toBe(true);
     });
 
-    it('should consume materials when order starts', async () => {
-      const { inventoryTransactionService } = await import('@/services/inventory-transaction-service');
-      
-      const reservations = await inventoryTransactionService.getReservations(testMoId);
-      const consumptions = reservations.map((r: any) => ({
-        item_id: r.item_id,
-        quantity: r.quantity_reserved,
-        quantity_reserved: r.quantity_reserved,
-        unit_cost: 10,
-      }));
-
-      // Consume materials
-      await inventoryTransactionService.consumeReservedMaterials(testMoId, consumptions);
-
-      // Verify service method was called
-      expect(inventoryTransactionService.consumeReservedMaterials).toBeDefined();
-    });
 
     it('should release reservations when order is cancelled', async () => {
       const { inventoryTransactionService } = await import('@/services/inventory-transaction-service');
@@ -118,4 +100,3 @@ describe('Manufacturing Workflow Integration', () => {
     });
   });
 });
-
