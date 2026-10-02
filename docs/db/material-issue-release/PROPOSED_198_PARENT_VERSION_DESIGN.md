@@ -37,11 +37,12 @@ Result: the second device's reserve becomes an explicit stale rejection. That de
 - **Function replacement chain.** 196 → 197 → 198 would all replace the same function. As with the 170–173 and 182–183 chains, the live contract is their union. Derive 198 from the 197 body, pin before/after fingerprints the same way 197 does, and add a chain note.
 - **Not covered:** `create_order` duplicates with different numbers, duplicate intent across different MOs, and human intent in general. This is an optimistic lock, not a device lease.
 
-## Rollout order (DB-first)
+## Review order and paired cutover
 
 1. Separate DB PR: 198 proposal derived from 197, with the retryable-SQLSTATE gate, verify-package fingerprints and the eight-plus-one-file disposable chain.
-2. Client PR (after 198 is accepted and, eventually, applied): send the displayed MO version for `reserve` / `create_work_order`, and add a two-profile reserve race to the browser acceptance (expect one reservation, bounded `HTTP 400 P0001`, fence, new intent).
-3. Only after independent acceptance of 1–2 can the export set `distinct_event_duplicate_intent_prevented=true`, scoped to MO-level child creation. Every other release gate stays as is.
+2. Dependent client PR: send the displayed MO version for `reserve` / `create_work_order`, and add two-profile acceptance (bounded `HTTP 400 P0001`, fence, new intent). The truly concurrent race is a separate database test.
+3. Review order is not deployment compatibility. The old client with M198 rejects new child commands with `ISSUE_SETUP_VERSION_REQUIRED`; the new client with M197 gets `UNSUPPORTED_ISSUE_SETUP_FIELD`. Both fail closed. A separately approved isolated non-PROD cutover requires a verified server-side pause and the matching DB/client pair before access resumes; see [paired cutover requirements](../material-issue-parent-version-198/CUTOVER.md). Turning off a build flag does not quiesce existing tabs. Production rules and holds remain unchanged.
+4. Acceptance supports only the same-displayed-MO-version child-creation protection. The general `distinct_event_duplicate_intent_prevented` guarantee remains false; any future scoped decision requires explicit owner review. Every other release gate stays as is.
 
 ## Acceptance to add
 
