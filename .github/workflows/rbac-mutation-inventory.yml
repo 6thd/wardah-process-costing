@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'src/**'
+      - 'docs/db/material-issue-parent-version-198/**'
       - 'scripts/ci/security/inventory-rbac-mutations.mjs'
       - 'scripts/ci/security/check-rbac-mutation-baseline.mjs'
       - 'scripts/ci/security/rbac-mutation-baseline.json'

@@ -1,13 +1,14 @@
 name: Material issue combined candidate
 on:
   pull_request:
-    branches: [feat/229-material-issue-isolated-ui]
+    branches: [feat/229-material-issue-isolated-ui, feat/170-154-material-issue-maintenance-client, feat/198-material-issue-parent-version-db]
     paths:
       - 'src/**'
       - 'tests/fixtures/material-issue-combined/**'
       - 'tests/fixtures/material-issue-real-auth/**'
       - 'docs/db/material-issue-229/COMBINED_OPERATOR_ACCEPTANCE.md'
       - 'docs/db/material-issue-release/**'
+      - 'docs/db/material-issue-parent-version-198/**'
       - 'scripts/ci/check_retryable_raise_sqlstate.py'
       - 'scripts/ci/test_check_retryable_raise_sqlstate.py'
       - '.github/workflows/material-issue-combined-candidate.yml'
@@ -64,6 +65,9 @@ jobs:
         run: bash docs/db/material-issue-maintenance-170-154/run_local.sh
       - name: Proposed migration package installs before fixtures
         run: bash docs/db/material-issue-release/run_migration_package.sh
+      - name: M198 candidate parent-version acceptance
+        if: hashFiles('docs/db/material-issue-parent-version-198/candidate.sql') != ''
+        run: bash docs/db/material-issue-parent-version-198/run_local.sh
       - name: Browser to real disposable PG17 flow
         run: bash tests/fixtures/material-issue-combined/run_local.sh
       - name: Real local vendor Auth and PostgREST browser acceptance
