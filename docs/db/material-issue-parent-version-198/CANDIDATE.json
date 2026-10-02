@@ -22,5 +22,7 @@
     "create_work_order"
   ],
   "lease": false,
-  "release_ready": false
+  "release_ready": false,
+  "before_prosrc_sha256": "2bf24a6983d7eb44f0f89d38b7ebb505243f7e8500712842e02967f5ec544261",
+  "after_prosrc_sha256": "e2be81216a7e6e6d7638f7c356644c9742e714e8152409a28376ffec9c1bff08"
 }
