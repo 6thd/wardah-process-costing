@@ -379,5 +379,35 @@ SELECT pg_temp.ok((SELECT count(*) FROM public.role_permissions rp JOIN public.p
     WHERE rp.role_id = (SELECT id FROM m WHERE k='role_qi') AND p.resource = 'quality_inspections') = 2,
   'the Quality Inspector template names its two keys exactly');
 
+-- ---------------------------------------------- 15. orders born gated
+SELECT pg_temp.set_policy(pg_temp.policy('all_orders'));
+SELECT pg_temp.ok((pg_temp.owner_try(pg_temp.admin(), format($q$WITH i AS (
+  INSERT INTO public.manufacturing_orders(org_id, order_number, product_id, quantity, status, completed_quantity)
+  VALUES (%L, 'QC-BORN-DONE', %L, 10, 'done', 10) RETURNING 1) SELECT to_jsonb(count(*)) FROM i$q$,
+  pg_temp.org(), pg_temp.fg())) ->> 'error') = 'QUALITY_CHECK_STATUS_REQUIRED',
+  'gate on: an order cannot be inserted already done');
+INSERT INTO m VALUES ('born_qc', pg_temp.mo('QC-BORN-QC', 10, 'quality_check'));
+SELECT pg_temp.ok((SELECT cycle FROM wardah_internal.mo_quality_cycles
+  WHERE mo_id = (SELECT id FROM m WHERE k='born_qc')) = 1, 'an order inserted under inspection opens QC cycle 1');
+SELECT pg_temp.as_user(pg_temp.inspector(), pg_temp.inspect_sql((SELECT id FROM m WHERE k='born_qc'),
+  gen_random_uuid(), pg_temp.final('PASS', 10, 0)));
+SELECT pg_temp.ok((pg_temp.owner_try(pg_temp.admin(), pg_temp.complete_sql((SELECT id FROM m WHERE k='born_qc'), 10))
+  ->> 'ok')::boolean, 'its FINAL inspection releases it');
+
+-- ----------------------------------- 16. numbering skips legacy numbers
+INSERT INTO s VALUES ('next', (SELECT last_number + 1 FROM wardah_internal.quality_inspection_counters
+  WHERE org_id = pg_temp.org()));
+INSERT INTO public.quality_inspections(org_id, mo_id, inspection_number, inspection_type, result)
+VALUES (pg_temp.org(), (SELECT id FROM m WHERE k='born_qc'),
+        'QI-' || lpad((SELECT v FROM s WHERE k='next')::bigint::text, 6, '0'), 'RANDOM', 'PASS');
+INSERT INTO m VALUES ('num', pg_temp.mo('QC-NUM'));
+INSERT INTO r VALUES ('num', pg_temp.as_user(pg_temp.inspector(), pg_temp.inspect_sql(
+  (SELECT id FROM m WHERE k='num'), gen_random_uuid(),
+  jsonb_build_object('inspection_type','IN_PROCESS','result','PASS','passed_quantity',1,'failed_quantity',0,
+                     'stage_id', pg_temp.stage()))));
+SELECT pg_temp.ok((SELECT v->>'inspection_number' FROM r WHERE k='num')
+  = 'QI-' || lpad(((SELECT v FROM s WHERE k='next') + 1)::bigint::text, 6, '0'),
+  'a number already held by a legacy row is skipped, not collided with');
+
 SELECT 'M199_QUALITY_CONTROL_ACCEPTANCE_PASS' AS result;
 ROLLBACK;

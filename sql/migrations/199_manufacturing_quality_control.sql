@@ -306,7 +306,7 @@ BEGIN
   END IF;
 
   v_reason := CASE
-    WHEN public.normalize_mo_status(p_status) <> 'quality_check'
+    WHEN public.normalize_mo_status(p_status) IS DISTINCT FROM 'quality_check'
       THEN 'QUALITY_CHECK_STATUS_REQUIRED'
     WHEN v_final.id IS NULL THEN 'QUALITY_RELEASE_REQUIRED'
     WHEN v_final.result = 'FAIL' THEN 'QUALITY_RELEASE_REJECTED'
@@ -377,6 +377,46 @@ BEFORE UPDATE OF status ON public.manufacturing_orders
 FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status)
 EXECUTE FUNCTION wardah_internal.mo_quality_gate_199();
 
+-- Orders can also be born in a gated status (an initial status passed to the
+-- creation RPC, owner/import scripts). BEFORE INSERT applies the same release
+-- gate to a row inserted as done (it never left quality_check); AFTER INSERT
+-- opens QC cycle 1 for a row inserted as quality_check, so its FINAL
+-- inspection can release it.
+CREATE FUNCTION wardah_internal.mo_quality_insert_199()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $fn$
+DECLARE
+  v_status text := public.normalize_mo_status(NEW.status);
+  v_eval jsonb;
+BEGIN
+  IF TG_WHEN = 'BEFORE' THEN
+    IF v_status = 'done' THEN
+      v_eval := wardah_internal.evaluate_quality_release_199(
+        NEW.org_id, NEW.id, NEW.routing_id, 'draft', NEW.completed_quantity);
+      IF NOT (v_eval ->> 'ready')::boolean THEN
+        RAISE EXCEPTION USING ERRCODE = 'P0001',
+          MESSAGE = v_eval ->> 'reason', DETAIL = v_eval::text;
+      END IF;
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF v_status = 'quality_check' THEN
+    INSERT INTO wardah_internal.mo_quality_cycles(mo_id,org_id,cycle,entered_at,entered_by)
+    VALUES (NEW.id, NEW.org_id, 1, clock_timestamp(), auth.uid())
+    ON CONFLICT (mo_id) DO NOTHING;
+  END IF;
+  RETURN NULL;
+END
+$fn$;
+REVOKE ALL ON FUNCTION wardah_internal.mo_quality_insert_199()
+  FROM PUBLIC, anon, authenticated, service_role;
+CREATE TRIGGER zq_quality_release_gate_insert_199
+BEFORE INSERT ON public.manufacturing_orders
+FOR EACH ROW EXECUTE FUNCTION wardah_internal.mo_quality_insert_199();
+CREATE TRIGGER zq_quality_cycle_open_insert_199
+AFTER INSERT ON public.manufacturing_orders
+FOR EACH ROW EXECUTE FUNCTION wardah_internal.mo_quality_insert_199();
+
 -- Re-close every private helper after the last CREATE TRIGGER of this file
 -- (the DEFINER scanner treats a trigger's EXECUTE FUNCTION as an ACL event).
 REVOKE ALL ON FUNCTION wardah_internal.seed_quality_policy_199()
@@ -394,6 +434,8 @@ REVOKE ALL ON FUNCTION wardah_internal.quality_is_production_participant_199(uui
 REVOKE ALL ON FUNCTION wardah_internal.evaluate_quality_release_199(uuid,uuid,uuid,text,numeric)
   FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION wardah_internal.mo_quality_gate_199()
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION wardah_internal.mo_quality_insert_199()
   FROM PUBLIC, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
@@ -619,11 +661,18 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'QUALITY_SEGREGATION_OF_DUTIES';
   END IF;
 
-  INSERT INTO wardah_internal.quality_inspection_counters(org_id, last_number)
-  VALUES (v_org, 1)
-  ON CONFLICT (org_id) DO UPDATE
-    SET last_number = wardah_internal.quality_inspection_counters.last_number + 1
-  RETURNING last_number INTO v_seq;
+  -- The counter row lock serializes numbering per org. Legacy rows may
+  -- already hold a QI-NNNNNN number, so skip any number that is taken.
+  LOOP
+    INSERT INTO wardah_internal.quality_inspection_counters(org_id, last_number)
+    VALUES (v_org, 1)
+    ON CONFLICT (org_id) DO UPDATE
+      SET last_number = wardah_internal.quality_inspection_counters.last_number + 1
+    RETURNING last_number INTO v_seq;
+    EXIT WHEN NOT EXISTS (
+      SELECT 1 FROM public.quality_inspections
+      WHERE org_id = v_org AND inspection_number = 'QI-' || lpad(v_seq::text, 6, '0'));
+  END LOOP;
   SELECT cycle INTO v_cycle FROM wardah_internal.mo_quality_cycles WHERE mo_id = p_mo_id;
 
   INSERT INTO public.quality_inspections(
@@ -892,7 +941,10 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.quality_inspections'::regclass
                  AND tgname = 'deny_quality_inspection_change_199' AND tgenabled = 'O')
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.organizations'::regclass
-                 AND tgname = 'seed_quality_policy_199' AND tgenabled = 'O') THEN
+                 AND tgname = 'seed_quality_policy_199' AND tgenabled = 'O')
+     OR (SELECT count(*) FROM pg_trigger WHERE tgrelid = 'public.manufacturing_orders'::regclass
+         AND tgname IN ('zq_quality_release_gate_insert_199','zq_quality_cycle_open_insert_199')
+         AND tgenabled = 'O') <> 2 THEN
     RAISE EXCEPTION 'M199_TRIGGER_MISSING';
   END IF;
   FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
@@ -929,6 +981,7 @@ BEGIN
     'wardah_internal.quality_is_admin_199(uuid)',
     'wardah_internal.quality_is_production_participant_199(uuid,uuid)',
     'wardah_internal.mo_quality_gate_199()',
+    'wardah_internal.mo_quality_insert_199()',
     'wardah_internal.seed_quality_policy_199()',
     'wardah_internal.deny_quality_inspection_change_199()'] LOOP
     IF has_function_privilege('anon', v_fn, 'EXECUTE')

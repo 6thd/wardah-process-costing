@@ -56,5 +56,11 @@ WHERE id = (SELECT id FROM red_mo);
 SELECT pg_temp.reproduced((SELECT status FROM public.manufacturing_orders WHERE id = (SELECT id FROM red_mo)) = 'done',
   'QC-01: no release gate between quality_check and done');
 
+-- QC-01: an order can also be inserted directly as done.
+WITH i AS (
+  INSERT INTO public.manufacturing_orders(org_id, order_number, product_id, quantity, status, completed_quantity)
+  VALUES (pg_temp.org(), 'RED-QC-BORN-DONE', pg_temp.fg(), 10, 'done', 10) RETURNING status)
+SELECT pg_temp.reproduced((SELECT status FROM i) = 'done', 'QC-01: an order is inserted already done');
+
 SELECT 'M199_RED_REPRODUCED' AS result;
 ROLLBACK;
