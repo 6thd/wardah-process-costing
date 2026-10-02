@@ -60,7 +60,7 @@ describe('mounted preparation controls', () => {
     await waitFor(() => expect(field('preparationWorkCenter')).toBeEnabled())
     await user.selectOptions(field('preparationWorkCenter'), f.center); await user.type(field('preparationWorkName'), 'Manual')
     await user.type(field('preparationWorkQuantity'), '5'); await user.click(button('createPreparationWorkOrder'))
-    expect(manage).toHaveBeenLastCalledWith({ operation: 'create_work_order', mo_id: f.mo, work_center_id: f.center, name: 'Manual', quantity: 5 })
+    expect(manage).toHaveBeenLastCalledWith({ operation: 'create_work_order', mo_id: f.mo, work_center_id: f.center, name: 'Manual', quantity: 5, expected_version: 3 })
     expect(invalidate).toHaveBeenCalledTimes(2)
   })
   it('uses displayed MO and WO versions without a fresh version read at submit', async () => {
@@ -74,7 +74,7 @@ describe('mounted preparation controls', () => {
   it('resolves reservation units before claiming; resizes total and releases only the requested balance', async () => {
     const user = await open(); await user.selectOptions(field('preparationItem'), f.item)
     await user.type(field('preparationReserveQuantity'), '20'); await user.click(button('createPreparationReservation'))
-    expect(unit).toHaveBeenCalledWith(f.org, f.item, f.user); expect(manage).toHaveBeenCalledWith({ operation: 'reserve', mo_id: f.mo, item_id: f.item, uom_id: f.uom, quantity: 20 })
+    expect(unit).toHaveBeenCalledWith(f.org, f.item, f.user); expect(manage).toHaveBeenCalledWith({ operation: 'reserve', mo_id: f.mo, item_id: f.item, uom_id: f.uom, quantity: 20, expected_version: 3 })
     await waitFor(() => expect(field('preparationReservation')).toBeEnabled())
     await user.selectOptions(field('preparationReservation'), f.res); await user.type(field('preparationChangeQuantity'), '30')
     await user.click(button('resizePreparationReservation'))
@@ -83,6 +83,32 @@ describe('mounted preparation controls', () => {
     await user.clear(field('preparationChangeQuantity')); await user.type(field('preparationChangeQuantity'), '10')
     await user.click(button('releasePreparationReservation'))
     expect(manage).toHaveBeenLastCalledWith({ operation: 'release_reservation', mo_id: f.mo, reservation_id: f.res, quantity: 10, expected_version: 7 })
+  })
+  it.each(['reserve', 'create_work_order'])('sends the displayed parent for %s without replacing a stale snapshot', async operation => {
+    const user = await open()
+    catalog.mockResolvedValue({ ...rows(), manufacturing_orders: [{ ...rows().manufacturing_orders[0], maintenance_version: 99 }] })
+    if (operation === 'reserve') {
+      await user.selectOptions(field('preparationItem'), f.item); await user.type(field('preparationReserveQuantity'), '2')
+    } else {
+      await user.selectOptions(field('preparationWorkCenter'), f.center); await user.type(field('preparationWorkName'), 'Manual')
+      await user.type(field('preparationWorkQuantity'), '2')
+    }
+    expect(catalog).toHaveBeenCalledTimes(1)
+    await user.click(button(operation === 'reserve' ? 'createPreparationReservation' : 'createPreparationWorkOrder'))
+    expect(manage).toHaveBeenCalledWith(expect.objectContaining({ operation, expected_version: 3 }))
+  })
+  it.each(['reserve', 'create_work_order'])('blocks %s with no displayed version before claiming', async operation => {
+    catalog.mockResolvedValue({ ...rows(), manufacturing_orders: [{ ...rows().manufacturing_orders[0], maintenance_version: null }] })
+    const user = await open()
+    if (operation === 'reserve') {
+      await user.selectOptions(field('preparationItem'), f.item); await user.type(field('preparationReserveQuantity'), '2')
+    } else {
+      await user.selectOptions(field('preparationWorkCenter'), f.center); await user.type(field('preparationWorkName'), 'Manual')
+      await user.type(field('preparationWorkQuantity'), '2')
+    }
+    await user.click(button(operation === 'reserve' ? 'createPreparationReservation' : 'createPreparationWorkOrder'))
+    expect(manage).not.toHaveBeenCalled(); expect(invalidate).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent('materialIssue.preparationInvalid')
   })
   it('makes release-only access useful without granting preparation or reservation', async () => {
     f.keys = ['manufacturing.material_reservation.release']; const user = await open()

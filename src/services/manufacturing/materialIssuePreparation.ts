@@ -97,6 +97,13 @@ function version(row: PreparationRow): number {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error('ISSUE_SETUP_VERSION_REQUIRED')
   return value
 }
+/** New child intents use the displayed MO version; never refresh it at submit. */
+export function displayedParentVersion(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+    throw new Error('ISSUE_SETUP_VERSION_REQUIRED')
+  }
+  return value
+}
 export function reservationBalance(row: PreparationRow): number {
   const values = [row.quantity_reserved, row.quantity_consumed ?? 0, row.quantity_released ?? 0].map(Number)
   if (values.some(value => !Number.isFinite(value) || value < 0) || values[0] < values[1] + values[2]) {

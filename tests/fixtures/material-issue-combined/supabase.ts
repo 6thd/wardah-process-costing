@@ -17,6 +17,9 @@ export const supabase = {
     if (name === 'rpc_consume_material_event' && localStorage.getItem('operator:lose-issue') === 'true' && !result.error) {
       localStorage.removeItem('operator:lose-issue'); throw new Error('LOCAL_COMMIT_THEN_LOST_RESPONSE')
     }
+    if (name === 'rpc_manage_material_issue_setup' && localStorage.getItem('operator:lose-setup-after-commit') === 'true' && !result.error) {
+      localStorage.removeItem('operator:lose-setup-after-commit'); throw new Error('LOCAL_COMMIT_THEN_LOST_RESPONSE')
+    }
     return result
   },
   from(table: string) {

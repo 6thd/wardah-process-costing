@@ -1,9 +1,11 @@
 import { chromium, expect } from '@playwright/test'
+import { verifyParentVersionProfiles } from './parent-version.mjs'
+if (process.env.WARDAH_PARENT_VERSION_198 !== 'true') throw new Error('M198_FIXTURE_REQUIRED')
 const browser = await chromium.launch({ executablePath: process.env.WARDAH_BROWSER_EXECUTABLE || undefined,
   headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] })
 const ids = { product: 'ed000000-0000-4000-8000-0000000000c2', center: 'ed000000-0000-4000-8000-0000000000f2',
   stage: 'ed000000-0000-4000-8000-0000000000f1', item: 'ed000000-0000-4000-8000-0000000000d1' }
-const errors = []; let expectedDenial = false; const realAuth = process.env.WARDAH_REAL_AUTH === 'true'; const rpcRequests = []; const expectedFaults = new Set()
+const errors = []; let expectedDenial = false; const realAuth = process.env.WARDAH_REAL_AUTH === 'true'; const rpcRequests = []; const setupRequests = []; const expectedFaults = new Set()
 const state = page => page.evaluate(async () => (await fetch('/state')).json())
 const financial = snapshot => Object.fromEntries(Object.entries(snapshot).filter(([key]) => key !== 'trace'))
 const setup = page => page.getByRole('region', { name: 'Prepare material issue', exact: true })
@@ -12,6 +14,7 @@ async function contextPage() {
   await context.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort())
   const page = await context.newPage()
   page.on('request', request => { if (realAuth && request.url().endsWith('/rpc/rpc_consume_material_event')) rpcRequests.push({ name: 'rpc_consume_material_event', args: request.postDataJSON() }) })
+  page.on('request', request => { if (realAuth && request.url().endsWith('/rpc/rpc_manage_material_issue_setup')) setupRequests.push({ name: 'rpc_manage_material_issue_setup', args: request.postDataJSON() }) })
   page.on('pageerror', e => errors.push(e.message))
   page.on('console', e => { if (e.type() === 'error' && !((expectedDenial || expectedFaults.has(e.location().url)) && e.text().startsWith('Failed to load resource:'))) errors.push(e.text()) })
   await page.goto('http://127.0.0.1:4177')
@@ -28,6 +31,10 @@ async function contextPage() {
       const lost = await page.evaluate(() => localStorage.getItem('operator:drop-setup-before-call') === 'true')
       if (lost) {
         await page.evaluate(() => localStorage.removeItem('operator:drop-setup-before-call'))
+        expectedFaults.add(route.request().url()); await route.abort('failed')
+      } else if (await page.evaluate(() => localStorage.getItem('operator:lose-setup-after-commit') === 'true')) {
+        await page.evaluate(() => localStorage.removeItem('operator:lose-setup-after-commit'))
+        const response = await route.fetch(); expect(response.ok()).toBe(true)
         expectedFaults.add(route.request().url()); await route.abort('failed')
       } else await route.continue()
     })
@@ -162,6 +169,8 @@ try {
   await act(page, 'Save work order eligibility')
   await other.context.close()
   console.log('COMBINED_TWO_DEVICE_STALE_INTENT_DENIAL_FENCE_NEW_INTENT_PASS')
+  await verifyParentVersionProfiles({ page, ids, state, setup, act, open, contextPage, realAuth, setupRequests, setDenial: value => { expectedDenial = value } })
+  await setup(page).getByLabel('Preparation order', { exact: true }).selectOption(mo.id)
   await setup(page).getByLabel('Reservation to maintain', { exact: true }).selectOption(res.id)
   await setup(page).getByLabel('Resize total or release quantity', { exact: true }).fill('15')
   // Release-only permission snapshot cannot create/resize orders or reservations.

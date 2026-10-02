@@ -48,8 +48,14 @@ describe('isolated maintenance consumers never fall back', () => {
     expect(mocks.from).not.toHaveBeenCalled()
   })
   it('offers explicit manual WO preparation without general routing generation', async () => {
-    await createMaterialIssueWorkOrder('mo', 'wc', 'Preparation', 1)
-    expect(mocks.manage).toHaveBeenCalledWith({ operation: 'create_work_order', mo_id: 'mo', work_center_id: 'wc', name: 'Preparation', quantity: 1 })
+    await createMaterialIssueWorkOrder('mo', 'wc', 'Preparation', 1, 7)
+    expect(mocks.manage).toHaveBeenCalledWith({ operation: 'create_work_order', mo_id: 'mo', work_center_id: 'wc', name: 'Preparation', quantity: 1, expected_version: 7 })
+    expect(mocks.rpc).not.toHaveBeenCalled(); expect(mocks.from).not.toHaveBeenCalled()
+  })
+  it.each([undefined, null, true, '7', 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])('refuses invalid child parent version %s before reads or persistence', async value => {
+    await expect(createMaterialIssueWorkOrder('mo', 'wc', 'Preparation', 1, value as number)).rejects.toThrow('ISSUE_SETUP_VERSION_REQUIRED')
+    await expect(inventoryTransactionService.reserveMaterials('mo', [{ item_id: 'item', quantity: 2 }], undefined, value as number)).rejects.toThrow('ISSUE_SETUP_VERSION_REQUIRED')
+    expect(mocks.manage).not.toHaveBeenCalled(); expect(mocks.snapshot).not.toHaveBeenCalled()
     expect(mocks.rpc).not.toHaveBeenCalled(); expect(mocks.from).not.toHaveBeenCalled()
   })
   it('refuses partial multi-line maintenance and release-all loops', async () => {
@@ -59,9 +65,9 @@ describe('isolated maintenance consumers never fall back', () => {
   })
   it('takes base UOM from the scoped read RPC, not the quarantined resolver', async () => {
     mocks.rpc.mockResolvedValue({ data: { org_id: org, item_id: 'item', uom_id: 'uom' }, error: null })
-    await inventoryTransactionService.reserveMaterials('mo', [{ item_id: 'item', quantity: 2 }])
+    await inventoryTransactionService.reserveMaterials('mo', [{ item_id: 'item', quantity: 2 }], undefined, 7)
     expect(mocks.rpc).toHaveBeenCalledWith('rpc_get_material_reservation_setup', { p_org_id: org, p_item_id: 'item' })
-    expect(mocks.manage).toHaveBeenCalledWith({ operation: 'reserve', mo_id: 'mo', item_id: 'item', uom_id: 'uom', quantity: 2 })
-    expect(mocks.from).not.toHaveBeenCalled()
+    expect(mocks.manage).toHaveBeenCalledWith({ operation: 'reserve', mo_id: 'mo', item_id: 'item', uom_id: 'uom', quantity: 2, expected_version: 7 })
+    expect(mocks.from).not.toHaveBeenCalled(); expect(mocks.snapshot).not.toHaveBeenCalled()
   })
 })

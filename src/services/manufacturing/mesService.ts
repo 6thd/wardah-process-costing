@@ -5,6 +5,7 @@
 
 import { isolatedMaterialIssueEnabled } from '@/features/manufacturing/material-issue/gate'
 import { issueSetupSnapshot, manageMaterialIssueSetup } from './materialIssueMaintenance'
+import { displayedParentVersion } from './materialIssuePreparation'
 import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase'
 const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
@@ -926,7 +927,7 @@ export const mesService = {
 export default mesService
 
 /** Explicit manual-issue preparation; never generates or starts MES operations. */
-export async function createMaterialIssueWorkOrder(moId: string, workCenterId: string, name: string, quantity: number): Promise<WorkOrder> {
+export async function createMaterialIssueWorkOrder(moId: string, workCenterId: string, name: string, quantity: number, expectedVersion: number): Promise<WorkOrder> {
   return await manageMaterialIssueSetup({ operation: 'create_work_order', mo_id: moId,
-    work_center_id: workCenterId, name, quantity }) as unknown as WorkOrder
+    work_center_id: workCenterId, name, quantity, expected_version: displayedParentVersion(expectedVersion) }) as unknown as WorkOrder
 }

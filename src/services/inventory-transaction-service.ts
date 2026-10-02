@@ -8,6 +8,7 @@
 
 import { isolatedMaterialIssueEnabled } from '@/features/manufacturing/material-issue/gate'
 import { issueSetupSnapshot, manageMaterialIssueSetup } from './manufacturing/materialIssueMaintenance'
+import { displayedParentVersion } from './manufacturing/materialIssuePreparation'
 import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase'
 import { InsufficientInventoryError } from '@/lib/errors/InsufficientInventoryError'
 import { AppError } from '@/lib/errors/AppError'
@@ -135,12 +136,14 @@ class InventoryTransactionService {
     moId: string,
     materials: MaterialRequirement[],
     expiresAt?: Date,
+    expectedVersion?: number,
   ): Promise<MaterialReservation[]> {
     const orgId = await this.requireOrgId()
     if (isolatedMaterialIssueEnabled()) {
       // Multi-line initial reservations are atomic in create_order. Standalone
       // maintenance is one line per event; do not implement a partial batch loop.
       if (materials.length !== 1 || expiresAt) throw new Error('ISSUE_SETUP_SINGLE_RESERVATION_REQUIRED')
+      const parentVersion = displayedParentVersion(expectedVersion)
       const material = materials[0]
       const { data: setup, error } = await supabase.rpc('rpc_get_material_reservation_setup', {
         p_org_id: orgId, p_item_id: material.item_id,
@@ -150,7 +153,8 @@ class InventoryTransactionService {
         throw new Error('ISSUE_SETUP_RESULT_UNVERIFIED')
       }
       return [await manageMaterialIssueSetup({ operation: 'reserve', mo_id: moId,
-        item_id: material.item_id, uom_id: setup.uom_id, quantity: material.quantity }) as unknown as MaterialReservation]
+        item_id: material.item_id, uom_id: setup.uom_id, quantity: material.quantity,
+        expected_version: parentVersion }) as unknown as MaterialReservation]
     }
     const availability = await this.checkAvailability(materials)
     const insufficient = availability.find((item) => !item.sufficient)

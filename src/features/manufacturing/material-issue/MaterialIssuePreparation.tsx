@@ -5,7 +5,7 @@ import { usePermissions } from '@/hooks/usePermissions'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { manageMaterialIssueSetup, listPendingMaterialIssueSetup, type MaintenanceCommand } from '@/services/manufacturing/materialIssueMaintenance'
-import { getPreparationCatalog, getPreparationReservationUnit, type PreparationUnit, preparationKeys, preparationQuantity, preparationStatus, reservationBalance,
+import { getPreparationCatalog, getPreparationReservationUnit, type PreparationUnit, preparationKeys, preparationQuantity, preparationStatus, reservationBalance, displayedParentVersion,
   resizePreparationReservation, releasePreparationReservation, type PreparationCatalog, type PreparationRow } from '@/services/manufacturing/materialIssuePreparation'
 import { WipLogFormDialog } from '../components/WipLogFormDialog'
 import { MaintenanceRecovery } from './MaintenanceRecovery'
@@ -125,7 +125,8 @@ function PreparationForm({ userId, orgId }: { userId: string; orgId: string }) {
       {act('createPreparationWorkOrder', 'create_work_order', () => {
         const qty = preparationQuantity(woQty, 4, 100_000_000)
         if (!catalog?.work_centers.some(row => row.id === center && row.is_active === true) || !woName.trim() || qty > Number(selected(mo).quantity)) throw new Error('INVALID')
-        return { operation: 'create_work_order', mo_id: selected(mo).id, work_center_id: center, name: woName.trim(), quantity: qty }
+        return { operation: 'create_work_order', mo_id: selected(mo).id, work_center_id: center, name: woName.trim(), quantity: qty,
+          expected_version: displayedParentVersion(selected(mo).maintenance_version) }
       }, !center || !woName.trim() || !woQty)}
       {select('preparationWorkOrder', woId, setWoId, catalog?.work_orders.filter(row => row.mo_id === moId) || [])}
       {wo && <p>{t('materialIssue.currentStatus')}: {String(wo.status)} · {t('materialIssue.displayedVersion')}: {String(wo.maintenance_version)}</p>}
@@ -138,7 +139,8 @@ function PreparationForm({ userId, orgId }: { userId: string; orgId: string }) {
       {unit && <p>{t('materialIssue.preparationBaseUnit')}: {unit.uom_id} · {String(catalog?.products.find(row => row.id === unit.product_id)?.name || unit.product_id)}</p>}
       {act('createPreparationReservation', 'reserve', () => {
         if (!catalog?.items.some(row => row.id === itemId) || unit?.item_id !== itemId) throw new Error('INVALID')
-        return { operation: 'reserve', mo_id: selected(mo).id, item_id: itemId, uom_id: unit.uom_id, quantity: preparationQuantity(reserveQty) }
+        return { operation: 'reserve', mo_id: selected(mo).id, item_id: itemId, uom_id: unit.uom_id, quantity: preparationQuantity(reserveQty),
+          expected_version: displayedParentVersion(selected(mo).maintenance_version) }
       }, !itemId || !reserveQty || !unit)}
       {select('preparationReservation', resId, setResId, catalog?.material_reservations.filter(row => row.mo_id === moId).map(row => ({ ...row, name: String(catalog.products.find(product => product.id === row.product_id)?.name || row.product_id) + ' · ' + String(row.status) + ' · ' + row.id })) || [])}
       {res && <p>{t('materialIssue.preparationBaseUnit')}: {String(res.uom_id)} · {t('materialIssue.remaining')}: {balance} · {t('materialIssue.displayedVersion')}: {String(res.maintenance_version)}</p>}

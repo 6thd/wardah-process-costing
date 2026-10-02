@@ -51,6 +51,10 @@ bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/wardah-real-auth-order
 for path in docs/db/material-issue-release/migrations/195_material_issue_scope.sql docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql docs/db/material-issue-release/migrations/197_material_issue_stale_version.sql; do
  psql -X -v ON_ERROR_STOP=1 -q -f "$path" >/dev/null
 done
+[[ "${WARDAH_PARENT_VERSION_198:-}" == true ]] || exit 2
+python3 docs/db/material-issue-parent-version-198/verify_candidate.py
+psql -X -v ON_ERROR_STOP=1 -q -f docs/db/material-issue-parent-version-198/candidate.sql >/dev/null
+psql -X -qAt -v ON_ERROR_STOP=1 -f docs/db/material-issue-release/catalog_readback.sql | python3 docs/db/material-issue-parent-version-198/verify_readback.py --expected-owner postgres
 python3 tests/fixtures/material-issue-real-auth/setup.py fixture > /tmp/wardah-auth-business-fixture.sql
 psql -X -v ON_ERROR_STOP=1 -q -f /tmp/wardah-auth-business-fixture.sql >/dev/null
 psql -X -v ON_ERROR_STOP=1 -q -f docs/db/material-issue-release/seed_after_containment.sql >/dev/null

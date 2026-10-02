@@ -82,8 +82,12 @@ jobs:
         if: hashFiles('docs/db/material-issue-parent-version-198/candidate.sql') != ''
         run: bash docs/db/material-issue-parent-version-198/run_local.sh
       - name: Browser to real disposable PG17 flow
+        env:
+          WARDAH_PARENT_VERSION_198: 'true'
         run: bash tests/fixtures/material-issue-combined/run_local.sh
       - name: Real local vendor Auth and PostgREST browser acceptance
+        env:
+          WARDAH_PARENT_VERSION_198: 'true'
         run: bash tests/fixtures/material-issue-real-auth/run_local.sh
       - name: Print disposable service failures
         if: failure()
