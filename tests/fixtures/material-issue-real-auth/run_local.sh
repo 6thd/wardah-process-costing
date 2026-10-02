@@ -74,6 +74,9 @@ for ((attempt=0; attempt<120; attempt++)); do
  if curl --fail --silent http://127.0.0.1:4177/ >/dev/null && curl --fail --silent http://127.0.0.1:55998/ >/dev/null; then break; fi
  sleep 0.25
 done
+curl --fail --silent http://127.0.0.1:4177/ >/dev/null
+curl --fail --silent http://127.0.0.1:4178/state >/dev/null
+curl --fail --silent http://127.0.0.1:55998/ >/dev/null
 WARDAH_REAL_AUTH=true timeout --kill-after=5 180 node tests/fixtures/material-issue-combined/verify.mjs
 psql -X -qAt -v ON_ERROR_STOP=1 -f docs/db/material-issue-release/catalog_readback.sql | python3 docs/db/material-issue-parent-version-198/verify_readback.py --expected-owner postgres
 # No JWTs/passwords in uploaded diagnostics.

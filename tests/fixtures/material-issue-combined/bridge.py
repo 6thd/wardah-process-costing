@@ -8,7 +8,9 @@ from psycopg.types.json import Jsonb
 
 if (os.environ.get('PGHOST') != '127.0.0.1'
         or int(os.environ.get('PGPORT', '0')) < 55000
-        or not os.environ.get('PGDATABASE', '').startswith('wardah_issue_combined_')
+        or not os.environ.get('PGDATABASE', '').startswith((
+            'wardah_issue_combined_', 'wardah_issue_parent_198_canonical_browser_',
+            'wardah_issue_parent_198_canonical_auth_browser_'))
         or any(os.environ.get(k) for k in ('DATABASE_URL', 'PGSERVICE', 'SUPABASE_DB_URL', 'PGHOSTADDR'))):
     raise SystemExit('REFUSED_NON_DISPOSABLE_DATABASE')
 ORG = 'ed000000-0000-4000-8000-000000000001'

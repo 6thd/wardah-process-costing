@@ -35,6 +35,9 @@ It runs the unchanged 72 quarantine probes, nine column-grant controls and a
 22-function catalog readback. Each runner repeats the readback after the unchanged
 browser assertions. The helper accepts only the existing loopback/high-port and
 disposable database-name contract.
+The local bridge recognizes the canonical browser/auth database prefixes while
+retaining its old disposable prefix. Both runners require HTTP readiness before
+starting the browser; connection guards, identities and RPC allowlists are unchanged.
 
 The combined workflow now targets PRs to main as well as the historical stacked
 branches. It proves source/SQL/type preservation at the frozen inputs, installs

@@ -30,5 +30,7 @@ for ((attempt=0; attempt<60; attempt++)); do
  if curl --fail --silent http://127.0.0.1:4177/ >/dev/null && curl --fail --silent http://127.0.0.1:4178/state >/dev/null; then break; fi
  sleep 0.25
 done
+curl --fail --silent http://127.0.0.1:4177/ >/dev/null
+curl --fail --silent http://127.0.0.1:4178/state >/dev/null
 timeout --kill-after=5 180 node tests/fixtures/material-issue-combined/verify.mjs
 psql -X -qAt -v ON_ERROR_STOP=1 -f docs/db/material-issue-release/catalog_readback.sql | python3 docs/db/material-issue-parent-version-198/verify_readback.py --expected-owner postgres
