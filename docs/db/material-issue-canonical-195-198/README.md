@@ -36,8 +36,13 @@ directory. It refuses non-loopback/low-port/non-PG17 endpoints and connection
 URL/service/PGHOSTADDR overrides, creates a uniquely named disposable database,
 and drops it on exit. Before fixtures it verifies the final installed 22-function
 body/owner/ACL/settings profile and the retryable-SQLSTATE gate. It then reuses the
-unchanged containment, reconciliation and M198 behavior/race/guard-mutation probes,
-and verifies the restored final catalog again.
+unchanged containment and M198 behavior/race/guard-mutation probes, and verifies
+the restored final catalog again. The M196 reconciliation probe is adapted in a
+temporary file: its command gains the fixture MO's current `expected_version`
+required by M198, and its fixture include points to the pinned checkout. The
+adapter refuses source SHA-256 drift and proves every original assertion is
+unchanged, including fence/replay, actor/payload/permission denials and financial
+state checks. The pinned harness, RPCs and canonical migration bytes are unchanged.
 
 The generic DEFINER scanner recognizes public membership/assertion helpers, but
 does not infer the private `wardah_internal.assert_issue_maintenance_permission`
@@ -50,6 +55,15 @@ that credit; missing files, new filenames and overloads do not inherit it.
 The independent review must assess this finite disposition plus its negative
 controls and mandatory installed-catalog acceptance. This is a new promotion-gate
 change, not a re-review of the accepted SQL/P2s or permission policy.
+
+The existing M186 positive client contract invokes the legacy
+`rpc_create_mo_with_reservation`, which M195 intentionally quarantines. Its
+unchanged green/RED/race assertions therefore run through M194 using a baseline
+below 195 and a bounded apply order. After those historical assertions, that same job applies 195–198 and proves
+real 42501 denials for authenticated, anon and service_role with unchanged
+orders/reservations/bins/SLE. The final-chain canonical job repeats that probe
+and the full frozen containment acceptance; the pinned #298 native acceptance
+proves the reviewed replacement. No legacy privilege is restored to make a test green.
 
 The #298 candidate workflow separately proves the matching M198 client with both
 native browser modes. This DB-only workflow proves canonical installation and

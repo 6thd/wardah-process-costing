@@ -8,6 +8,7 @@ on:
       - 'scripts/ci/fresh-db/acceptance_186_stock_moves_contract.sql'
       - 'scripts/ci/fresh-db/acceptance_186_stock_moves_contract_red.sql'
       - 'scripts/ci/fresh-db/acceptance_186_reservation_concurrency.sh'
+      - 'scripts/ci/fresh-db/acceptance_195_legacy_mo_quarantine.sql'
       - '.github/workflows/stock-moves-contract-186-acceptance.yml'
       - 'sql/baseline/**'
       - 'sql/migrations/**'
@@ -15,7 +16,7 @@ on:
 
 jobs:
   acceptance:
-    name: Canonical inventory contracts and reservation race
+    name: M194 legacy contracts and M195–198 quarantine
     runs-on: ubuntu-latest
 
     services:
@@ -46,14 +47,20 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 195)
           pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
           echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
           echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
           CUTOFF=$(pair_field BASELINE_CUTOFF)
           CUTOFF=${CUTOFF:-0}
+          # M195 intentionally quarantines this legacy client-callable MO RPC.
+          # Preserve its M186/M191 oracle through M194; canonical 195–198 CI
+          # separately proves the denial and reviewed replacement contracts.
+          test "$CUTOFF" -lt 195
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
-            > /tmp/chain_order.txt
+            > /tmp/stock-186-full-order.txt
+          awk -F_ '$1 < 195' /tmp/stock-186-full-order.txt > /tmp/chain_order.txt
+          echo "STOCK_186_LEGACY_CONTRACT_SCOPE_MAX=194; post-quarantine acceptance is material-issue-canonical"
 
           RED_PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 186)
           red_pair_field() { printf '%s\n' "$RED_PAIR" | sed -n "s/^$1=//p"; }
@@ -95,6 +102,19 @@ jobs:
             bash scripts/ci/fresh-db/acceptance_186_reservation_concurrency.sh \
             2>&1 | tee /tmp/stock-186-concurrency.out
           grep -q 'STOCK_186_RESERVATION_CONCURRENCY_PASS' /tmp/stock-186-concurrency.out
+
+      - name: Verify the final quarantined legacy contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          awk -F_ '$1 >= 195 && $1 <= 198' /tmp/stock-186-full-order.txt > /tmp/quarantine-order.txt
+          test "$(cut -d_ -f1 /tmp/quarantine-order.txt | paste -sd,)" = 195,196,197,198
+          REPORT=/tmp/stock-186-quarantine-chain.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/quarantine-order.txt
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_195_legacy_mo_quarantine.sql \
+            2>&1 | tee /tmp/stock-186-quarantine.out
+          grep -q 'M195_198_LEGACY_MO_QUARANTINE_PASS' /tmp/stock-186-quarantine.out
 
       - name: Build pre-186 red database
         shell: bash
