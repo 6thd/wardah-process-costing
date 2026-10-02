@@ -1,0 +1,59 @@
+name: Material issue canonical allocation
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/**'
+      - 'docs/db/material-issue-canonical-195-198/**'
+      - 'scripts/ci/check_definer_guards.py'
+      - 'scripts/ci/test_material_issue_canonical_delegations.py'
+      - '.github/workflows/material-issue-canonical.yml'
+permissions:
+  contents: read
+jobs:
+  canonical:
+    name: Canonical 195–198 on standard PG17
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 55432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: d71a1657739d1660740ac931ef5f48bffbd4476f
+          path: reviewed-harness
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install disposable database clients
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          python -m pip install 'psycopg[binary]==3.3.6'
+      - name: Verify source pins and scanner failure controls
+        run: |
+          python3 docs/db/material-issue-canonical-195-198/verify_package.py --harness reviewed-harness
+          python3 docs/db/material-issue-canonical-195-198/test_package.py
+          python3 scripts/ci/test_material_issue_canonical_delegations.py
+          python3 scripts/ci/test_check_definer_guards.py
+          python3 scripts/ci/check_definer_guards.py
+      - name: Install actual canonical files and accept final catalog
+        run: bash docs/db/material-issue-canonical-195-198/run_local.sh reviewed-harness
