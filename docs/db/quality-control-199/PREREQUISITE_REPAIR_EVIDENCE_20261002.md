@@ -65,12 +65,12 @@ inspection rows to its before snapshot. Unexpected success or residue fails.
 | Quarantine after M199 on the full chain | 72 denied probes; nine column-grant mutations rejected and restored |
 | Canonical package verification / tests | Byte verification PASS; 7/7 package tests |
 | Canonical delegation / scanner tests | 6/6 and 441/441 PASS from repository root |
-| DEFINER scanner | 42 migrations after its cutoff, no unguarded DEFINER |
+| DEFINER scanner | 69 migrations above explicit cutoff 121 (`000_schema_baseline_20260717.sql`); clean. The default unsorted baseline selection can produce a different count. |
 | Python compile, shell syntax, diff check | PASS |
 | Bandit 1.9.4, new Python script | Zero issues, no suppressions |
 | Radon 6.0.1, new Python script | Maximum B; no D/E/F functions |
 | Scope check | Original QC RED/acceptance/concurrency files unchanged; removing the preflight insertion reproduces original M199 exactly |
-| Canonical preservation | 195–198 byte-identical to main; pinned harness unchanged |
+| Canonical preservation | 195–198 byte-identical to frozen main `3acea30d83e182a2651b60b8696a658137bc0c92` and parent #303 `a312ab52`; package SHA-256 values match; pinned harness unchanged |
 
 The canonical runner stops at 198. Its result above does not claim combined
 quality/client acceptance. The separate post-199 quarantine run proves the stated
@@ -96,6 +96,25 @@ No full main-targeted CI, hosted identity, operator/device, live ledger or
 combined #301/#304 acceptance is claimed.
 
 ## Reproduction and review
+
+For a reproducible full DEFINER scan, use the exact cutoff-121 baseline rather
+than relying on the scanner's first unsorted glob entry:
+
+```sh
+python3 - <<'PY'
+import pathlib, sys
+sys.path.insert(0, 'scripts/ci')
+import check_definer_guards as scanner
+scanner.BASELINE_FILE = pathlib.Path('sql/baseline/000_schema_baseline_20260717.sql')
+sys.exit(scanner.main())
+PY
+```
+
+This is a local invocation override, not a change to the scanner. The weak
+default selector is a separately recorded follow-up. The independent reviewer
+used a local `origin/main` at `94400e1b`, before #299; GitHub was re-resolved after
+the review and still reports `main=3acea30d`, which contains all four canonical
+files. Use explicit commits and pinned hashes for preservation evidence.
 
 Run the normal `run_local.sh` only against a disposable local PG17 database
 cluster. Its original local-connection refusal remains. To reproduce the old
