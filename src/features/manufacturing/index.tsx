@@ -29,7 +29,6 @@ import { DateRange } from 'react-day-picker'
 import { manufacturingService } from '@/services/supabase-service'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/ui/page-header'
-import { EmptyState } from '@/components/ui/empty-state'
 import { useManufacturingOrders } from './hooks/useManufacturingOrders'
 import { useManufacturingProducts } from './hooks/useManufacturingProducts'
 import { createManufacturingOrder, getOrderDetails } from './services/manufacturingOrderService'
@@ -67,6 +66,7 @@ import { RoutingManagement } from './routing/RoutingManagement'
 import { WorkCenterDashboard } from './mes/WorkCenterDashboard'
 import { CapacityDashboard } from './capacity/CapacityDashboard'
 import { EfficiencyDashboard } from './efficiency/EfficiencyDashboard'
+import { QualityControlPage } from './quality/QualityControlPage'
 
 // Extended types for order with related data
 interface ManufacturingOrderWithItem extends ManufacturingOrder {
@@ -109,7 +109,7 @@ export function ManufacturingModule() {
       <Route path="bom" element={<BOMManagement />} />
       <Route path="bom/new" element={<BOMBuilder />} />
       <Route path="bom/:bomId/edit" element={<BOMBuilder />} />
-      <Route path="quality" element={<QualityControlManagement />} />
+      <Route path="quality" element={<QualityControlPage />} />
       <Route path="*" element={<Navigate to="overview" replace />} />
     </Routes>
   )
@@ -936,22 +936,3 @@ function WorkCentersManagement() {
   )
 }
 
-// Quality Control Management Component
-function QualityControlManagement() {
-  const { t } = useTranslation()
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title={t('manufacturing.qualityControlPage.title')}
-        description={t('manufacturing.qualityControlPage.subtitle')}
-        hideOnPrint={false}
-      />
-      <Card>
-        <EmptyState
-          title={t('manufacturing.qualityControlPage.comingSoon')}
-        />
-      </Card>
-    </div>
-  )
-}

@@ -140,9 +140,12 @@ describe('resolveRoutePermission — fail-closed contract', () => {
     // خلل جولة سابقة: مستخدم settings.users.read-only كان يُرفَض عند
     // ModuleGuard قبل الوصول إلى بطاقته الخاصة في SettingsOverview، لأن '/'
     // كانت تطلب settings.organization.read فقط.
-    it('/ and /overview require anyOf(organization/users/roles), not organization.read alone', () => {
+    it('/ and /overview require anyOf(organization/users/roles/quality), not organization.read alone', () => {
       const expected = {
-        anyOf: ['settings.organization.read', 'settings.users.read', 'settings.roles.read'],
+        anyOf: [
+          'settings.organization.read', 'settings.users.read', 'settings.roles.read',
+          'manufacturing.quality_inspections.read',
+        ],
       };
       expect(resolveRoutePermission('settings', '/')).toEqual(expected);
       expect(resolveRoutePermission('settings', '/overview')).toEqual(expected);
@@ -194,6 +197,20 @@ describe('reports — overview entry includes ai_insights and purchasing fallbac
   it('/gemini requires the same key as /gemini/legacy — an ai_insights grant, not the broad overview anyOf', () => {
     expect(resolveRoutePermission('reports', '/gemini')).toEqual({ key: 'reports.ai_insights.use' });
     expect(resolveRoutePermission('reports', '/gemini/legacy')).toEqual({ key: 'reports.ai_insights.use' });
+  });
+});
+
+describe('Migration 199: quality routes use the quality catalog key', () => {
+  it('/manufacturing/quality and /settings/quality require manufacturing.quality_inspections.read', () => {
+    const expected = { key: 'manufacturing.quality_inspections.read' };
+    expect(resolveRoutePermission('manufacturing', '/quality')).toEqual(expected);
+    expect(resolveRoutePermission('settings', '/quality')).toEqual(expected);
+  });
+
+  it('manufacturing.orders.read no longer opens the quality screen', () => {
+    const ordersOnly = (k: string) => k === 'manufacturing.orders.read';
+    const requirement = resolveRoutePermission('manufacturing', '/quality');
+    expect(requirement && satisfiesRouteRequirement(requirement, ordersOnly)).toBe(false);
   });
 });
 

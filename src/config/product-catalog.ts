@@ -149,8 +149,7 @@ const manufacturingChildren = [
   child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'standard-costs', '/manufacturing/standard-costs', 'navigation.standardCosts', 'beta'),
   child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'workcenters', '/manufacturing/workcenters', 'navigation.workcenters'),
   child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'bom', '/manufacturing/bom', 'navigation.bom'),
-  // Current mounted component is an inert Coming Soon screen.
-  child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'quality', '/manufacturing/quality', 'navigation.quality', 'planned'),
+  child(MODULE_CODES.MANUFACTURING, '/manufacturing', 'quality', '/manufacturing/quality', 'navigation.quality', 'beta'),
 ] as const;
 
 const inventoryChildren = [
