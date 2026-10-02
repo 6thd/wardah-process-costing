@@ -5,8 +5,9 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from verify_package import EXPECTED, FOLDER, ROOT, verify
+from verify_package import EXPECTED, FOLDER, ROOT, _git_read, _verify_harness, verify
 
 
 class PackageTests(unittest.TestCase):
@@ -51,6 +52,31 @@ class PackageTests(unittest.TestCase):
         profile['harness']['commit'] = '0' * 40
         with self.assertRaisesRegex(ValueError, 'CANONICAL_HARNESS_REVISION_DRIFT'):
             verify(self.root, profile)
+
+    def test_git_queries_are_fixed_and_paths_are_not_command_text(self):
+        directory = self.root / "harness with spaces;$(touch sentinel)"
+        directory.mkdir()
+        queries = {'head': ['rev-parse', 'HEAD'], 'tree': ['rev-parse', 'HEAD^{tree}'],
+                   'tracked_status': ['status', '--porcelain', '--untracked-files=no']}
+        with patch('verify_package.subprocess.check_output', return_value='value\n') as run:
+            for query, arguments in queries.items():
+                self.assertEqual(_git_read(directory, query), 'value')
+                run.assert_called_with(
+                    ['/usr/bin/git', '--no-optional-locks', '-c', 'core.fsmonitor=false', *arguments],
+                    cwd=directory.resolve(), shell=False, text=True, timeout=30)
+            run.reset_mock()
+            with self.assertRaises(KeyError):
+                _git_read(directory, 'checkout')
+            run.assert_not_called()
+
+    def test_checkout_and_tracked_drift_remain_refused(self):
+        from verify_package import HARNESS, HARNESS_TREE
+        for answers, diagnostic in [(['wrong'], 'CHECKOUT'),
+                                     ([HARNESS, 'wrong'], 'CHECKOUT'),
+                                     ([HARNESS, HARNESS_TREE, ' M changed'], 'TRACKED')]:
+            with patch('verify_package._git_read', side_effect=answers):
+                with self.assertRaisesRegex(ValueError, 'CANONICAL_HARNESS_' + diagnostic + '_DRIFT'):
+                    _verify_harness(self.root)
 
 
 if __name__ == '__main__':
