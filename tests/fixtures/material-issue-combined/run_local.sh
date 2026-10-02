@@ -25,9 +25,15 @@ python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations 189 > /tmp/warda
 bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/wardah-combined-order.txt
 # Same order as the package and real-Auth runners: every proposed migration
 # installs before any fixture, then owner-only seed data after containment.
-for path in docs/db/material-issue-release/migrations/195_material_issue_scope.sql docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql docs/db/material-issue-release/migrations/197_material_issue_stale_version.sql docs/db/manufacturing-inventory-red-20260925/00_fixture.sql docs/db/material-issue-release/seed_after_containment.sql; do
+for path in docs/db/material-issue-release/migrations/195_material_issue_scope.sql docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql docs/db/material-issue-release/migrations/197_material_issue_stale_version.sql; do
  psql -X -v ON_ERROR_STOP=1 -q -f "$path" >/dev/null
 done
+[[ "${WARDAH_PARENT_VERSION_198:-}" == true ]] || exit 2
+python3 docs/db/material-issue-parent-version-198/verify_candidate.py
+psql -X -v ON_ERROR_STOP=1 -q -f docs/db/material-issue-parent-version-198/candidate.sql >/dev/null
+psql -X -qAt -v ON_ERROR_STOP=1 -f docs/db/material-issue-release/catalog_readback.sql | python3 docs/db/material-issue-parent-version-198/verify_readback.py --expected-owner postgres
+psql -X -v ON_ERROR_STOP=1 -q -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
+psql -X -v ON_ERROR_STOP=1 -q -f docs/db/material-issue-release/seed_after_containment.sql >/dev/null
 psql -X -v ON_ERROR_STOP=1 -q <<'SQL'
 INSERT INTO public.role_permissions(role_id,permission_id)
 SELECT 'ed000000-0000-4000-8000-0000000000b1',id FROM public.permissions WHERE permission_key IN
