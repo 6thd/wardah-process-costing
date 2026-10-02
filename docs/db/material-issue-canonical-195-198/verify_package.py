@@ -3,7 +3,8 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import subprocess
+# Git is used only for the fixed, read-only queries in _git_read below.
+import subprocess  # nosec B404
 
 ROOT = Path(__file__).resolve().parents[3]
 FOLDER = Path(__file__).resolve().parent
@@ -18,40 +19,69 @@ EXPECTED = {
 }
 
 
-def verify(root=ROOT, profile=None, harness=None):
-    if profile is None:
-        profile = json.loads((FOLDER / 'CANONICAL_PACKAGE.json').read_text())
-    if (profile['format_version'] != 1 or profile['base_main'] != BASE
-            or profile['state'] != 'draft_canonical_allocation'
-            or profile['independent_signoff_pending'] is not True
-            or profile['target_application_verified'] is not False
-            or profile['release_ready'] is not False
-            or profile['baseline_cutoff'] != 189
-            or profile['apply_order'] != list(range(190, 199))):
-        raise ValueError('CANONICAL_STATE_OR_ORDER_DRIFT')
+def _verify_state(profile):
+    values = {'format_version': 1, 'base_main': BASE,
+              'state': 'draft_canonical_allocation', 'baseline_cutoff': 189,
+              'apply_order': list(range(190, 199))}
+    for key, expected in values.items():
+        if profile[key] != expected:
+            raise ValueError('CANONICAL_STATE_OR_ORDER_DRIFT')
+    flags = {'independent_signoff_pending': True,
+             'target_application_verified': False, 'release_ready': False}
+    for key, expected in flags.items():
+        if profile[key] is not expected:
+            raise ValueError('CANONICAL_STATE_OR_ORDER_DRIFT')
+
+
+def _verify_file_set(profile):
     if profile['harness']['commit'] != HARNESS or profile['harness']['tree'] != HARNESS_TREE:
         raise ValueError('CANONICAL_HARNESS_REVISION_DRIFT')
     expected_paths = ['sql/migrations/' + name for name in EXPECTED]
     if [entry['path'] for entry in profile['migrations']] != expected_paths:
         raise ValueError('CANONICAL_FILE_SET_DRIFT')
-    for entry, (name, digest) in zip(profile['migrations'], EXPECTED.items()):
-        source = ('docs/db/material-issue-parent-version-198/candidate.sql' if name.startswith('198_')
-                  else 'docs/db/material-issue-release/migrations/' + name)
-        if (entry['sha256'] != digest or entry['source_path'] != source
-                or entry['number'] != int(name[:3]) or entry['application_name'] != name[:-4]):
+
+
+def _verify_migration(root, entry, name, digest, harness):
+    source = ('docs/db/material-issue-parent-version-198/candidate.sql' if name.startswith('198_')
+              else 'docs/db/material-issue-release/migrations/' + name)
+    values = {'sha256': digest, 'source_path': source,
+              'number': int(name[:3]), 'application_name': name[:-4]}
+    for key, expected in values.items():
+        if entry[key] != expected:
             raise ValueError('CANONICAL_PROFILE_DRIFT')
-        body = (root / entry['path']).read_bytes()
-        if hashlib.sha256(body).hexdigest() != digest:
-            raise ValueError('CANONICAL_SQL_BYTES_DRIFT')
-        if harness is not None and body != (harness / source).read_bytes():
-            raise ValueError('CANONICAL_REVIEWED_SOURCE_DRIFT')
+    body = (root / entry['path']).read_bytes()
+    if hashlib.sha256(body).hexdigest() != digest:
+        raise ValueError('CANONICAL_SQL_BYTES_DRIFT')
+    if harness is not None and body != (harness / source).read_bytes():
+        raise ValueError('CANONICAL_REVIEWED_SOURCE_DRIFT')
+
+
+def _git_read(harness, query):
+    queries = {'head': ('rev-parse', 'HEAD'), 'tree': ('rev-parse', 'HEAD^{tree}'),
+               'tracked_status': ('status', '--porcelain', '--untracked-files=no')}
+    # Fixed system executable and allowlisted argv; the resolved directory is
+    # passed as cwd, never command text. Disable optional writes and fsmonitor.
+    argv = ['/usr/bin/git', '--no-optional-locks', '-c', 'core.fsmonitor=false', *queries[query]]
+    return subprocess.check_output(  # nosec B603
+        argv, cwd=harness.resolve(strict=True), shell=False, text=True, timeout=30).strip()
+
+
+def _verify_harness(harness):
+    if _git_read(harness, 'head') != HARNESS or _git_read(harness, 'tree') != HARNESS_TREE:
+        raise ValueError('CANONICAL_HARNESS_CHECKOUT_DRIFT')
+    if _git_read(harness, 'tracked_status'):
+        raise ValueError('CANONICAL_HARNESS_TRACKED_DRIFT')
+
+
+def verify(root=ROOT, profile=None, harness=None):
+    if profile is None:
+        profile = json.loads((FOLDER / 'CANONICAL_PACKAGE.json').read_text())
+    _verify_state(profile)
+    _verify_file_set(profile)
+    for entry, (name, digest) in zip(profile['migrations'], EXPECTED.items()):
+        _verify_migration(root, entry, name, digest, harness)
     if harness is not None:
-        def git(*args):
-            return subprocess.check_output(['git', '-C', str(harness), *args], text=True).strip()
-        if git('rev-parse', 'HEAD') != HARNESS or git('rev-parse', 'HEAD^{tree}') != HARNESS_TREE:
-            raise ValueError('CANONICAL_HARNESS_CHECKOUT_DRIFT')
-        if git('status', '--porcelain', '--untracked-files=no'):
-            raise ValueError('CANONICAL_HARNESS_TRACKED_DRIFT')
+        _verify_harness(harness)
     return profile
 
 

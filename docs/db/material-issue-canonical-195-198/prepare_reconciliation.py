@@ -7,7 +7,11 @@ SOURCE = 'docs/db/material-issue-maintenance-170-154/reconciliation_acceptance.s
 SHA256 = '19ab6325cebd936ef490c1c26d78c12f75bbb0eaeffeb32ef943c64b0338489e'
 INCLUDE = r'\ir ../posted-history-193/_fixture.sql'
 COMMAND = "'uom_id',(SELECT base_uom_id FROM public.products WHERE id=pg_temp.raw()),'quantity',1);"
-VERSIONED = COMMAND[:-2] + ",\n  'expected_version',(SELECT maintenance_version FROM public.manufacturing_orders WHERE id=mo));"
+# Fixed reviewed fixture input, with no externally supplied SQL fragments.
+VERSIONED = (
+    "'uom_id',(SELECT base_uom_id FROM public.products WHERE id=pg_temp.raw()),'quantity',1,\n"
+    "  'expected_version',(SELECT maintenance_version FROM public.manufacturing_orders WHERE id=mo));"
+)
 
 
 def prepare(source: bytes, harness: Path) -> str:
