@@ -1,7 +1,6 @@
 """Pin the candidate's bytes and its entire permitted M197 derivation."""
 import hashlib
 import json
-from pathlib import Path
 from derivation import ROOT, BASE, CANDIDATE, replacement, function, fingerprint
 
 def verify():
@@ -15,9 +14,9 @@ def verify():
             or function(text) != replacement()):
         raise ValueError('M198_SOURCE_DRIFT')
     before, after = fingerprint(function(BASE.read_text())), fingerprint(replacement())
-    if before != manifest['before_prosrc_md5'] or after != manifest['after_prosrc_md5']:
+    if before != manifest['before_prosrc_sha256'] or after != manifest['after_prosrc_sha256']:
         raise ValueError('M198_FINGERPRINT_DRIFT')
-    for value, error in [(before,'M198_FROZEN_M197_FUNCTION_DRIFT'),(after,'M198_REPLACEMENT_FINGERPRINT_MISMATCH')]:
+    for value, error in [(manifest['before_prosrc_md5'],'M198_FROZEN_M197_FUNCTION_DRIFT'),(manifest['after_prosrc_md5'],'M198_REPLACEMENT_FINGERPRINT_MISMATCH')]:
         if "IS DISTINCT FROM '%s' THEN\n  RAISE EXCEPTION '%s'" % (value,error) not in text:
             raise ValueError('M198_FINGERPRINT_GUARD_DRIFT')
     return manifest

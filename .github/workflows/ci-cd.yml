@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop, f2/m191-stock-concurrency-implementation, feat/229-material-issue-client, feat/229-material-issue-isolated-ui, docs/229-material-issue-db-containment-candidate, feat/170-154-material-issue-maintenance-client, feat/198-material-issue-parent-version-db ]
+    branches: [ main, develop, f2/m191-stock-concurrency-implementation, feat/229-material-issue-client, feat/229-material-issue-isolated-ui, docs/229-material-issue-db-containment-candidate, feat/170-154-material-issue-maintenance-client, feat/198-material-issue-parent-version-db, feat/198-material-issue-parent-version-client ]
 
 jobs:
   test:

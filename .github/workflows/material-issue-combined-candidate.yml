@@ -1,7 +1,7 @@
 name: Material issue combined candidate
 on:
   pull_request:
-    branches: [feat/229-material-issue-isolated-ui, feat/170-154-material-issue-maintenance-client, feat/198-material-issue-parent-version-db]
+    branches: [feat/229-material-issue-isolated-ui, feat/170-154-material-issue-maintenance-client, feat/198-material-issue-parent-version-db, feat/198-material-issue-parent-version-client]
     paths:
       - 'src/**'
       - 'tests/fixtures/material-issue-combined/**'
@@ -53,8 +53,11 @@ jobs:
           test "$(wc -l < /tmp/wardah-frozen-db-files.txt)" = 13
           while IFS= read -r path; do
             case "$path" in docs/db/material-issue-229/*|docs/db/material-issue-maintenance-170-154/*) ;; *) exit 2 ;; esac
-            test ! -e "$path"
-            git restore --source="$FIXTURE_TREE" --staged --worktree -- "$path"
+            if test -e "$path"; then
+              test "$(git hash-object "$path")" = "$(git rev-parse "$FIXTURE_TREE:$path")"
+            else
+              git restore --source="$FIXTURE_TREE" --staged --worktree -- "$path"
+            fi
           done < /tmp/wardah-frozen-db-files.txt
           COMBINED_TREE="$(git write-tree)"
           echo "CLIENT_HEAD=$(git rev-parse HEAD) DB_HEAD=b95384a917d5a0879350f4598e79a43a4c21e4f1 COMBINED_TREE=$COMBINED_TREE"
