@@ -122,7 +122,7 @@ for op in ('reserve','create_work_order'):
     assert post(cmd,event)==result and snapshot()==after, 'M198_REPLAY_VERSION_OR_EFFECT_DRIFT'
     deny(cmd,'ISSUE_SETUP_STALE_VERSION',SECOND)
     deny(cmd,'ISSUE_SETUP_EVENT_ACTOR_MISMATCH',SECOND,event)
-    deny({**cmd,'quantity':1},'ISSUE_SETUP_EVENT_PAYLOAD_MISMATCH',event=event)
+    deny({**cmd,'quantity':cmd['quantity']+1},'ISSUE_SETUP_EVENT_PAYLOAD_MISMATCH',event=event)
     print('M198_VALIDATION_REPLAY_NO_FINANCIAL_EFFECTS_PASS operation='+op)
 
     # Two real actors blocked on the same parent, not a sleep-based race.
