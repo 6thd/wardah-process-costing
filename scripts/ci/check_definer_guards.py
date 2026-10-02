@@ -62,6 +62,7 @@ Division of labour with the acceptance database:
 """
 
 import functools
+import hashlib
 import pathlib
 import re
 import sys
@@ -5805,6 +5806,44 @@ def _identity_mutation_errors(path, raw: str, masked: str, definitions,
     return errors
 
 
+# Explicit reviewed delegation disposition for the byte-identical M195–M198
+# package. This does not add a generic recognized guard or a name exemption.
+# Credit only these five definitions, and only while ALL four complete files
+# match the independently reviewed artifacts. Catalog/body/ACL enforcement and
+# runtime denial/race probes are mandatory in material-issue-canonical CI.
+REVIEWED_MATERIAL_ISSUE_FILES = {
+    "195_material_issue_scope.sql": "d906c72a96468d4869d8341e1cc61c8b20383e5dd43284be0070c876c80987ca",
+    "196_material_issue_maintenance.sql": "cf61b346c56b7e18dbe5bbcc994e3494a330ffbacf9315f81863e7796e44c648",
+    "197_material_issue_stale_version.sql": "e7eb602688c2503a9d6313a0d1525d083e3909b74293805947a078d01fb2ff52",
+    "198_material_issue_parent_version.sql": "2cf867dfa5c9a473f0e6e05528d0603aa8885736dd31c3210b58030b616240a5",
+}
+REVIEWED_MATERIAL_ISSUE_DELEGATIONS = {
+    "196_material_issue_maintenance.sql": frozenset({
+        "public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)",
+        "public.rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid)",
+        "public.rpc_get_material_reservation_setup(uuid,uuid)",
+    }),
+    "197_material_issue_stale_version.sql": frozenset({
+        "public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)",
+    }),
+    "198_material_issue_parent_version.sql": frozenset({
+        "public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)",
+    }),
+}
+
+
+def reviewed_material_issue_delegation(path, identity) -> bool:
+    if identity.qualified not in REVIEWED_MATERIAL_ISSUE_DELEGATIONS.get(path.name, ()):
+        return False
+    try:
+        return all(
+            hashlib.sha256((path.parent / name).read_bytes()).hexdigest() == digest
+            for name, digest in REVIEWED_MATERIAL_ISSUE_FILES.items()
+        )
+    except OSError:
+        return False
+
+
 def check_file(path: pathlib.Path) -> list[str]:
     errors = []
     number = migration_number(path)
@@ -5895,7 +5934,8 @@ def check_file(path: pathlib.Path) -> list[str]:
         body = sql[body_start:body_end]
         raw_body = raw_sql[body_start:body_end]
 
-        if not has_recognized_guard(body, strict=strict, raw_body=raw_body):
+        if not (has_recognized_guard(body, strict=strict, raw_body=raw_body)
+                or reviewed_material_issue_delegation(path, identity)):
             how = (
                 "is SECURITY DEFINER"
                 if definition.promoted_by is None

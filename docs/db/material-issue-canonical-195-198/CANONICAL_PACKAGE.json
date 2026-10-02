@@ -1,0 +1,56 @@
+{
+  "format_version": 1,
+  "state": "draft_canonical_allocation",
+  "independent_signoff_pending": true,
+  "target_application_verified": false,
+  "release_ready": false,
+  "base_main": "94400e1b78f7f5f1716568df96dba7cde2558d12",
+  "baseline_cutoff": 189,
+  "apply_order": [
+    190,
+    191,
+    192,
+    193,
+    194,
+    195,
+    196,
+    197,
+    198
+  ],
+  "harness": {
+    "commit": "d71a1657739d1660740ac931ef5f48bffbd4476f",
+    "tree": "ed2f78616e7b3582206bf39e47dcc94539c73c9f",
+    "client_review": "5ec1cd16044b542460faf2d8eae8c60e9ca6d722",
+    "cleanup_review": "383c3537237de06e577231f35d74a4ccdb124031"
+  },
+  "migrations": [
+    {
+      "number": 195,
+      "path": "sql/migrations/195_material_issue_scope.sql",
+      "source_path": "docs/db/material-issue-release/migrations/195_material_issue_scope.sql",
+      "sha256": "d906c72a96468d4869d8341e1cc61c8b20383e5dd43284be0070c876c80987ca",
+      "application_name": "195_material_issue_scope"
+    },
+    {
+      "number": 196,
+      "path": "sql/migrations/196_material_issue_maintenance.sql",
+      "source_path": "docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql",
+      "sha256": "cf61b346c56b7e18dbe5bbcc994e3494a330ffbacf9315f81863e7796e44c648",
+      "application_name": "196_material_issue_maintenance"
+    },
+    {
+      "number": 197,
+      "path": "sql/migrations/197_material_issue_stale_version.sql",
+      "source_path": "docs/db/material-issue-release/migrations/197_material_issue_stale_version.sql",
+      "sha256": "e7eb602688c2503a9d6313a0d1525d083e3909b74293805947a078d01fb2ff52",
+      "application_name": "197_material_issue_stale_version"
+    },
+    {
+      "number": 198,
+      "path": "sql/migrations/198_material_issue_parent_version.sql",
+      "source_path": "docs/db/material-issue-parent-version-198/candidate.sql",
+      "sha256": "2cf867dfa5c9a473f0e6e05528d0603aa8885736dd31c3210b58030b616240a5",
+      "application_name": "198_material_issue_parent_version"
+    }
+  ]
+}
