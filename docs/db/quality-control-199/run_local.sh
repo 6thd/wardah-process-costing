@@ -19,9 +19,12 @@ trap cleanup EXIT
 cd "$ROOT"
 echo "checkout: $(git rev-parse HEAD)"
 echo "server: $(psql -X -tAc 'SHOW server_version' -d postgres)"
-PAIR="$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)"
+PAIR="$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 190)"
 pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
 CUTOFF="$(pair_field BASELINE_CUTOFF)"
+if [[ "$CUTOFF" != 189 ]]; then
+  echo 'REFUSED: prerequisite proof requires the cutoff-189 baseline' >&2; exit 2
+fi
 echo "baseline: $(pair_field BASELINE_PATH) cutoff: $CUTOFF"
 createdb "$DB"
 export PGDATABASE="$DB"
@@ -36,7 +39,14 @@ if [[ "$(tail -n 1 "$TASK_DIR/order.txt")" != '199_manufacturing_quality_control
   echo 'REFUSED: M199 missing from the apply order' >&2; exit 2
 fi
 sed -i '$d' "$TASK_DIR/order.txt"
-REPORT="$TASK_DIR/chain.txt" bash scripts/ci/fresh-db/run_chain.sh sql/migrations "$TASK_DIR/order.txt"
+if [[ "$(cut -d_ -f1 "$TASK_DIR/order.txt" | paste -sd,)" != '190,191,192,193,194,195,196,197,198' ]]; then
+  echo 'REFUSED: prerequisite proof requires exactly M190 through M198' >&2; exit 2
+fi
+# Build real truncated chains; the controls apply 197/198 only after proving
+# M199 refuses each prefix, then test catalog mutations on the M198 result.
+head -n 7 "$TASK_DIR/order.txt" > "$TASK_DIR/to196.txt"
+REPORT="$TASK_DIR/chain.txt" bash scripts/ci/fresh-db/run_chain.sh sql/migrations "$TASK_DIR/to196.txt"
+python3 "$HERE/test_prerequisites.py" "$DB"
 "${PSQL[@]}" -q -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
 "${PSQL[@]}" -f "$HERE/red.sql"
 "${PSQL[@]}" -q -f sql/migrations/199_manufacturing_quality_control.sql >/dev/null

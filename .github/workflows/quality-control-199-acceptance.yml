@@ -47,10 +47,11 @@ jobs:
           set -Eeuo pipefail
           bash docs/db/quality-control-199/run_local.sh 2>&1 | tee /tmp/m199.out
           # A green exit is not enough: every proof direction must have run.
-          for marker in M199_RED_REPRODUCED M199_QUALITY_CONTROL_ACCEPTANCE_PASS \
+          for marker in 'M199_PREREQUISITE_CONTROLS_PASS prefixes=2 mutations=14 restored=true' \
+                        M199_RED_REPRODUCED M199_QUALITY_CONTROL_ACCEPTANCE_PASS \
                         DEFINER_GUARD_CONTRACT_SELFTEST_PASS M199_CONCURRENCY_PASS \
                         GREEN_M199_QUALITY_CONTROL_ACCEPTANCE; do
-            grep -q "$marker" /tmp/m199.out || { echo "missing $marker" >&2; exit 1; }
+            grep -Fq "$marker" /tmp/m199.out || { echo "missing $marker" >&2; exit 1; }
           done
       - name: Upload acceptance evidence
         if: always()

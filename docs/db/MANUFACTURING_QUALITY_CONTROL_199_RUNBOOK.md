@@ -78,7 +78,12 @@
 
 1. **الشرط المسبق:** 195→196→197→198 مطبّقة بالترتيب ومتحقق منها. حزمتها حاليًا
    «Draft / NO-GO» ([الحزمة](material-issue-canonical-195-198/README.md))، و199 ترفض
-   التطبيق قبلها (`M199_REQUIRES_M190_THROUGH_M198`).
+   التطبيق قبلها. وجود توقيع setup وأعمدة الإصدار وحده لا يكفي: الحارس يطلب بصمة
+   جسم M198 النهائية، و`SECURITY DEFINER` و`search_path` الفارغ، ثم trigger إصدار
+   الأمر المطابق والمفعّل. التشخيصات: `M199_REQUIRES_M190_THROUGH_M198` للأجسام
+   الأساسية المفقودة، و`M199_REQUIRES_FROZEN_M198_SETUP` للجسم أو إعداداته غير
+   المطابقة، و`M199_REQUIRES_FROZEN_PARENT_VERSION_TRIGGER` لحارس الإصدار المنحرف.
+   هذا تحقق كتالوج محلي؛ لا يستبدل إثبات سجل التطبيق الحي أو الموافقات المعلّقة.
 2. ادمج PR الـMigration هذا إلى `main` (repository-first).
 3. نفّذ فحص ما قبل التطبيق (§6) وطبّق `199_manufacturing_quality_control` مرة واحدة
    بالملف القانوني من `main`.
@@ -95,6 +100,11 @@ SELECT count(*) AS rows, count(DISTINCT (org_id, inspection_number)) AS distinct
 FROM public.quality_inspections;                       -- يجب تساويهما
 SELECT count(*) FROM public.manufacturing_orders WHERE status = 'quality_check';
 SELECT has_table_privilege('authenticated','public.manufacturing_orders','UPDATE'); -- false (195)
+SELECT md5(prosrc) = 'b2576a5e9cf4dbab07be959434add8ab' AS reviewed_m198_body,
+       prosecdef, proconfig
+FROM pg_proc
+WHERE oid = to_regprocedure('public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)');
+-- صف واحد: true، true، {search_path=""}؛ عدم وجود صف ليس نجاحًا.
 ```
 
 بعد التطبيق:
@@ -134,6 +144,12 @@ WHERE tgname IN ('zq_quality_release_gate_199','zq_quality_release_gate_insert_1
 `bash docs/db/quality-control-199/run_local.sh` على PostgreSQL 17.11، من Baseline cutoff
 189 ثم 190→198:
 
+- **حارس المتطلبات:** بناء 190→196 فعليًا ورفض 199، ثم تطبيق 197 ورفض 199 مرة
+  أخرى، ثم تطبيق 198. تُرفض 14 طفرة في الجسم/إعداداته وtrigger الإصدار ودالته
+  بالرسالة الدقيقة، مع مقارنة الكتالوج والمنح وصفوف المرجع بعد كل تراجع.
+  علامة الإتمام: `M199_PREREQUISITE_CONTROLS_PASS prefixes=2 mutations=14 restored=true`.
+  الـrunner يثبت cutoff 189 والترتيب 190→198، ثم يكمل RED وGREEN الأصليين؛ لا
+  تستبدل هذه الضوابط تأكيدات الجودة السبعين أو اختبار التزامن.
 - **RED (قبل 199):** لا مفتاح جودة؛ `anon`/`authenticated` يكتبان الفحوص؛ عضو قراءة
   فقط يسجل `PASS` بلا مفتش ثم يعيد كتابته؛ الأمر يخرج من `quality_check` إلى `done` بلا فحص،
   أو يُدرج مباشرة بحالة `done`.

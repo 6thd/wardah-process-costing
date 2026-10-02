@@ -21,6 +21,31 @@ BEGIN
      OR has_table_privilege('authenticated','public.manufacturing_orders','UPDATE') THEN
     RAISE EXCEPTION 'M199_REQUIRES_M190_THROUGH_M198';
   END IF;
+  -- M196 and M197 have the same signature and version columns. Require the
+  -- reviewed M198 result, not merely the existence of its earlier signature.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+    WHERE p.oid = to_regprocedure('public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)')
+      AND md5(p.prosrc) = 'b2576a5e9cf4dbab07be959434add8ab'
+      AND l.lanname = 'plpgsql' AND p.prokind = 'f' AND p.prosecdef
+      AND p.prorettype = 'jsonb'::regtype
+      AND p.proconfig = ARRAY['search_path=""']::text[]
+  ) THEN
+    RAISE EXCEPTION 'M199_REQUIRES_FROZEN_M198_SETUP';
+  END IF;
+  -- QC hold/return relies on this exact, enabled parent-version trigger, as
+  -- M198 does. Refuse drift before any QC permissions, schema or grants change.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+    WHERE t.tgrelid = 'public.manufacturing_orders'::regclass
+      AND t.tgname = 'zz_issue_maintenance_version'
+      AND t.tgenabled = 'O' AND t.tgtype = 19 AND t.tgattr::text = ''
+      AND t.tgqual IS NULL AND t.tgnargs = 0
+      AND t.tgfoid = to_regprocedure('wardah_internal.bump_issue_maintenance_version()')
+      AND md5(p.prosrc) = 'aa8a4559e9d1f2a465e2e56aa1d87011'
+  ) THEN
+    RAISE EXCEPTION 'M199_REQUIRES_FROZEN_PARENT_VERSION_TRIGGER';
+  END IF;
   IF EXISTS (
     SELECT 1 FROM public.quality_inspections
     GROUP BY org_id, inspection_number HAVING count(*) > 1
