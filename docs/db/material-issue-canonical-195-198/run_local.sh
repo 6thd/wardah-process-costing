@@ -3,9 +3,14 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
 HARNESS="$(realpath "${1:?Pass the pinned reviewed harness checkout}")"
-[[ -z "${DATABASE_URL:-}${PGSERVICE:-}${SUPABASE_DB_URL:-}${PGHOSTADDR:-}" ]] || exit 2
-[[ "${PGHOST:-}" == 127.0.0.1 && "${PGPORT:-}" =~ ^[0-9]+$ && "$PGPORT" -ge 55000 ]] || exit 2
-[[ "$(psql -X -At -d postgres -c 'SHOW server_version_num')" == 17* ]] || exit 2
+# Every refusal names its reason; exit 2 stays the fail-closed code.
+refuse() { printf 'CANONICAL_RUNNER_REFUSED: %s\n' "$1" >&2; exit 2; }
+[[ -z "${DATABASE_URL:-}${PGSERVICE:-}${SUPABASE_DB_URL:-}${PGHOSTADDR:-}" ]] \
+  || refuse 'connection URL/service/PGHOSTADDR override is set'
+[[ "${PGHOST:-}" == 127.0.0.1 && "${PGPORT:-}" =~ ^[0-9]+$ && "$PGPORT" -ge 55000 ]] \
+  || refuse "endpoint must be PGHOST=127.0.0.1 and PGPORT>=55000 (got ${PGHOST:-unset}:${PGPORT:-unset})"
+SERVER_VERSION="$(psql -X -At -d postgres -c 'SHOW server_version_num')"
+[[ "$SERVER_VERSION" == 17* ]] || refuse "server must be PostgreSQL 17 (got $SERVER_VERSION)"
 python3 docs/db/material-issue-canonical-195-198/verify_package.py --harness "$HARNESS"
 (cd "$HARNESS"
  python3 docs/db/material-issue-release/verify_package.py
@@ -17,13 +22,21 @@ cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -rf "$TASK_DIR"
 trap cleanup EXIT
 createdb "$DB"; export PGDATABASE="$DB"
 psql -X -v ON_ERROR_STOP=1 -q -f scripts/ci/fresh-db/supabase_shim.sql >/dev/null
-PAIR="$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)"
+# The reviewed proof is anchored to the cutoff-189 pair and stops at M198. A
+# later Baseline or migration must not change what this proves (the
+# posted-history-193 runner cuts its order the same way); the newest pair is
+# not selected, and any migration after 198 is outside this canonical proof.
+PAIR="$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 190)"
 field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
-[[ "$(field BASELINE_CUTOFF)" == 189 ]] || exit 2
+[[ "$(field BASELINE_CUTOFF)" == 189 ]] \
+  || refuse "anchored baseline cutoff must be 189 (got $(field BASELINE_CUTOFF))"
 psql -X -v ON_ERROR_STOP=1 -q -f "$(field BASELINE_PATH)" >/dev/null
 psql -X -v ON_ERROR_STOP=1 -q -f "$(field REFERENCE_PATH)" >/dev/null
-python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations 189 > "$TASK_DIR/order.txt"
-[[ "$(cut -d_ -f1 "$TASK_DIR/order.txt" | paste -sd,)" == 190,191,192,193,194,195,196,197,198 ]] || exit 2
+python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations 189 > "$TASK_DIR/full-order.txt"
+awk -F_ '$1 <= 198' "$TASK_DIR/full-order.txt" > "$TASK_DIR/order.txt"
+APPLY_ORDER="$(cut -d_ -f1 "$TASK_DIR/order.txt" | paste -sd,)"
+[[ "$APPLY_ORDER" == 190,191,192,193,194,195,196,197,198 ]] \
+  || refuse "apply order after cutoff 189 must be 190..198 (got $APPLY_ORDER)"
 REPORT="$TASK_DIR/chain.txt" bash scripts/ci/fresh-db/run_chain.sh sql/migrations "$TASK_DIR/order.txt"
 psql -X -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/acceptance_195_legacy_mo_quarantine.sql
 (cd "$HARNESS" && python3 scripts/ci/test_check_retryable_raise_sqlstate.py)

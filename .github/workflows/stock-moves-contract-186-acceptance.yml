@@ -107,14 +107,43 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          awk -F_ '$1 >= 195 && $1 <= 198' /tmp/stock-186-full-order.txt > /tmp/quarantine-order.txt
-          test "$(cut -d_ -f1 /tmp/quarantine-order.txt | paste -sd,)" = 195,196,197,198
+          # Apply every migration from 195 on, not only 195–198, so the
+          # quarantine and the invariants below keep covering later migrations.
+          awk -F_ '$1 >= 195' /tmp/stock-186-full-order.txt > /tmp/quarantine-order.txt
+          test "$(head -n 4 /tmp/quarantine-order.txt | cut -d_ -f1 | paste -sd,)" = 195,196,197,198
+          echo "STOCK_186_FINAL_CHAIN=$(cut -d_ -f1 /tmp/quarantine-order.txt | paste -sd,)"
           REPORT=/tmp/stock-186-quarantine-chain.txt PGDATABASE=wardah_fresh \
             bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/quarantine-order.txt
           psql -v ON_ERROR_STOP=1 -d wardah_fresh \
             -f scripts/ci/fresh-db/acceptance_195_legacy_mo_quarantine.sql \
             2>&1 | tee /tmp/stock-186-quarantine.out
           grep -q 'M195_198_LEGACY_MO_QUARANTINE_PASS' /tmp/stock-186-quarantine.out
+
+      - name: Re-prove M186 invariants on the final chain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # Only the reservation block calls the quarantined legacy RPC. Every
+          # other GREEN assertion (no stock_moves routine, compatibility ACL,
+          # balance mismatch/match, wrapper) must still hold after 195+.
+          SRC=scripts/ci/fresh-db/acceptance_186_stock_moves_contract.sql
+          OUT=/tmp/stock-186-final-chain.sql
+          test "$(grep -c '^DO \$reservation_contract\$$' "$SRC")" = 1
+          test "$(grep -c '^\$reservation_contract\$;$' "$SRC")" = 1
+          awk '/^DO \$reservation_contract\$$/ { skip = 1 }
+               !skip { print }
+               /^\$reservation_contract\$;$/ { skip = 0 }' "$SRC" > "$OUT"
+          test "$(grep -c 'rpc_create_mo_with_reservation' "$OUT")" = 0
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$OUT" \
+            2>&1 | tee /tmp/stock-186-final-chain.out
+          for marker in CONTRACT_SHAPE_OK BALANCE_MISMATCH_OK BALANCE_MATCH_OK \
+                        COMPATIBILITY_WRAPPER_OK ACCEPTANCE_PASS; do
+            grep -q "STOCK_186_GREEN_$marker" /tmp/stock-186-final-chain.out
+          done
+          if grep -q 'STOCK_186_GREEN_RESERVATION_CONTRACT_OK' /tmp/stock-186-final-chain.out; then
+            echo 'reservation block was expected to be excluded' >&2
+            exit 1
+          fi
 
       - name: Build pre-186 red database
         shell: bash
@@ -142,6 +171,9 @@ jobs:
           grep -q 'STOCK_186_GREEN_OUTFLOW_RESERVATION_FLOOR_OK' /tmp/stock-186-green.out
           grep -q 'STOCK_186_GREEN_ACCEPTANCE_PASS' /tmp/stock-186-green.out
           grep -q 'STOCK_186_RESERVATION_CONCURRENCY_PASS' /tmp/stock-186-concurrency.out
+          grep -q 'M195_198_LEGACY_MO_QUARANTINE_PASS' /tmp/stock-186-quarantine.out
+          grep -q 'STOCK_186_GREEN_CONTRACT_SHAPE_OK' /tmp/stock-186-final-chain.out
+          grep -q 'STOCK_186_GREEN_ACCEPTANCE_PASS' /tmp/stock-186-final-chain.out
           grep -q 'STOCK_186_RED_BALANCE_42P01_OK' /tmp/stock-186-red.out
           grep -q 'STOCK_186_RED_RESERVATION_42P01_OK' /tmp/stock-186-red.out
           grep -q 'STOCK_186_RED_LEGACY_CONSUMPTION_MASKED_ERROR_OK' /tmp/stock-186-red.out
