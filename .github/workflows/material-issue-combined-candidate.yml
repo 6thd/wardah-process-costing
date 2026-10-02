@@ -1,7 +1,7 @@
 name: Material issue client canonical integration
 on:
   pull_request:
-    branches: [main, feat/229-material-issue-isolated-ui, feat/170-154-material-issue-maintenance-client, feat/198-material-issue-parent-version-db, feat/198-material-issue-parent-version-client]
+    branches: [main, feat/229-material-issue-isolated-ui, feat/170-154-material-issue-maintenance-client, feat/198-material-issue-parent-version-db, feat/198-material-issue-parent-version-client, feat/material-issue-client-promotion-main]
     paths:
       - 'src/**'
       - 'sql/migrations/**'
@@ -9,6 +9,8 @@ on:
       - 'scripts/ci/fresh-db/**'
       - 'docs/db/material-issue-client-promotion/**'
       - 'docs/db/material-issue-canonical-195-198/**'
+      - 'docs/db/material-issue-quality-integration/**'
+      - 'docs/db/quality-control-199/**'
       - 'tests/fixtures/material-issue-combined/**'
       - 'tests/fixtures/material-issue-real-auth/**'
       - 'docs/db/material-issue-229/COMBINED_OPERATOR_ACCEPTANCE.md'
@@ -52,8 +54,7 @@ jobs:
           BASE=3acea30d83e182a2651b60b8696a658137bc0c92
           test "$(git rev-parse "$CLIENT^{tree}")" = ed2f78616e7b3582206bf39e47dcc94539c73c9f
           git merge-base --is-ancestor "$BASE" HEAD
-          git diff --exit-code "$CLIENT" HEAD -- src ':!src/types/database.generated.ts'
-          git diff --exit-code "$BASE" HEAD -- sql src/types/database.generated.ts
+          node docs/db/material-issue-quality-integration/verify_sources.mjs
           HARNESS="$RUNNER_TEMP/wardah-reviewed-material-issue"
           git worktree add --detach "$HARNESS" "$CLIENT"
           echo "HARNESS=$HARNESS" >> "$GITHUB_ENV"
@@ -94,6 +95,19 @@ jobs:
         run: |
           set -Eeuo pipefail
           bash tests/fixtures/material-issue-combined/run_local.sh 2>&1 | tee /tmp/material-issue-client-browser.out
+      - name: Complete M199 prerequisite and quality controls
+        run: |
+          set -Eeuo pipefail
+          bash docs/db/quality-control-199/run_local.sh 2>&1 | tee /tmp/material-issue-quality.out
+          grep -Fq 'M199_PREREQUISITE_CONTROLS_PASS prefixes=2 mutations=14 restored=true' /tmp/material-issue-quality.out
+          grep -Fq 'GREEN_M199_QUALITY_CONTROL_ACCEPTANCE' /tmp/material-issue-quality.out
+          grep -Fq 'M199_SNAPSHOT_CONTROLS_PASS maintenance=1 semantic=2 restored=true' /tmp/material-issue-quality.out
+      - name: Shared QC hold, material replay and M198 parent-version controls
+        run: |
+          set -Eeuo pipefail
+          bash docs/db/material-issue-quality-integration/run_local.sh 2>&1 | tee /tmp/material-issue-quality-shared.out
+          grep -Fq 'QC_MATERIAL_SHARED_PG17_PASS chain=10 readback=22' /tmp/material-issue-quality-shared.out
+          grep -Fq 'QC_REPLAY_DETERMINISM_PASS runs=60 mutants=2' /tmp/material-issue-quality-shared.out
       - name: Real local vendor Auth and PostgREST browser acceptance
         env:
           WARDAH_PARENT_VERSION_198: 'true'
@@ -115,6 +129,8 @@ jobs:
             /tmp/material-issue-client-canonical.out
             /tmp/material-issue-client-browser.out
             /tmp/material-issue-client-real-auth.out
+            /tmp/material-issue-quality.out
+            /tmp/material-issue-quality-shared.out
             /tmp/wardah-combined-bridge.txt
             /tmp/wardah-combined-vite.txt
             /tmp/wardah-real-auth-bridge.txt

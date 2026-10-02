@@ -54,6 +54,13 @@ describe('product catalog navigation', () => {
     expect(childKeys(visible, 'reports')).not.toContain('gemini-compat');
   });
 
+  it('shows Quality only to holders of the quality read key (Migration 199)', () => {
+    const withKey = getVisibleProductNavigation(context(['manufacturing.quality_inspections.read']));
+    expect(childKeys(withKey, 'manufacturing')).toContain('quality');
+    const ordersOnly = getVisibleProductNavigation(context(['manufacturing.orders.read']));
+    expect(childKeys(ordersOnly, 'manufacturing')).not.toContain('quality');
+  });
+
   it('uses exact child requirements instead of module-prefix access', () => {
     const visible = getVisibleProductNavigation(context(['inventory.adjustments.read']));
 

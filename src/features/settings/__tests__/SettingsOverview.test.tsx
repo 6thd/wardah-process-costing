@@ -4,6 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import { SettingsModule } from '../index'
 
+// Decorative SVGs are outside this route/permission/localization contract.
+// Keep every heading, link and visibility assertion; avoid cold jsdom SVG style work.
+vi.mock('lucide-react', () => ({
+  Settings: () => null, Building: () => null, Users: () => null,
+  Shield: () => null, Cog: () => null, Database: () => null, ClipboardCheck: () => null,
+}))
+
 vi.mock('@/components/ui/page-header', () => ({
   PageHeader: ({ title, description }: { title: string; description?: string }) => (
     <header>
@@ -15,6 +22,7 @@ vi.mock('@/components/ui/page-header', () => ({
 vi.mock('../CompanySettings', () => ({ CompanySettings: () => <div>Company settings page</div> }))
 vi.mock('../SystemSettingsPage', () => ({ SystemSettingsPage: () => <div>System settings page</div> }))
 vi.mock('../BackupSettingsPage', () => ({ BackupSettingsPage: () => <div>Data export page</div> }))
+vi.mock('../QualitySettingsPage', () => ({ QualitySettingsPage: () => <div>Quality settings page</div> }))
 
 const hasPermissionKeyMock = vi.fn((_key: string) => true)
 vi.mock('@/hooks/usePermissions', () => ({
@@ -118,5 +126,24 @@ describe('Settings overview', () => {
       expect(screen.queryByRole('heading', { name: 'System Settings' })).not.toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Data Export' })).not.toBeInTheDocument()
     })
+  })
+
+  it('the Quality card follows manufacturing.quality_inspections.read alone', async () => {
+    await act(async () => { await i18n.changeLanguage('en') })
+    setPermissions(['manufacturing.quality_inspections.read'])
+
+    renderSettings()
+
+    expect(screen.getByRole('heading', { name: 'Quality' }).closest('a')).toHaveAttribute('href', '/settings/quality')
+    expect(screen.queryByRole('heading', { name: 'Company Profile' })).not.toBeInTheDocument()
+  })
+
+  it('no quality key, no Quality card', async () => {
+    await act(async () => { await i18n.changeLanguage('en') })
+    setPermissions(['settings.organization.read'])
+
+    renderSettings()
+
+    expect(screen.queryByRole('heading', { name: 'Quality' })).not.toBeInTheDocument()
   })
 })

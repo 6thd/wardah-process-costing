@@ -1,0 +1,131 @@
+# Independent FAIL and narrow repair of PR #308
+
+Status: repair evidence, **not independent acceptance or merge authorization**.
+Parent: `90f3e07b12fe1556c6799673a9aef8c4cd5961fa`, tree
+`a5a98e4b1b6cc1e55ada7c082341c2f9a902f9da`; base #301 remains `0e462611`.
+
+## Review disposition
+
+The independent review returned FAIL for the shared acceptance fixture. It
+reproduced 22/40 successes: selecting a reservation again with `ORDER BY id LIMIT 1`
+changed the request after a random-ID reservation was inserted. The replay then
+raised MATERIAL_ISSUE_EVENT_CONFLICT, or the final new event tried to consume 10
+against the new two-unit reservation and raised CONSUMPTION_EXCEEDS_RESERVATION.
+These were test-construction defects, not M198/M199 product defects. The review's
+234 readback mutations, byte/source preservation, RBAC, full QC and frontend
+checks remain attributed independent evidence for the unchanged portions.
+
+I independently checked hosted job 110993825828, run 37053928039: its log contains
+MATERIAL_ISSUE_EVENT_CONFLICT; the shared step failed and the later vendor Auth
+browser step was skipped. Test & Build succeeded, but Sonar failed and Codacy was
+action_required at this parent. The PR's earlier "CI pending" wording was stale.
+
+## Exact repair boundary
+
+- Capture issue_193's complete command once before consumption. Reuse it unchanged
+  for both exact-receipt replays; generate new events by replacing only its event UUID.
+- Add gl_entries, gl_entry_lines and product stock_quantity to shared_state.
+- Add owner-only local replay controls: force the pre-existing reservation ID to
+  the lowest/highest UUID **before** any consumption reference exists, then execute
+  the unchanged 11-assertion acceptance 30 times for each order. Every transaction
+  rolls back. The setup only arranges fixture ordering; it replaces no function.
+- Separately reintroduce each old construction site with the original reservation
+  sorting last. Require its exact original failure, then roll back. This catches
+  a partial repair that fixes replay but leaves the final new event unstable.
+- Return the policy invalidation Promise and Promise.all for both QC invalidations
+  in useQuality.ts. React Query can await them; no floating promise is suppressed.
+- Keep source preservation fail-closed: only those literal promise edits are allowed
+  beyond the four-conflict parent union. The old hook body is independently refused.
+- Require `QC_REPLAY_DETERMINISM_PASS runs=60 mutants=2` in the combined workflow.
+
+No migration, baseline, original QC acceptance/concurrency, canonical 195–198,
+RBAC inventory or original branch is edited. No blanket analyzer exclusion or
+test timeout increase is introduced.
+
+## Executor local results
+
+PGDG PG17.11/client17.11; Python3.12/psycopg3.3.6; Node24.19. A startup-only
+UID/file-owner adapter is used in this managed root sandbox. This is not stock
+postgres:17 or hosted evidence. Packages were checked against the TLS PGDG index SHA-256.
+
+- Shared actual chain 190–199 passes, including the 72 quarantine probes, nine
+  column-grant controls and two 22-function readbacks with four mutants each.
+- 60/60 forced-order executions pass, each with all 11 assertions.
+- Old replay construction is refused with MATERIAL_ISSUE_EVENT_CONFLICT.
+- Old final-event construction is refused with CONSUMPTION_EXCEEDS_RESERVATION.
+- TypeScript passes; affected hook/QC/settings tests pass 17/17 in four files.
+- Source union passes; restoring the old hook is refused with quality promise repair drift.
+- Build/password gate passes (files=79); RBAC/classification/baseline passes unchanged
+  at 365 candidates / 339 signatures.
+- Full Vitest at the default five-second timeout: 4959 pass / two timeouts in
+  unchanged CompanySettings and SettingsOverview tests. The 60-second CLI comparison
+  passes 4961/4961 tests across 337 files in 144.43s; no repository timeout setting is modified.
+- Neither a longer local timeout nor the repaired local SQL constitutes a green
+  corrected-head GitHub check set. Hosted checks must be verified at that head.
+
+## Gates preserved
+
+Independent re-review and corrected-head CI are required. Native QC browser on
+199 and shared races remain open. Full QC review, service_role inspection-write
+boundary, 33 owner decisions, eight operational gates, hosted/target identity,
+pause/in-flight/pending recovery, current #278, devices/monitoring, DB-first paired
+cutover and NO-GO/M192 holds remain open. No target access, merge or release occurred.
+
+## Hosted follow-up on 9691f227
+
+Test & Build and both Sonar checks succeeded; the three floating promises are
+closed in hosted evidence. The combined job 111016112368 stopped earlier than
+the shared step: M199's prerequisite snapshot reported trigger_always residue.
+No workflow retry was used to bypass it.
+
+The snapshot included physical pg_class counters. A controlled ANALYZE on the
+local M196 database changed relpages/reltuples in permissions and its indexes,
+while every other snapshot section remained equal. This reproduces a false
+residue comparison; the exact fields in the hosted before/after were not logged,
+so background maintenance there remains an inference, not a recovered diff.
+
+The follow-up excludes only relpages, reltuples, relallvisible, relfrozenxid and
+relminmxid from relation rows. Schema, OIDs, file identity, ownership, ACL, RLS,
+options, functions, attributes, triggers, policies, constraints and seed rows
+remain compared. PostgreSQL documents these physical estimates/horizons at
+https://www.postgresql.org/docs/17/catalog-pg-class.html .
+
+New real controls prove ANALYZE is accepted, ACL revocation and trigger disabling
+are detected, and rollback restores the snapshot. Full M199 passes again:
+maintenance=1, semantic=2, prefixes=2, mutations=14, 70 assertions and concurrency.
+The combined workflow requires the new snapshot-control marker. M199 SQL and
+#306/#304 original branches remain unchanged.
+
+Codacy annotations on 9691f227 identified four dynamic filesystem reads in the
+source verifier. Known hook/index/translation reads now use literal filenames;
+other source/QC/M199 byte comparisons use raw Git blob hashes. No suppression was
+added. The source verifier passes and changes to the material client, QC hook,
+M198, M199 and QC acceptance are each still refused.
+
+The next hosted head still requires CI and independent re-review; this follow-up
+does not turn the 9691f227 failure into success retrospectively.
+
+## Hosted follow-up on 47c94c00 and settings fixture repair
+
+Combined run 37061984050/job111020555155 passes on 47c94c00, including real
+M199 controls, 60 forced-order shared passes, both original-bug refusals and
+the formerly skipped local vendor Auth/PostgREST browser mode. Codacy and
+Test & Build also pass. Sonar's test step fails only at the unchanged English
+SettingsOverview five-second deadline, before analysis; no rerun bypassed it.
+
+A temporary timing probe was removed after measurement: language change 1.87ms,
+render 68.85ms, first heading role query 4358.50ms, total English assertions
+5853.80ms. Decorative SVG DOM inflates cold jsdom accessibility/style work.
+The test now mocks only lucide-react decorations, not the page/permissions/
+translations under test. All original assertions are byte-preserved; no timeout
+was raised. The same test passes under the default deadline at 1636ms, all
+eight cases pass, and TypeScript/source verification pass.
+
+The exact mock insertion is the only additional test-source exception. Source
+verification refuses an altered Quality-card link assertion. No application
+component changed in this follow-up. Full-default frontend and new-head CI
+results must be reported from their actual runs, not borrowed from 47c94c00.
+
+The final executor full run with the unchanged default timeout passes all
+4961 tests / 337 files in 152.20s after the decorative fixture repair. There
+are no skipped assertions or tests and no repository deadline changes.

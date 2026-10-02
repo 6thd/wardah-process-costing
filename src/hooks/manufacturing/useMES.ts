@@ -3,7 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { mesService, WorkOrder, WorkOrderStatus, OperationEventType, LaborTimeTracking, QualityInspection, MaterialConsumption, MachineDowntime } from '@/services/manufacturing/mesService'
+import { mesService, WorkOrder, WorkOrderStatus, OperationEventType, LaborTimeTracking, MaterialConsumption, MachineDowntime } from '@/services/manufacturing/mesService'
 import { useToast } from '@/components/ui/use-toast'
 
 // Query Keys
@@ -14,7 +14,6 @@ export const mesKeys = {
   workOrderDetail: (id: string) => [...mesKeys.workOrders(), 'detail', id] as const,
   operationLogs: (workOrderId: string) => [...mesKeys.all, 'logs', workOrderId] as const,
   laborTime: (workOrderId: string) => [...mesKeys.all, 'labor', workOrderId] as const,
-  quality: (workOrderId: string) => [...mesKeys.all, 'quality', workOrderId] as const,
   materials: (workOrderId: string) => [...mesKeys.all, 'materials', workOrderId] as const,
   downtime: (workCenterId: string) => [...mesKeys.all, 'downtime', workCenterId] as const,
   workCenterSummary: (workCenterId: string) => [...mesKeys.all, 'summary', workCenterId] as const,
@@ -70,17 +69,6 @@ export function useLaborTimeRecords(workOrderId: string) {
   return useQuery({
     queryKey: mesKeys.laborTime(workOrderId),
     queryFn: () => mesService.getLaborTimeRecords(workOrderId),
-    enabled: !!workOrderId,
-  })
-}
-
-/**
- * Hook للحصول على فحوصات الجودة
- */
-export function useQualityInspections(workOrderId: string) {
-  return useQuery({
-    queryKey: mesKeys.quality(workOrderId),
-    queryFn: () => mesService.getQualityInspections(workOrderId),
     enabled: !!workOrderId,
   })
 }
@@ -385,48 +373,6 @@ export function useClockOut() {
       toast({
         title: 'خطأ',
         description: error.message || 'فشل في تسجيل الخروج',
-        variant: 'destructive',
-      })
-    },
-  })
-}
-
-// =====================================================
-// Quality Mutations
-// =====================================================
-
-/**
- * Hook لإنشاء فحص جودة
- */
-export function useCreateQualityInspection() {
-  const queryClient = useQueryClient()
-  const { toast } = useToast()
-  
-  return useMutation({
-    mutationFn: ({ workOrderId, inspectionData }: {
-      workOrderId: string
-      inspectionData: {
-        inspection_type: QualityInspection['inspection_type']
-        sample_size: number
-        passed_quantity: number
-        failed_quantity: number
-        result: QualityInspection['result']
-        specifications?: string
-        findings?: string
-        corrective_action?: string
-      }
-    }) => mesService.createQualityInspection(workOrderId, inspectionData),
-    onSuccess: (data: QualityInspection) => {
-      queryClient.invalidateQueries({ queryKey: mesKeys.quality(data.work_order_id) })
-      toast({
-        title: 'تم إنشاء الفحص',
-        description: 'تم تسجيل فحص الجودة بنجاح',
-      })
-    },
-    onError: (error: Error) => {
-      toast({
-        title: 'خطأ',
-        description: error.message || 'فشل في إنشاء فحص الجودة',
         variant: 'destructive',
       })
     },

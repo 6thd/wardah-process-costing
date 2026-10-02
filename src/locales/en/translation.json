@@ -1860,5 +1860,178 @@
     "dismissRejectedCreation": "Dismiss rejected order creation",
     "retrySetup": "Retry selected order preparation",
     "dismissRejectedSetup": "Dismiss rejected preparation"
+  },
+  "quality": {
+    "page": {
+      "title": "Quality Control",
+      "subtitle": "In-process and final inspections and production release decisions",
+      "settingsLink": "Quality settings",
+      "gateOff": "The release gate is off: inspections are recorded but do not block order completion. An organization admin can turn it on in Quality settings.",
+      "gateOn": "The release gate is on: an order completes only after an accepted final inspection in its current QC cycle.",
+      "queueTitle": "Orders in progress or under inspection",
+      "queueEmpty": "No orders are in progress or under inspection.",
+      "logTitle": "Inspection log",
+      "logEmpty": "No inspections recorded yet.",
+      "noReadPermission": "You do not have permission to view quality inspections (manufacturing.quality_inspections.read).",
+      "noInspectPermission": "Recording inspections requires a Quality Inspector role or an explicit grant of manufacturing.quality_inspections.create.",
+      "loadError": "Could not load quality data.",
+      "columns": {
+        "order": "Order",
+        "status": "Status",
+        "quantity": "Quantity",
+        "release": "Release",
+        "actions": "Actions",
+        "number": "Inspection #",
+        "type": "Type",
+        "result": "Result",
+        "passed": "Accepted",
+        "failed": "Rejected",
+        "disposition": "Disposition",
+        "inspector": "Inspector",
+        "date": "Date",
+        "stage": "Stage",
+        "cycle": "Cycle"
+      },
+      "actions": {
+        "hold": "Place under inspection",
+        "return": "Return to production",
+        "inspect": "Record inspection"
+      },
+      "release": {
+        "notRequired": "Not required",
+        "ready": "Ready ({{qty}})",
+        "blocked": "Not ready",
+        "loading": "…"
+      },
+      "returnTitle": "Return order to production",
+      "returnReason": "Reason (required)",
+      "returnConfirm": "Return to production",
+      "holdSuccess": "The order is now under inspection.",
+      "returnSuccess": "The order was returned to production.",
+      "inspectSuccess": "Inspection {{number}} recorded.",
+      "inspectReplayed": "This inspection was already recorded ({{number}}); nothing was duplicated."
+    },
+    "status": {
+      "in_progress": "In progress",
+      "quality_check": "Under inspection"
+    },
+    "type": {
+      "IN_PROCESS": "In-process",
+      "FINAL": "Final"
+    },
+    "result": {
+      "PASS": "Accepted",
+      "FAIL": "Rejected",
+      "CONDITIONAL": "Conditional"
+    },
+    "disposition": {
+      "scrap": "Scrap",
+      "rework": "Rework",
+      "use_as_is": "Use as is"
+    },
+    "form": {
+      "title": "Record inspection — {{order}}",
+      "type": "Inspection type",
+      "stage": "Stage",
+      "stagePlaceholder": "Select a stage",
+      "result": "Result",
+      "passed": "Accepted quantity",
+      "failed": "Rejected quantity",
+      "sample": "Sample size (optional)",
+      "disposition": "Disposition of rejected quantity",
+      "findings": "Findings",
+      "corrective": "Corrective action",
+      "specifications": "Reference specifications (optional)",
+      "submit": "Record inspection",
+      "cancel": "Cancel",
+      "finalNeedsQualityCheck": "A final inspection requires the order to be under inspection.",
+      "conditionalHint": "Conditional release must be enabled in settings and needs the conditional approval key.",
+      "immutableHint": "Inspections cannot be edited once recorded; record a new inspection to correct one."
+    },
+    "settings": {
+      "cardTitle": "Quality",
+      "cardDescription": "Inspection and production release policy",
+      "cardOptions": {
+        "gate": "Release gate",
+        "scope": "Inspection scope",
+        "sod": "Segregation of duties"
+      },
+      "title": "Quality settings",
+      "subtitle": "Quality control decisions: when inspection is mandatory and who may judge quality",
+      "readOnly": "These settings are read-only for you; an organization admin can change them.",
+      "version": "Version {{version}}",
+      "save": "Save settings",
+      "saved": "Quality settings saved.",
+      "reset": "Discard",
+      "rolesHint": "To record inspections, create a role from the \"Quality Inspector\" or \"Quality Manager\" template in role management and assign it to inspectors.",
+      "q1": {
+        "title": "1. At what level is inspection done?",
+        "help": "Defines what is required before an order is released.",
+        "final_only": "Final inspection of the manufacturing order",
+        "stages_and_final": "An accepted in-process inspection for every stage with WIP, plus a final inspection"
+      },
+      "q2": {
+        "title": "2. Is inspection mandatory before completion?",
+        "help": "When on, an order completes only from \"Under inspection\" after an accepted final inspection, and the completed quantity cannot exceed the released quantity.",
+        "off": "Not mandatory (inspections are informational)",
+        "all_orders": "Mandatory for every order",
+        "routing_flagged": "Mandatory for orders whose routing has an inspection operation"
+      },
+      "q3": {
+        "title": "3. Which decisions can an inspector make?",
+        "help": "Scrap and rework are always available for rejected quantity.",
+        "allowConditional": "Allow conditional release (use as is)",
+        "allowConditionalHint": "Also requires the manufacturing.quality_inspections.approve_conditional key (\"Quality Manager\" template)."
+      },
+      "q4": {
+        "title": "4. Scrap accounting",
+        "badge": "Pending accounting decision",
+        "body": "Not enabled in this release: dispositions are recorded as data only; abnormal scrap is not posted to the general ledger and rejected units do not move in inventory. Scrap accounts need review before this is enabled."
+      },
+      "q5": {
+        "title": "5. May people who produced an order inspect it?",
+        "help": "Whoever created the order, recorded its stage WIP, issued its materials or operated its work orders cannot inspect it.",
+        "label": "Enforce segregation of duties"
+      },
+      "q6": {
+        "title": "6. Are organization admins subject to these controls?",
+        "help": "When on, everyone including admins needs an explicit role to inspect, and segregation of duties applies to them.",
+        "label": "Admins are subject to quality controls"
+      }
+    },
+    "errors": {
+      "generic": "The operation could not be completed.",
+      "QUALITY_POLICY_VERSION_CONFLICT": "Someone else just changed these settings. Reload, then save again.",
+      "QUALITY_POLICY_INVALID": "The settings values are invalid.",
+      "QUALITY_POLICY_UNKNOWN_KEY": "Unknown setting.",
+      "NOT_ORG_ADMIN": "Only an organization admin can do this.",
+      "NOT_ORG_MEMBER": "You are not an active member of this organization.",
+      "QUALITY_INSPECT_PERMISSION_DENIED": "You do not have permission to record inspections.",
+      "QUALITY_CONDITIONAL_PERMISSION_DENIED": "Conditional release requires the conditional approval permission.",
+      "QUALITY_READ_PERMISSION_DENIED": "You do not have permission to view quality inspections.",
+      "QUALITY_SEGREGATION_OF_DUTIES": "You took part in producing this order, so you cannot inspect it (segregation of duties).",
+      "QUALITY_MO_VERSION_CONFLICT": "The order changed since it was loaded. Refresh and try again.",
+      "QUALITY_HOLD_REQUIRES_IN_PROGRESS": "Only an in-progress order can be placed under inspection.",
+      "QUALITY_RETURN_REQUIRES_QUALITY_CHECK": "Only an order under inspection can be returned to production.",
+      "QUALITY_RETURN_REASON_REQUIRED": "A reason is required to return the order to production.",
+      "QUALITY_REQUEST_ID_REUSED": "This request was already sent with different content. Reopen the form.",
+      "QUALITY_INVALID_QUANTITY": "Quantities must not be negative and must add up to more than zero.",
+      "QUALITY_DISPOSITION_REQUIRED": "Choose a disposition for the rejected quantity.",
+      "QUALITY_DISPOSITION_NOT_ALLOWED": "A disposition needs a rejected quantity.",
+      "QUALITY_FAIL_REQUIRES_REJECTED_QUANTITY": "A rejected result needs a rejected quantity.",
+      "QUALITY_CONDITIONAL_REQUIRES_USE_AS_IS": "Conditional release needs a rejected quantity with the \"use as is\" disposition.",
+      "QUALITY_USE_AS_IS_REQUIRES_CONDITIONAL": "\"Use as is\" is only available with conditional release.",
+      "QUALITY_CORRECTIVE_ACTION_REQUIRED": "A corrective action is required for rejected and conditional results.",
+      "QUALITY_CONDITIONAL_RELEASE_DISABLED": "Conditional release is not enabled in Quality settings.",
+      "QUALITY_CHECK_STATUS_REQUIRED": "The order must be under inspection.",
+      "QUALITY_MO_STATUS_INVALID": "The order status does not allow inspection.",
+      "QUALITY_STAGE_REQUIRED": "An in-process inspection needs a stage.",
+      "QUALITY_STAGE_NOT_FOUND": "The stage does not exist in your organization.",
+      "QUALITY_STAGE_NOT_ALLOWED": "A final inspection is not tied to a stage.",
+      "QUALITY_RELEASE_REQUIRED": "There is no final inspection in the current QC cycle.",
+      "QUALITY_RELEASE_REJECTED": "The latest final inspection was rejected.",
+      "QUALITY_STAGE_INSPECTION_REQUIRED": "Some stages have no accepted in-process inspection.",
+      "QUALITY_RELEASE_QUANTITY_EXCEEDED": "The completed quantity exceeds the released quantity."
+    }
   }
 }

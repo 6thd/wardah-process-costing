@@ -1,0 +1,62 @@
+name: Manufacturing quality control M199 disposable acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/199_manufacturing_quality_control.sql'
+      - 'docs/db/quality-control-199/**'
+      - 'docs/db/manufacturing-inventory-red-20260925/_helpers.sql'
+      - 'docs/db/manufacturing-inventory-red-20260925/00_fixture.sql'
+      - '.github/workflows/quality-control-199-acceptance.yml'
+      - 'sql/baseline/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: M199 RED and GREEN on disposable PG17
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL client for concurrency tests
+        run: python -m pip install 'psycopg[binary]>=3.2,<4'
+      - name: Prove RED through M198 and GREEN on M199
+        run: |
+          set -Eeuo pipefail
+          bash docs/db/quality-control-199/run_local.sh 2>&1 | tee /tmp/m199.out
+          # A green exit is not enough: every proof direction must have run.
+          for marker in 'M199_PREREQUISITE_CONTROLS_PASS prefixes=2 mutations=14 restored=true' \
+                        M199_RED_REPRODUCED M199_QUALITY_CONTROL_ACCEPTANCE_PASS \
+                        DEFINER_GUARD_CONTRACT_SELFTEST_PASS M199_CONCURRENCY_PASS \
+                        GREEN_M199_QUALITY_CONTROL_ACCEPTANCE; do
+            grep -Fq "$marker" /tmp/m199.out || { echo "missing $marker" >&2; exit 1; }
+          done
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-control-199-${{ github.run_id }}
+          path: /tmp/m199.out
+          retention-days: 30

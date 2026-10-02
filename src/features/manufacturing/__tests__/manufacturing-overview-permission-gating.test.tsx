@@ -102,6 +102,7 @@ describe('ManufacturingOverview — per-section permission-aware loading', () =>
       'manufacturing.work_centers.read',
       'manufacturing.stage_costs.read',
       'manufacturing.stages.read',
+      'manufacturing.quality_inspections.read',
     ]);
     renderOverview();
     await waitFor(() => expect(manufacturingGetAll).toHaveBeenCalled());
