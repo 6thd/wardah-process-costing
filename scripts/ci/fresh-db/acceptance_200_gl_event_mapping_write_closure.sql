@@ -113,13 +113,16 @@ BEGIN
     RAISE EXCEPTION 'GL_EVENT_200_ACCEPTANCE_DIRECT_WRITE_NOT_REJECTED: caught=%', v_caught;
   END IF;
 
-  -- The ordinary member cannot use the RPC either.
+  -- The ordinary member cannot use the RPC either. The refusal is
+  -- NOT_ORG_ADMIN on a chain ending at 200, and MANUFACTURING_SETTINGS_UPDATE_DENIED
+  -- once 201 widens the guard to key holders (this member holds no key).
   BEGIN
     PERFORM public.rpc_set_gl_event_mapping('52000200-0000-0000-0000-0000000000a1',
       'FG_RECEIPT', '131100', '134100');
     RAISE EXCEPTION 'GL_EVENT_200_ACCEPTANCE_MEMBER_RPC_ADMITTED';
   EXCEPTION WHEN OTHERS THEN
-    IF SQLERRM NOT LIKE '%NOT_ORG_ADMIN%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%NOT_ORG_ADMIN%'
+       AND SQLERRM NOT LIKE '%MANUFACTURING_SETTINGS_UPDATE_DENIED%' THEN RAISE; END IF;
   END;
 
   RAISE NOTICE 'GL_EVENT_200_MEMBER_PROBE_OK: member reads, direct writes and RPC rejected';

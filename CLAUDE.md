@@ -222,6 +222,18 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   الـrunbook — اقرأه قبل أي `CREATE OR REPLACE` على الدالة** (المرحلة 2 في #312 ستستبدل
   حارسها)؛ والملاحظات المؤجلة (ثغرة اتساق AP، الكاتب الثاني `rpc_upsert_event_mapping`،
   حدث غير معروف، نشاط الحساب وقت الضبط فقط) في §9.
+- `sql/migrations/201_manufacturing_settings_permissions.sql` +
+  `docs/db/MANUFACTURING_SETTINGS_PERMISSIONS_201_RUNBOOK.md` +
+  `.github/workflows/manufacturing-settings-201-acceptance.yml` — **Migration 201 (مستودع
+  فقط، غير مطبّقة؛ تُطبَّق بعد 200)**: قرارا المالك D1/D3 — إعدادات التصنيع في
+  `/settings/manufacturing`، وتعديلها صلاحية `manufacturing.settings.update` يمنحها مسؤول
+  المؤسسة للأدوار (مع `manufacturing.settings.read` لبوابة الصفحة). توسّع حارس كتّاب الإعدادات
+  الثلاثة (`rpc_set_gl_event_mapping`، `rpc_set_material_issue_wo_statuses`،
+  `rpc_set_quality_policy`) إلى محدِّد واحد `wardah_internal.manufacturing_settings_can_update_201`
+  = Super Admin أو `wardah_is_org_admin` أو حامل المفتاح — **مجموعة عليا للحارس السابق، لا يفقد
+  مسؤول حالي شيئًا** (`has_permission` وحدها كانت ستقفل المسؤول المعرَّف بالدور فقط). المفتاحان
+  مستثنيان من توسيع القوالب بالـwildcard. تستبدل خمس دوال؛ **العقد والسلسلة وتنسيق #313 في §4
+  من الـrunbook — اقرأه قبل أي `CREATE OR REPLACE` عليها**.
 
 ## Baseline
 
