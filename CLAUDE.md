@@ -204,6 +204,14 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   اختيار المؤسسة FU-6. postflight الحي أثبت 75 policy، كلها `authenticated`، وصفر
   legacy selector أو policy بلا حارس. ولّد run `33952026388` زوج Baseline cutoff
   188، ونشره PR #224 عند merge commit `20746954`.
+- `sql/migrations/199_manufacturing_quality_control.sql` +
+  `docs/db/MANUFACTURING_QUALITY_CONTROL_199_RUNBOOK.md` +
+  `.github/workflows/quality-control-199-acceptance.yml` — **Migration 199 (مستودع
+  فقط، غير مطبّقة؛ تتطلب 195–198 أولًا)**: وظيفة الضبط (الجودة) في التصنيع. أسئلة
+  جرد 2026-10-02 صارت إعدادات لكل مؤسسة في `wardah_internal.quality_policies`
+  (البوابة `off` افتراضيًا)، والفحوص ثابتة لا تُعدَّل وتُكتب عبر RPC فقط، وبوابة
+  الإفراج trigger على `manufacturing_orders` فيرثها أي مسار إتمام لاحق (#230).
+  مفاتيح `manufacturing.quality_inspections.*` مستثناة من توسيع القوالب بالـwildcard.
 
 ## Baseline
 
