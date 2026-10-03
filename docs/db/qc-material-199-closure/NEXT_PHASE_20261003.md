@@ -25,10 +25,12 @@ This packet maps all IDs without replacing or silently approving that register.
    expiry/revocation, segregation of duties, conditional/stage inspection,
    immutable history and privileged direct writes. A separately reviewed
    implementation is required for any resulting correction.
-2. Define the intended acceptance scope: an isolated material-issue/QC pilot, or
-   complete MES/finished-goods/accounting workflows. This packet recommends
-   isolated non-PROD preparation first, but no environment or unavailable route
-   is approved. Narrow maintenance is not equivalent to full manufacturing.
+2. The owner selected **isolated non-PROD acceptance first** in the 2026-10-03
+   conversation: prepare material-issue/QC acceptance before full manufacturing.
+   This is a planning-scope decision only. No target environment, target access,
+   route unavailability or MES/finished-goods/accounting alternative is approved.
+   Narrow maintenance is not equivalent to full manufacturing. Keep required
+   out-of-scope workflows blocked until each has an approved disposition.
 3. For each route below choose a reviewed replacement, verified unavailability
    with an approved operator alternative, or retain it as a blocker. GW/DR
    boundaries may be excluded only with deployment-specific evidence. An
