@@ -199,3 +199,18 @@ its RED probe GREEN and re-runs the existing M190/M191 acceptance suites.
    explicit decision.
 7. **Partial completion:** multiple FG receipt events per MO while it stays open, or a
    single terminal completion only.
+
+## 10. Post-reconciliation UI/service gaps — 2026-09-29
+
+A later source review of manufacturing + inventory on `main` identified three
+UI/service gaps for owner triage after the current #229/#279 work. This is
+tracking only, with overlaps and evidence limits stated in the linked document:
+
+[`MANUFACTURING_INVENTORY_UI_GAPS_20260929.md`](./MANUFACTURING_INVENTORY_UI_GAPS_20260929.md)
+
+That document authorizes no implementation and does not change the C1–C7
+delivery plan above. Its remaining gaps are A (inventory UI stock reads), C
+(warehouse service false success and future guard), and D (transfer draft/list
+organization context). The initial sales claim was disproved; MES consumption
+is already owned by #229/#279; unused modules writers remain a latent cleanup
+note. No new Issues or code PRs are requested during the current #229 work.
