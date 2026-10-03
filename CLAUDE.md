@@ -212,6 +212,16 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   (البوابة `off` افتراضيًا)، والفحوص ثابتة لا تُعدَّل وتُكتب عبر RPC فقط، وبوابة
   الإفراج trigger على `manufacturing_orders` فيرثها أي مسار إتمام لاحق (#230).
   مفاتيح `manufacturing.quality_inspections.*` مستثناة من توسيع القوالب بالـwildcard.
+- `sql/migrations/200_gl_event_mapping_write_closure.sql` +
+  `docs/db/GL_EVENT_MAPPING_WRITE_CLOSURE_200_RUNBOOK.md` +
+  `.github/workflows/gl-event-mapping-200-acceptance.yml` — **Migration 200 (مستودع
+  فقط، غير مطبّقة؛ تُطبَّق بعد 195–199 بالترتيب)**: تغلق الكتابة المباشرة على
+  `gl_event_mappings` (MS-01: كان أي عضو يعيد توجيه حسابات القيود)، وتُبقي `SELECT`
+  للأعضاء، وتضيف `rpc_set_gl_event_mapping` المحروسة بمسؤول المؤسسة والمدققة. تطبيقها
+  قبل 195–199 يجعل الـBaseline التالي يطوي migrations لم تُطبَّق. **العقد في §8 من
+  الـrunbook — اقرأه قبل أي `CREATE OR REPLACE` على الدالة** (المرحلة 2 في #312 ستستبدل
+  حارسها)؛ والملاحظات المؤجلة (ثغرة اتساق AP، الكاتب الثاني `rpc_upsert_event_mapping`،
+  حدث غير معروف، نشاط الحساب وقت الضبط فقط) في §9.
 
 ## Baseline
 
