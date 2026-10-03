@@ -47,7 +47,7 @@ Production أو Staging.
 | MS-14 | علم `uom_engine_enabled` يحكم كل حركة `stock_ledger_entries` بما فيها صرف مواد التصنيع، ولا يظهر في أي نافذة تصنيع ولا يملك مفتاح تشغيل في الواجهة. | معلوماتية |
 | MS-15 | سياسات `work_center_calendars` و`routings` و`routing_operations` تفحص العضوية دون `is_active`. | منخفضة — يحتاج تحققًا حيًا |
 | MS-16 | لا توجد سلطة موحدة لإعدادات التصنيع: كل مخزن يستخدم حارسًا مختلفًا (§4). | متوسطة (حوكمة) |
-| MS-17 | نافذة الأوامر (W2) تُنشئ الأمر **بإدراج مباشر** في `manufacturing_orders` (لا تمرر مواد، فلا تصل إلى `rpc_create_mo_with_reservation`)، ورقم الأمر يُولَّد في المتصفح (`MO-${Date.now()}`) عند تركه فارغًا. Migration 195 (مستودع) تحجر هذا الكاتب المباشر، فإن طُبقت **تفقد W2 مسار الإنشاء** ما لم يُستبدل. | عالية (تتابع نشر) |
+| MS-17 | نافذة الأوامر (W2) تُنشئ الأمر **بإدراج مباشر** في `manufacturing_orders` (لا تمرر مواد، فلا تصل إلى `rpc_create_mo_with_reservation`)، ورقم الأمر يُولَّد في المتصفح (`MO-${Date.now()}`) عند تركه فارغًا. وMigration 195 (مستودع) لا تحجر هذا الكاتب المباشر وحده، بل تسحب أيضًا `rpc_transition_mo_status` (كل انتقالات الحالة العادية في `updateStatus.ts:216`) و`rpc_complete_manufacturing_order` (الإتمام، `updateStatus.ts:56`). فإن طُبقت **تفقد W2 الإنشاء وكل تغيير حالة والإتمام معًا** ما لم تُنشر بدائل ذرية قبلها (منسّق #230). | عالية (تتابع نشر) |
 
 **الأثر العملي اليوم:** المستخدم لا يجد مكانًا يضبط فيه سلوك التصنيع؛ وما يمكن ضبطه
 (مراكز العمل، المراحل) إمّا ناقص الحقول أو ممنوع الحفظ؛ وما يؤثر محاسبيًا (خرائط القيود)
@@ -67,11 +67,11 @@ Production أو Staging.
 | # | المسار | حالة القائمة | مفتاح الدخول | المكوّن | مصدر البيانات الفعلي | الإعدادات التي **يستهلكها** | الإعدادات التي **يحتاجها ولا يقرؤها** |
 |---|---|---|---|---|---|---|---|
 | W1 | `/overview` | ظاهر | أيٌّ من 5 مفاتيح قراءة | `ManufacturingOverview` | `manufacturing_orders` | — | — |
-| W2 | `/orders` | ظاهر | `manufacturing.orders.read` | `ManufacturingOrdersManagement` (`index.tsx:233`) | ⚠️ إنشاء بإدراج مباشر في `manufacturing_orders` عبر `manufacturingOrderService.ts:30` → `manufacturingService.create` **بلا مواد**، فلا يُستدعى `rpc_create_mo_with_reservation` (يُستدعى فقط عند `materials.length > 0`)؛ تغيير الحالة/الإتمام عبر `updateStatus` → `rpc_complete_manufacturing_order`؛ `products` | افتراضيات أعمدة الجدول فقط (`costing_method='weighted_average'`، `auto_backflush=true`)؛ رقم أمر يُولَّد في المتصفح | طريقة التكلفة، مخزن المواد الخام، مخزن الإنتاج التام، ترقيم الأوامر من الخادم (MS-17) |
+| W2 | `/orders` | ظاهر | `manufacturing.orders.read` | `ManufacturingOrdersManagement` (`index.tsx:233`) | ⚠️ إنشاء بإدراج مباشر في `manufacturing_orders` عبر `manufacturingOrderService.ts:30` → `manufacturingService.create` **بلا مواد**، فلا يُستدعى `rpc_create_mo_with_reservation` (يُستدعى فقط عند `materials.length > 0`)؛ تغيير الحالة عبر `updateStatus` → `rpc_transition_mo_status` (`updateStatus.ts:216`)، والإتمام → `rpc_complete_manufacturing_order` (`updateStatus.ts:56`)؛ `products`. **المسارات الثلاثة تحجرها 195** (MS-17) | افتراضيات أعمدة الجدول فقط (`costing_method='weighted_average'`، `auto_backflush=true`)؛ رقم أمر يُولَّد في المتصفح | طريقة التكلفة، مخزن المواد الخام، مخزن الإنتاج التام، ترقيم الأوامر من الخادم (MS-17) |
 | W3 | `/mes` | beta | `manufacturing.work_centers.read` | `WorkCenterDashboard` | `work_orders`، `work_centers` (الهوية والتفعيل فقط: `id, name, name_ar, is_active`)، `start_operation`/`complete_operation` (مسحوبة من العملاء في 195 — مستودع) | — (لا يقرأ معدلات المركز) | سياسة حالات أمر العمل المسموح بالصرف عليها (`material_issue_wo_policies`)، `requires_inspection` |
-| W4 | `/routing/*` | **مخفي** (#152) | غير مسجل → يُغلق | `RoutingManagement` | `routings`، `routing_operations`، `operation_resources` | S12: أزمنة العملية ومعدلاتها و`requires_inspection` (يكتبها النموذج) | معدلات مركز العمل الافتراضية كقيم أولية |
-| W5 | `/capacity` | beta | `manufacturing.work_centers.read` | `CapacityDashboard` | أربعة hooks مركّبة فقط: `useBottlenecks` → `identify_bottlenecks`؛ `useCapacitySummary` → `v_capacity_summary`؛ `useWeeklyScheduleSummary` → `schedule_details` + `work_center_load`؛ `usePredictDelays` → `schedule_details` | طاقة المركز عبر `v_capacity_summary` (`capacity_hours_per_day`، `number_of_machines`، `default_labor_rate`، `default_overhead_rate`) | التقويم (S11): hooks التقويم والجداول موجودة في `useCapacity.ts` لكنها **غير مركّبة**؛ لا واجهة لضبط ساعات اليوم/عدد الآلات |
-| W6 | `/efficiency` | beta | كل من 3 مفاتيح | `EfficiencyDashboard` | `v_oee_report`، `v_labor_efficiency`، `v_work_center_efficiency_summary`… | `work_centers.capacity_hours_per_day` فقط (عبر `v_work_center_efficiency_summary`) | أعمدة الكفاءة المخزنة (`efficiency_percent`/`efficiency_rate`) لا تقرؤها هذه الـviews |
+| W4 | `/routing/*` | **مخفي** (#152) | غير مسجل → يُغلق | `RoutingManagement`، `RoutingForm` | **لا شيء فعليًا:** كل بوابات القراءة والكتابة مثبتة على `false` داخل المكوّنين (`RoutingManagement.tsx:51-56`، `RoutingForm.tsx:33-35`)، والنموذج يستورد `useRouting`/`useCreateRouting`/`useUpdateRouting` فقط ولا يركّب أي hook للعمليات | — | S12 كاملًا (لا محرّر مركّب له)؛ معدلات مركز العمل كقيم أولية |
+| W5 | `/capacity` | beta | `manufacturing.work_centers.read` | `CapacityDashboard` | أربعة hooks مركّبة فقط: `useBottlenecks` → `identify_bottlenecks`؛ `useCapacitySummary` → `v_capacity_summary`؛ `useWeeklyScheduleSummary` → `schedule_details` + `work_center_load`؛ `usePredictDelays` → `schedule_details` | طاقة المركز عبر `v_capacity_summary` (Baseline:20008–20029): `capacity_hours_per_day` و`number_of_machines` فقط | التقويم (S11): hooks التقويم والجداول موجودة في `useCapacity.ts` لكنها **غير مركّبة**؛ لا واجهة لضبط ساعات اليوم/عدد الآلات |
+| W6 | `/efficiency` | beta | كل من 3 مفاتيح | `EfficiencyDashboard` | `v_oee_report`، `v_labor_efficiency`، `v_work_center_efficiency_summary`، `v_material_consumption_report`، و`v_cost_variance_report` (عبر `useCostVarianceReport` و`useTotalVariances` المركّبين دون شرط) | **S12 + S4:** `v_cost_variance_report` يحسب تكلفة العمل والأعباء من `routing_operations.labor_rate_per_hour/overhead_rate_per_hour` مع الرجوع إلى `work_centers.default_labor_rate/default_overhead_rate`؛ أما `v_work_center_efficiency_summary` فلا يقرأ من المركز إلا `id`/`name`/`name_ar` | أعمدة الكفاءة المخزنة (`efficiency_percent`/`efficiency_rate`) لا تقرؤها أي view |
 | W7 | `/process-costing` | beta | `manufacturing.stage_costs.read` | `StageCostingPanel` | `stage_costs`، `manufacturing_stages`، `work_centers`، ⛔ `labor_time_logs`، ⛔ `moh_applied` | **ثابت 15% في الكود** (`stage-costing-panel.tsx:713`)، أجر يدوي | `work_centers.hourly_rate/default_labor_rate/default_overhead_rate/normal_scrap_rate` |
 | W8 | `/equivalent-units` | beta | `manufacturing.stage_costs.read` | `EquivalentUnitsDashboard` | 🟡 أوامر مثبتة في الكود + خدمة stub | — | طريقة التكلفة (WA/FIFO) |
 | W9 | `/cost-of-production` | beta | `manufacturing.stage_costs.read` | `CostOfProductionReport` | `rpc_cost_of_production_report` | `manufacturing_orders.costing_method` | — |
@@ -111,7 +111,7 @@ Production أو Staging.
 | S1 | `wardah_internal.material_issue_wo_policies` (M192) | مؤسسة | حالات أمر العمل المسموح بالصرف عليها: `IN_PROGRESS` إلزامي + `READY`/`IN_SETUP` اختياريان | `rpc_set_material_issue_wo_statuses` | `rpc_consume_material_event`، `rpc_get_material_issue_context` (195)؛ **عقد قراءة العميل:** `rpc_get_material_issue_wo_statuses` (192، عضو نشط) | لا شيء في `main` (#292) | Org Admin + تدقيق + نسخة؛ **آخر كاتب يفوز** (لا `expected_version`) | 🟡 DB ✅ / واجهة ❌ |
 | S2 | `wardah_internal.quality_policies` (M199) | مؤسسة | بوابة الإفراج، نطاق الفحص، الإفراج المشروط، فصل المهام | `rpc_set_quality_policy` | `evaluate_quality_release_199`، trigger على `manufacturing_orders`؛ **عقد قراءة العميل:** `rpc_get_quality_policy` (199) | لا شيء في `main` (#304) | مسؤول المؤسسة + نسخة | 🟡 مستودع فقط |
 | S3 | `gl_event_mappings` (M76/M77) | مؤسسة (+ مركز عمل اختياري) | حسابات قيود `MATERIAL_ISSUE`، `FG_RECEIPT`، `OH_APPLIED` (لكل مركز)، `LABOR_APPLIED`، `NORMAL_SCRAP`، `ABNORMAL_SCRAP`، `OH_UNDER/OVER_APPLIED`، `PROCESS_COST_VARIANCE` | `rpc_upsert_event_mapping` (`service_role` فقط) **أو أي عضو مباشرة** | `rpc_post_event_journal` (Baseline:8470)، `rpc_post_work_center_oh` (Baseline:9452) | لا نافذة تصنيع؛ لكن `fetchCogsAccounts` في `financial-statements-service.ts:126` يقرأ صفوف `COGS_DELIVERY` مباشرة لتقرير الربحية — **قارئ عميل قائم يجب الحفاظ على `SELECT` له** عند أي إغلاق | ⛔ سياسة `ALL` بلا `TO` وفحص مؤسسة فقط (Baseline:29939) + `GRANT ALL` لـ`anon`/`authenticated` (Baseline:35222) | ⛔ MS-01، MS-08 |
-| S4 | `work_centers` — أعمدة المعدلات والطاقة | مركز عمل | `hourly_rate`، `default_labor_rate`، `default_overhead_rate`، `normal_scrap_rate`، `capacity_per_hour`، `capacity_hours_per_day`، `number_of_machines`، `efficiency_percent`، `efficiency_rate`، `calendar_id` | الواجهة مباشرة (⛔ RLS) | `upsert_stage_cost_core` (`normal_scrap_rate`)، دوال الطاقة والكفاءة | W5، W6، W7، W14 | سياسة `SELECT` فقط (Baseline:32549) | ⛔ MS-04، MS-05 |
+| S4 | `work_centers` — أعمدة المعدلات والطاقة | مركز عمل | `hourly_rate`، `default_labor_rate`، `default_overhead_rate`، `normal_scrap_rate`، `capacity_per_hour`، `capacity_hours_per_day`، `number_of_machines`، `efficiency_percent`، `efficiency_rate`، `calendar_id` | الواجهة مباشرة (⛔ RLS) | `upsert_stage_cost_core` (`normal_scrap_rate`)، `v_capacity_summary` (الطاقة وعدد الآلات)، `v_cost_variance_report` (المعدلات الافتراضية كرجوع) | W5، W6، W14 (W7 يحتاجها ولا يقرؤها) | سياسة `SELECT` فقط (Baseline:32549) | ⛔ MS-04، MS-05 |
 | S5 | `manufacturing_stages` | مرحلة | التسلسل، مركز العمل، **حساب WIP** | الواجهة مباشرة | لا دالة ترحيل تقرأ `wip_gl_account_id` | W7، W8، W11، W12، W13 | `ALL` بفحص المؤسسة فقط | 🟡 MS-07 |
 | S6 | `standard_costs` | منتج × مرحلة | التكلفة المعيارية وفترة السريان | الواجهة مباشرة | — | W13 | `ALL` بفحص المؤسسة فقط | ✅ (بلا مفتاح كتابة في DB) |
 | S7 | `manufacturing_orders` — أعمدة سلوك لكل أمر | أمر | `costing_method`، `auto_backflush`، `backflush_timing`، `routing_id` | الإنشاء/التحديث المباشر (يُحجر في 195 — مستودع) | `rpc_cost_of_production_report`، `upsert_stage_cost_core` | W2، W9 | — | 🟡 MS-09، MS-10 |
@@ -119,7 +119,7 @@ Production أو Staging.
 | S9 | `org_settings` (M98) | مؤسسة (key/value JSONB) | `system` (عرض + مخزن افتراضي)، `uom_engine_enabled` | `setOrgSetting` (Org Admin عبر RLS) | `wardah_guard_mapped_product_uom_stock_write` (Baseline:15962) على `stock_ledger_entries` | `/settings/system`، واجهات الوحدات | Org Admin | 🟡 MS-12، MS-14 |
 | S10 | `warehouse_gl_mapping` + أعمدة حسابات `warehouses` | مخزن | حساب المخزون والتسوية والتكلفة | `update_warehouse_gl_mapping` (`SECURITY INVOKER`) | — | شاشة المخازن | سياسة `SELECT` فقط (Baseline:32439) | ⛔ MS-13 |
 | S11 | `work_center_calendars` | مركز × يوم | ساعات العمل والعطل والصيانة | خدمة الطاقة مباشرة (hooks غير مركّبة) | `calculate_available_capacity` وأخواتها | لا نافذة مركّبة (W5 لا يقرؤه) | فحص عضوية دون `is_active` (Baseline:32474) | 🟡 MS-15 |
-| S12 | `routing_operations` (+ `routings`) | عملية × مسار | `standard_setup_time`، `standard_run_time_per_unit`، `standard_queue_time`، `standard_move_time`، `time_unit`، `labor_rate_per_hour`، `overhead_rate_per_hour`، `operation_type`، حقول التعهيد (`is_outsourced`، `outsource_vendor_id`، `outsource_cost`)، `requires_inspection`، `inspection_instructions` (Baseline:18885) | نموذج المسار W4 مباشرة (`routingService.ts:302`) | `calculate_routing_standard_cost`، `v_cost_variance_report` (المعدلات)؛ `evaluate_quality_release_199` (`requires_inspection` في وضع `routing_flagged` — 199 مستودع) | W4 (مخفي، #152) | فحص عضوية دون `is_active` لكل العمليات (Baseline:31620–31650) | 🟡 MS-15 |
+| S12 | `routing_operations` (+ `routings`) | عملية × مسار | `standard_setup_time`، `standard_run_time_per_unit`، `standard_queue_time`، `standard_move_time`، `time_unit`، `labor_rate_per_hour`، `overhead_rate_per_hour`، `operation_type`، حقول التعهيد (`is_outsourced`، `outsource_vendor_id`، `outsource_cost`)، `requires_inspection`، `inspection_instructions` (Baseline:18885) | **لا كاتب مركّب:** CRUD العمليات في `routingService.ts:300–425` وhooks العمليات في `useRouting.ts` غير مستخدمة، وW4 مقفل؛ أي بيانات حالية دخلت خارج الواجهة | `calculate_routing_standard_cost`، `v_cost_variance_report` (المعدلات)؛ `evaluate_quality_release_199` (`requires_inspection` في وضع `routing_flagged` — 199 مستودع) | W6 (عبر `v_cost_variance_report`) | فحص عضوية دون `is_active` لكل العمليات (Baseline:31620–31650) | 🟡 MS-15 |
 | C1 | `public/config.json` → `COSTING_CONFIG`، `APP_SETTINGS.costing_method` | تطبيق كامل (ثابت) | `default_overhead_rate: 0.15`، `labor_overhead_rate`، `costing_method: "AVCO"` | ملف ثابت | — | **لا مستهلك** (`getCostingConfig` في `src/core/config.js` لا يستدعيه أحد) | — | 🟡 ميت |
 | C2 | `public/config.json` → `TABLE_NAMES` | تطبيق كامل | أسماء جداول بينها ⛔ `labor_time_logs`، `moh_applied`، `process_costs`، `stock_moves` | ملف ثابت | — | `src/lib/realtime.ts:137,149` (اشتراك Realtime على جداول غير موجودة) | — | ⛔ MS-03 |
 
@@ -167,7 +167,7 @@ Production أو Staging.
 | S1 حالات الصرف | | ○ | | | | | | | | ○ | | | | |
 | S2 سياسة الجودة | ○ | ○ | | | | | | | | | | | | ○ |
 | S3 خرائط القيود | ● (إتمام: `MATERIAL_ISSUE`+`FG_RECEIPT`) | | | | | ○ (أعباء) | | | ○ (حساب WIP) | | | ○ (`OH_APPLIED` لكل مركز) | | |
-| S4 معدلات المركز | | | ○ (قيم أولية لمعدلات العملية) | ● (`v_capacity_summary`) | ● (`capacity_hours_per_day` عبر `v_work_center_efficiency_summary`) | ○ | | | | | ○ | ✎ (أجر فقط) | | |
+| S4 معدلات المركز | | | ○ (قيم أولية لمعدلات العملية) | ● (طاقة وآلات عبر `v_capacity_summary`) | ● (معدلات افتراضية كرجوع عبر `v_cost_variance_report`) | ○ | | | | | ○ | ✎ (أجر فقط) | | |
 | S5 المراحل | | | | | | ● | ● | ● | ✎ | ● | ● | | | ○ (`stages_and_final`) |
 | S6 التكاليف المعيارية | | | | | | | | | | | ✎ ● | | | |
 | S7 طريقة التكلفة | ○ | | | | | ○ | ○ | ● | | | | | | |
@@ -176,7 +176,7 @@ Production أو Staging.
 | S9 المخزن الافتراضي | ○ | ○ | | | | | | | | | | | | |
 | S9 محرك الوحدات ¹ | | | | | | | | | | | | | | |
 | S10 حسابات المخزن | ○ | ○ | | | | | | | | | | | | |
-| S12 عمليات المسار | | ○ (`requires_inspection`) | ✎ ● | | | | | | | | | | | ○ (`routing_flagged`) |
+| S12 عمليات المسار | | ○ (`requires_inspection`) | ○ (لا محرّر مركّب) | | ● (`v_cost_variance_report`) | | | | | | | | | ○ (`routing_flagged`) |
 | C1 أعباء 15% | | | | | | ● (مكرر في الكود) | | | | | | | | |
 
 ¹ علم `uom_engine_enabled` يُقرأ في trigger على كل إدراج في `stock_ledger_entries`، فيحكم
@@ -187,7 +187,8 @@ Production أو Staging.
 قاعدة المصفوفة: الخلية ● تعني أن **مكوّنًا مركّبًا** في النافذة يستدعي مسارًا يقرأ الإعداد؛ دوال
 الخدمة والـhooks غير المركّبة لا تُحتسب. لذلك: W3 لا يقرأ معدلات المركز (يختار الهوية فقط)؛
 W7 (`upsertStageCost`) وW12 (إغلاق WIP) لا يقرآن `costing_method`؛ و`updateBackflushSettings`
-في خدمة الكفاءة لا يركّبها W6.
+في خدمة الكفاءة لا يركّبها W6؛ وW4 لا يقرأ ولا يكتب شيئًا لأن بواباته مثبتة على `false`؛ وW5 لا
+يقرأ معدلات المركز لأن `v_capacity_summary` لا يعرضها.
 
 ---
 
@@ -232,16 +233,21 @@ D3 في §7.
    وسحب `anon`، مع RPC كتابة محروسة ومدققة. **يُبقي `SELECT` للأعضاء** لأن
    `fetchCogsAccounts` (تقرير الربحية) يقرأ الجدول مباشرة اليوم. Additive فقط، لا حذف بيانات.
 3. **مرحلة 2 — DB PR ثانٍ:** مفاتيح `manufacturing.settings.*`، RPC كتابة لمراكز العمل،
-   جدول السياسة العامة مع زرع لكل مؤسسة وtrigger عند الإنشاء، زرع خرائط القيود للمؤسسات الجديدة.
+   جدول السياسة العامة مع زرع لكل مؤسسة وtrigger عند الإنشاء، زرع خرائط القيود للمؤسسات الجديدة،
+   وسياسة/RPC كتابة لـ`bom_settings` (S8). أي بند لا يدخل هذا الـPR ينتقل إلى DB PR لاحق
+   يُدمج ويُطبَّق قبل التبويب الذي يعتمد عليه.
 4. **مرحلة 3 — UI PR:** التبويبات القابلة للتعديل، **بعد** تطبيق مرحلتي 1–2 على Production
-   والتحقق منهما. شروط إضافية لكل تبويب:
+   والتحقق منهما. **القاعدة العامة:** كل تبويب علّمه §6.2 بـ«نعم» في عمود «يحتاج DB PR أولًا»
+   لا يُدمج حتى يُدمج تغييره في قاعدة البيانات ويُطبَّق على Production ويُتحقق منه؛ وإلا يُؤجَّل.
+   شروط إضافية لكل تبويب:
+   - **قوائم المواد:** يعتمد على سياسة/RPC الكتابة لـS8؛ إن لم تدخل مرحلة 2 يُؤجَّل.
    - **الجودة:** لا يُدمج قبل تطبيق سلسلة **195 → 199** على Production والتحقق منها، لأن
      `quality_policies` و`rpc_get_quality_policy` موجودتان في 199 فقط. حتى ذلك الحين يُؤجَّل
      التبويب، أو يبقى PR الواجهة غير مدموج.
    - **صرف المواد:** يعتمد على S1 و`rpc_get/set_material_issue_wo_statuses` المطبّقتين (192)، فلا
      ينتظر 195–199.
-   - أي تبويب يحفظ عبر مسار تحجره 195 (مثل إنشاء الأوامر في W2، MS-17) يُعاد تصميمه على
-     الـRPC الذرية قبل تطبيق 195.
+   - أي تبويب أو نافذة تحفظ عبر مسار تحجره 195 — في W2: الإنشاء المباشر، و`rpc_transition_mo_status`،
+     و`rpc_complete_manufacturing_order` (MS-17) — يُنقل إلى بدائل ذرية تُنشر **قبل** تطبيق 195.
 5. **مرحلة 4 — مصدر العمل والأعباء (MS-03):** حسب قرار D4، ثم إزالة القيمة الثابتة 15% من
    `StageCostingPanel` واشتقاقها من مركز العمل.
 6. **تنظيف لا حذف:** تعليم `COSTING_CONFIG` و`TABLE_NAMES` الميتة كمهجورة، وإخفاء خيارات
