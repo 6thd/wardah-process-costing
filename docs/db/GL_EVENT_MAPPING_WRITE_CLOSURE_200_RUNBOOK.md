@@ -111,6 +111,12 @@ Baseline أزيلت منها عبارات PG17 فقط؛ CI يشغّلها على
 - green (بعد 200): `GRANTS_OK`، و`MEMBER_PROBE_OK` (قراءة مسموحة، ورفض الكتابات المباشرة
   الثلاث بـ42501، ورفض الـRPC بـ`NOT_ORG_ADMIN`)، و`ADMIN_RPC_OK` (تحديث وإنشاء، ورفض سبعة
   مدخلات غير صالحة، وحدّ المؤسسة)، و`AUDIT_OK`.
+- تزامن (`acceptance_200_gl_event_mapping_concurrency.sh`، جلستان حقيقيتان): كاتب لا يأخذ
+  القفل الاستشاري يُدرج المفتاح ويُبقي معاملته مفتوحة، ثم يستدعي المسؤول الدالة للمفتاح نفسه.
+  `RACE_WAIT_OBSERVED` (انتظار المسؤول على قفل مرصود في `pg_stat_activity`، لا مستنتج من
+  التوقيت)، ثم `RACE_OK`: `created = false` والصورة السابقة في التدقيق هي صف الكاتب الملتزم.
+  على النسخة السابقة من الدالة يفشل الاختبار نفسه (`created = true` و`old_data = NULL`) —
+  وهي الثغرة التي رصدتها مراجعة Codex على #314.
 - البوابات: صياغة pglast، وحارس DEFINER، وأسماء السجل، والترقيم (1–200)، وجرد طفرات RBAC،
   وبوابة الكتابة المباشرة — كلها ناجحة.
 
@@ -164,14 +170,24 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 | 7 | المدين في `gl_accounts` للمؤسسة نفسها، `is_active IS TRUE`، `allow_posting IS NOT FALSE` | `GL_EVENT_MAPPING_DEBIT_ACCOUNT_INVALID` |
 | 8 | الدائن بالشروط نفسها | `GL_EVENT_MAPPING_CREDIT_ACCOUNT_INVALID` |
 
+وخطأ تزامن واحد خارج الجدول: `GL_EVENT_MAPPING_CONCURRENT_CHANGE` (`40001`، §8.4).
+
 **لا تتحقق** الدالة من أن رمز الحدث معروف لدى دالة ترحيل؛ أي رمز صحيح الصيغة يُقبل.
 القائمة الحالية للقرّاء في §8.6.
 
 ### 8.4 الكتابة والتزامن
 
 - قفل `pg_advisory_xact_lock(hashtextextended('wardah-gl-event-mapping:' || org || ':' || event || ':' || COALESCE(wc,''), 0))`
-  ثم قراءة الصورة السابقة `FOR UPDATE`. يسلسل كتّاب المفتاح الواحد حتى عند الإدراج الأول.
-- upsert على `uq_gl_event_mappings_key` = `(org_id, event_code, COALESCE(work_center_code, ''))`.
+  يسلسل مستدعي هذه الدالة فقط؛ **الكاتب الآخر `rpc_upsert_event_mapping` (وأي كتابة `service_role`)
+  لا يأخذه**، فالصحة لا تعتمد عليه.
+- **الصورة السابقة لا تُقرأ قبل الكتابة أبدًا:**
+  1. `INSERT … ON CONFLICT (org_id, event_code, COALESCE(work_center_code, '')) DO NOTHING RETURNING *`
+     على `uq_gl_event_mappings_key`. ينتظر أي إدراج غير ملتزم للمفتاح نفسه، ولا يُنشئ الصف إلا
+     إن لم يلتزم غيره ← `created = true` و`old_data = NULL`.
+  2. وإلا: `SELECT … FOR UPDATE` على الصف الملتزم (لقطة جديدة لكل جملة في READ COMMITTED) ← هذه
+     هي الصورة السابقة، ثم `UPDATE … WHERE id = …` ← `created = false`.
+  3. إن حُذف الصف بين الجملتين: `GL_EVENT_MAPPING_CONCURRENT_CHANGE` بـSQLSTATE `40001`
+     (يعيد المستدعي المحاولة؛ لا تخمين).
 - عند التحديث: `debit_account_code` و`credit_account_code` و`is_active` تُستبدل،
   و`updated_at = now()`، و**`description = COALESCE(جديد, قديم)`** — أي أن تمرير `NULL` يُبقي
   الوصف القديم، **ولا توجد طريقة لمسح الوصف** عبر الدالة.
@@ -208,7 +224,8 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 2. `SELECT` لـ`authenticated` باقٍ ما دام `fetchCogsAccounts` يقرأ الجدول مباشرة.
 3. الحارس أول جملة في الجسم، قبل أي قراءة أو كتابة.
 4. الحسابان من شجرة **المؤسسة نفسها** (`org_id = p_org_id`)، لا من أي مؤسسة.
-5. صف تدقيق في المعاملة نفسها لكل تغيير.
+5. صف تدقيق في المعاملة نفسها لكل تغيير، وصورته السابقة و`created` صحيحان حتى أمام كاتب لا يأخذ
+   القفل الاستشاري (لا قراءة للصورة السابقة قبل الكتابة؛ اختبار التزامن يثبت ذلك).
 6. `rpc_upsert_event_mapping` يبقى لـ`service_role` فقط.
 
 ---
@@ -222,7 +239,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 2. **الحارس مؤقت:** الدالة لمسؤول المؤسسة فقط. المرحلة 2 في #312 (§6.3–§6.4) تستبدلها مع
    `rpc_set_material_issue_wo_statuses` و`rpc_set_quality_policy` لتفحص
    `manufacturing.settings.update` وفق D3، أو تبقى تبويباتها لمسؤول المؤسسة صراحةً.
-3. **كاتب ثانٍ قائم:** `rpc_upsert_event_mapping` (`service_role`) يتحقق من وجود الحسابين فقط
+3. **كاتب ثانٍ قائم** (ولا يأخذ القفل الاستشاري؛ عولج أثره على الصورة السابقة في §8.4): `rpc_upsert_event_mapping` (`service_role`) يتحقق من وجود الحسابين فقط
    (لا النشاط ولا قابلية الترحيل ولا الاختلاف)، ويفرض `is_active = true` عند التحديث، ولا يكتب
    تدقيقًا، ويحدد المؤسسة بـ`wardah_org_id(p_tenant)`. لم يُمسّ عمدًا (مسار البذر/التشغيل). أي تغيير له قرار مستقل.
 4. **ثغرة اتساق AP لم تُغلق:** الدالة لا تمنع ضبط دائنين مختلفين لـ`AP_MATCHED_INVOICE_GOODS`

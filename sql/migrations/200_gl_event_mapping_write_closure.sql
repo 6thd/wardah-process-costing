@@ -100,6 +100,7 @@ DECLARE
   v_credit text := btrim(COALESCE(p_credit_account_code, ''));
   v_before public.gl_event_mappings%ROWTYPE;
   v_after public.gl_event_mappings%ROWTYPE;
+  v_created boolean;
 BEGIN
   PERFORM public.wardah_assert_org_admin(p_org_id);
 
@@ -148,19 +149,15 @@ BEGIN
     RAISE EXCEPTION 'GL_EVENT_MAPPING_CREDIT_ACCOUNT_INVALID' USING ERRCODE = '22023';
   END IF;
 
-  -- Serialize writers of the same key so the before-image used for the
-  -- audit row and the 'created' flag is exact even for a first insert,
-  -- which FOR UPDATE alone cannot lock.
+  -- Serialize callers of this RPC on the same key.
   PERFORM pg_advisory_xact_lock(hashtextextended(
     'wardah-gl-event-mapping:' || p_org_id::text || ':' || v_event || ':' || COALESCE(v_wc, ''), 0));
 
-  SELECT * INTO v_before
-  FROM public.gl_event_mappings m
-  WHERE m.org_id = p_org_id
-    AND m.event_code = v_event
-    AND COALESCE(m.work_center_code, '') = COALESCE(v_wc, '')
-  FOR UPDATE;
-
+  -- The before-image must be exact even against writers that do not take
+  -- the advisory lock above (rpc_upsert_event_mapping, service_role). So it
+  -- is never read before the write: first try the insert, which waits on any
+  -- concurrent uncommitted insert of the same key and creates the row only
+  -- if none commits; otherwise lock the committed row, read it, update it.
   INSERT INTO public.gl_event_mappings AS m (
     org_id, event_code, work_center_code,
     debit_account_code, credit_account_code, description, is_active
@@ -168,21 +165,39 @@ BEGIN
     p_org_id, v_event, v_wc,
     v_debit, v_credit, p_description, p_is_active
   )
-  ON CONFLICT (org_id, event_code, COALESCE(work_center_code, ''))
-  DO UPDATE SET
-    debit_account_code = EXCLUDED.debit_account_code,
-    credit_account_code = EXCLUDED.credit_account_code,
-    description = COALESCE(EXCLUDED.description, m.description),
-    is_active = EXCLUDED.is_active,
-    updated_at = now()
+  ON CONFLICT (org_id, event_code, COALESCE(work_center_code, '')) DO NOTHING
   RETURNING * INTO v_after;
+  v_created := FOUND;
+
+  IF NOT v_created THEN
+    SELECT * INTO v_before
+    FROM public.gl_event_mappings m
+    WHERE m.org_id = p_org_id
+      AND m.event_code = v_event
+      AND COALESCE(m.work_center_code, '') = COALESCE(v_wc, '')
+    FOR UPDATE;
+    IF NOT FOUND THEN
+      -- Deleted by another writer between the two statements; let the
+      -- caller retry rather than guess.
+      RAISE EXCEPTION 'GL_EVENT_MAPPING_CONCURRENT_CHANGE' USING ERRCODE = '40001';
+    END IF;
+
+    UPDATE public.gl_event_mappings m SET
+      debit_account_code = v_debit,
+      credit_account_code = v_credit,
+      description = COALESCE(p_description, m.description),
+      is_active = p_is_active,
+      updated_at = now()
+    WHERE m.id = v_before.id
+    RETURNING * INTO v_after;
+  END IF;
 
   INSERT INTO public.audit_logs (
     org_id, user_id, action, entity_type, entity_id, old_data, new_data, metadata
   ) VALUES (
     p_org_id, auth.uid(), 'accounting.gl_event_mapping.set', 'gl_event_mapping',
     v_after.id::text,
-    CASE WHEN v_before.id IS NULL THEN NULL ELSE jsonb_build_object(
+    CASE WHEN v_created THEN NULL ELSE jsonb_build_object(
       'event_code', v_before.event_code,
       'work_center_code', v_before.work_center_code,
       'debit_account_code', v_before.debit_account_code,
@@ -205,7 +220,7 @@ BEGIN
     'debit_account_code', v_after.debit_account_code,
     'credit_account_code', v_after.credit_account_code,
     'is_active', v_after.is_active,
-    'created', v_before.id IS NULL
+    'created', v_created
   );
 END
 $fn$;
