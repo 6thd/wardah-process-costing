@@ -1,6 +1,12 @@
-# Independent review: native QC/material M199 evidence only
+# Independent follow-up review: PR #310 P3-A–F repair
 
-Please review this proposal read-only. Resolve its current PR head, tree and main base
+Please review this proposal read-only. The prior independent review accepted head
+`3d5fca73e51ef4a00899e91db491ba5244517869` (tree
+`65434a337ee8bfe99f8b41b70840f0a3eac1c3c1`) for the two local technical proofs,
+with no P1/P2 and six P3 notes. This follow-up repairs those notes; do not inherit its
+PASS for the changed head. Freeze the new GitHub head and tree. Compare against both
+the parent head above and accepted main below. First challenge the changed source,
+header, server, financial and marker assertions, then repeat the complete acceptance. Resolve its current PR head, tree and main base
 from GitHub, freeze the full SHAs, and re-resolve them after review. Do not infer acceptance
 from the executor's local results. Recover git status, HEAD, diff, reflog and uncommitted
 work first; use separate clean scratch checkouts. Do not edit, push, merge, change PR state,
@@ -17,17 +23,23 @@ Frozen accepted inputs:
   `6ed7d21a7a6654382fc7cbff5265fd244b6012fb`.
 
 1. Verify the proposal's exact diff and confirm it adds only the new workflow, fixture and
-   three closure documents. No changes under sql/ (migrations/baselines), runtime src, generated type, dependencies,
+   three closure documents plus the four new fixture helpers (server_probes.py, test_http.py,
+   check_markers.py, test_markers.py). No changes under sql/ (migrations/baselines), runtime src, generated type, dependencies,
    existing acceptance assertion, RBAC baseline or deployment condition may change.
    The frozen #308 checkout must stay byte-identical and clean throughout.
 2. Inspect `SOURCE_LOCK.json` and independently recompute its 42 main DB-source hashes
    and four #308 support hashes. Verify clean HEAD/tree checking, fixed read-only git,
-   fsmonitor disabled and GIT_* redirection stripped. Try wrong HEAD, tracked client drift,
+   fsmonitor disabled and GIT_* redirection stripped. Check tracked filesystem bytes/modes against immutable HEAD blobs, including index
+   assume-unchanged and skip-worktree flags. Untracked and ignored .js source shadowing
+   must be refused. Archived Windows-script CRLF normalization is the only content
+   normalization and follows the pinned .gitattributes; runtime bytes stay exact. Try wrong HEAD, tracked client drift,
    a fake git on PATH, GIT_DIR/work-tree redirection and changed M199/readback SQL in scratch
    copies. Refusals must occur before any installation or browser/server startup.
-3. Run `test_controls.py` yourself: nine connection refusals and four input/ref refusals.
+3. Run `test_controls.py` yourself: 15 connection refusals, four input/ref refusals and four client-content refusals.
    Challenge nonnumeric/out-of-range ports, remote host, URL/service/hostaddr and wrong DB
-   prefixes. Inspect—not merely count—the controls and their non-vacuity.
+   prefixes, plus whitespace/plus/underscore/Unicode-digit/leading-zero port forms.
+   Each client-content control must first pass with the content verifier disabled,
+   reproducing the former status-only false green, then fail with the real verifier. Inspect—not merely count—the controls and their non-vacuity.
 4. Run the complete `run_local.sh` on disposable **PG17 UTF8**, preferably unmodified
    `postgres:17`. It must install this proposal's canonical 190–199 files from cutoff189,
    retain quarantine 72 + column controls9, and check 22 installed functions before/after.
@@ -40,7 +52,7 @@ Frozen accepted inputs:
    and return versus consumption, reserve and create_work_order. Check exact rejection text,
    no effects after a denial, version fences and one permitted financial effect. Examine four
    receipt replay orderings and the uncommitted first-consume + concurrent same-event retry
-   + QC-hold-before-commit case. Check that seven output/lock mutants cannot pass.
+   + QC-hold-before-commit case. Check that eight output/lock mutants, including product projection after a successful consumption cannot pass.
 7. Inspect and execute the browser against that same M199 database. Confirm the actual
    frozen `QualityControlPage`, `MaterialIssuePage`, hooks/services and native IndexedDB run;
    no result mocks, fixture-only forms or test-auth claims may substitute for them. Verify:
@@ -50,14 +62,25 @@ Frozen accepted inputs:
    - return requires a reason, advances version, and permits new consumption;
    - old cycle PASS cannot release the new cycle; revoked inspection grant returns42501
      with no effects; restoring the fixture grant permits one new inspection.
+   Execute `server_probes.py` against the seeded disposable DB: NULL/empty/whitespace
+   reasons refused, current-cycle PASS release positive, old-cycle completion-trigger
+   rejection with exact P0001 and unchanged snapshot. All probes roll back; the owner
+   UPDATE deliberately tests the trigger, not access to the quarantined completion RPC.
+   Verify deep-equal material replay responses and exact inspection argument keys.
+   Require post-browser quarantine72 acceptance as well as the initial quarantine.
    Repeat the full browser run and examine page/console errors. Earlier exploratory fixture
    runs had an initialization-time timeout; the fixture now awaits blank quantity and Final
    selection before typing, without changing client code or extending timeouts.
 8. Inspect snapshots and limitations. GL fixtures are empty; they prove absence of creation,
    not preservation of populated financial history. Two fixed identities are simulated;
    PostgreSQL authorization is real. This does not prove hosted JWT/Auth/PostgREST or operator
-   sign-off. Confirm test HTTP/grant endpoints are loopback-only and strictly allowlisted.
-9. Verify workflow checkout head/tree and permissions; markers must come from actual execution
+   sign-off. Confirm test HTTP/grant endpoints are loopback-only and strictly allowlisted. Run test_http.py yourself; require14 real Host/Origin/Content-Type/
+   fetch-site GET/POST refusals and2 positive controls with no state change. Inspect absent/
+   duplicate headers and the bounded request body, including DNS-rebinding Host denial.
+9. Verify workflow checkout head/tree, SHA-pinned actions and permissions; refusal controls
+   must precede npm/Playwright installation (PG client/psycopg still precede them). Inspect
+   the fail-closed frozen-client-SHA fetchability limitation; no new persistent ref is added.
+   Run check_markers.py and test_markers.py on real output (one positive +19 refusals); markers must come from actual execution
    output, not echoed workflow source. Missing browser marker, wrong race count, one readback,
    or wrong identity marker must fail. Inspect hosted exact-head logs/artifacts if available;
    otherwise explicitly report them unverified. Deploy must remain skipped.

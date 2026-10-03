@@ -4,6 +4,7 @@ import datetime
 import decimal
 import json
 import os
+import re
 import threading
 import uuid
 import psycopg
@@ -39,10 +40,10 @@ trace=[]
 mutex=threading.Lock()
 
 def guard():
- try:
-  port=int(os.environ.get('PGPORT','0'))
- except ValueError:
+ value=os.environ.get('PGPORT','')
+ if not re.fullmatch(r'[0-9]{5}',value):
   raise SystemExit('REFUSED_NON_DISPOSABLE_DATABASE')
+ port=int(value)
  if (os.environ.get('PGHOST')!='127.0.0.1' or port<55000 or port>65535
      or not os.environ.get('PGDATABASE','').startswith('wardah_issue_parent_198_canonical_qc199_')
      or any(os.environ.get(k) for k in ('DATABASE_URL','SUPABASE_DB_URL','PGSERVICE','PGHOSTADDR'))):
@@ -125,6 +126,19 @@ def fixture_grants(request):
 
 class Handler(BaseHTTPRequestHandler):
  def log_message(self,*_args): pass
+ def valid_headers(self,post=False):
+  # Vite preserves its frontend Host; direct controls use the backend Host.
+  if self.headers.get_all('Host') not in (["127.0.0.1:4177"],["127.0.0.1:4178"]):
+   return False
+  origins=self.headers.get_all('Origin')
+  if origins is not None and origins!=['http://127.0.0.1:4177']:
+   return False
+  if self.headers.get('Sec-Fetch-Site') not in (None,'same-origin'):
+   return False
+  if post and (origins!=['http://127.0.0.1:4177']
+               or self.headers.get_all('Content-Type')!=['application/json']):
+   return False
+  return True
  def reply(self,value):
   body=json.dumps(value,default=encode).encode()
   self.send_response(200)
@@ -132,14 +146,20 @@ class Handler(BaseHTTPRequestHandler):
   self.end_headers()
   self.wfile.write(body)
  def do_GET(self):
+  if not self.valid_headers():
+   self.send_error(403)
+   return
   if self.path!='/state':
    self.send_error(404)
    return
   self.reply(snapshot())
  def do_POST(self):
+  if not self.valid_headers(post=True):
+   self.send_error(403)
+   return
   request={}
   try:
-   request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+   request=self.read_body()
    if self.path=='/fixture-grants':
     self.reply(fixture_grants(request))
    elif self.path=='/call':
@@ -153,6 +173,14 @@ class Handler(BaseHTTPRequestHandler):
    self.reply({'data':None,'error':error})
   except (KeyError,ValueError,TypeError):
    self.send_error(400)
+ def read_body(self):
+  lengths=self.headers.get_all('Content-Length')
+  if self.headers.get('Transfer-Encoding') or lengths is None or len(lengths)!=1:
+   raise ValueError('INVALID_BODY_LENGTH')
+  length=int(lengths[0])
+  if length<1 or length>65536:
+   raise ValueError('INVALID_BODY_LENGTH')
+  return json.loads(self.rfile.read(length))
 
 if __name__=='__main__':
  guard()

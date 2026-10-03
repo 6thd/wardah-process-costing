@@ -90,3 +90,52 @@ SET QUOTED_IDENTIFIER. The seed is now a local guarded Python script executing t
 fixed grant/policy SQL with bound parameters. No analyzer setting or DB semantics changed.
 The complete runner passed with this parameterized seed as well (17 races, five browser
 proofs, quarantine72/controls9 and two22-function readbacks).
+
+
+## P3 follow-up — 2026-10-03 (supersedes initial local pending status)
+
+The owner supplied an independent review of parent head
+`3d5fca73e51ef4a00899e91db491ba5244517869`, tree
+`65434a337ee8bfe99f8b41b70840f0a3eac1c3c1`: PASS for the two local technical
+proofs only, no P1/P2, with six P3 notes. That reviewer reported seven full runs
+including a loaded run, function-level mutants and catalog/header probes. Those are
+reviewer observations, not reruns by this follow-up executor.
+
+This delta stays within the fixture/workflow/three closure docs. SQL, runtime src,
+SOURCE_LOCK, #308, dependencies, generated types, existing accepted assertions and
+all target/owner/operational/release holds are unchanged.
+
+| Note | Follow-up disposition |
+|---|---|
+| P3-A | Immutable HEAD blob/mode verification over tracked client files, plus filesystem enumeration of untracked/ignored src files. Four real scratch-copy refusals; the status-only mutant accepts each same alteration before the fixed verifier refuses it. Windows-script CRLF normalization follows the frozen attributes; runtime bytes are exact. |
+| P3-B | Python and shell require five ASCII port digits in the allowed range. Fifteen connection refusals include spaces, plus sign, underscores, Arabic-Indic digits and a leading zero. |
+| P3-C | Three server reason refusals, successful current-cycle release positive control, actual old-cycle completion-trigger rejection and whole-transaction rollback snapshot; deep-equal material replay; exact inspection args; mutation of installed 20260905_184634 baseline; quarantine re-run after browser. |
+| P3-D | npm/Playwright install follows refusals; four actions pinned to the previously observed exact action commits. Marker verifier and one-positive/19-refusal controls are committed and run against actual output. Client-SHA availability remains an explicit fail-closed limitation; no persistent ref was created. PG client/psycopg still precede refusal controls. |
+| P3-E | Exact Host/Origin/Content-Type/fetch-site checks before request execution, bounded body read. Fourteen real HTTP refusals and two positives; business state unchanged. Loopback binding and original SQL/RPC/grant allowlists preserved. |
+| P3-F | Summary counts actual successful blocking observations independently; exact product delta and final bin projection asserted on consumption, with an additional successful-consumption product mutant. Eight race-oracle refusals in total. |
+
+Local complete run 1: exit 0, output SHA256
+`64fdb0aae7e5960cfe6aa635f51cb9f5bb7c81fbfeebb4aa0b5aa8f8c4106419`.
+Local complete run 2 after the helper refactor: exit 0, output SHA256
+`2445821fe3ae765a2bed7eaea8decf92b5e9408658efd0330f4d9b1ccabed1db`.
+Both ran canonical 190–199 from cutoff189, 17 observed lock orderings, five browser
+proofs, the new server/HTTP probes, quarantine before/after and two22-function readbacks.
+The actual-output marker positive and19 refusals passed for both logs.
+The final test-controls non-vacuity addition was rerun separately and passed all
+15 connection +4 source/ref +4 content controls.
+
+Environment: PGDG PostgreSQL17.11 UTF8, psql17.11, Python3.12.14/psycopg3.3.6,
+Node24.19.0/Playwright1.57.0, unmodified Chrome headless shell143.0.7499.4.
+The existing disclosed UID/stat-owner preload adapter was reused for PostgreSQL startup
+only, on a new local cluster/port55447. No SQL/database function was replaced and no
+hosted target was contacted. This remains a managed local reproduction, not Docker.
+Bandit1.9.4: zero reported issues with B101 omitted for test assertions and narrow
+fixed-git subprocess annotations. Ruff E702/F checks, Python/node/bash syntax and diff
+checks pass. Radon6.0.1 helpers are A/B, maximum10. Frozen client verification passes
+before/after and its git status remains clean except the permitted ignored dependency link.
+
+Parent-head hosted evidence: native run37108076924/job111160410558 succeeded;
+Test & Build, CodeFactor, Codacy and SonarQube checks succeeded; Production deploy skipped.
+Those old results do not certify this follow-up. New-head CI must be resolved separately
+and recorded in the PR body; independent review is still pending. No merge or target
+migration application was performed. All NO-GO/M192/owner33/ops8 and DB-first gates remain.

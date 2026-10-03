@@ -64,6 +64,7 @@ try {
  expect(business(replay)).toEqual(business(held))
  const issueCalls=calls(replay,'rpc_consume_material_event')
  expect(issueCalls).toHaveLength(2); expect(issueCalls[1].args).toEqual(issueCalls[0].args)
+ expect(issueCalls[1].data).toEqual(issueCalls[0].data)
  console.log('QC_MATERIAL_BROWSER_RECEIPT_REPLAY_DURING_HOLD_PASS')
  // A second browser's already-mounted form sends new intent after QC commits.
  await stale.page.getByRole('button',{name:'Issue materials',exact:true}).click()
@@ -88,6 +89,7 @@ try {
  expect(business(inspectionReplay)).toEqual(business(recorded))
  const inspections=calls(inspectionReplay,'rpc_record_quality_inspection')
  expect(inspections).toHaveLength(2); expect(inspections[1].args).toEqual(inspections[0].args); expect(inspections[1].data.replayed).toBe(true)
+ expect(Object.keys(inspections[0].args).sort()).toEqual(['p_mo_id','p_payload','p_request_id'])
  await expect(quality.getByRole('cell',{name:inspection.inspection_number,exact:true})).toBeVisible()
  console.log('QC_MATERIAL_BROWSER_FINAL_INSPECTION_LOST_RESPONSE_REPLAY_PASS')
  await order.getByRole('button',{name:'Return to production',exact:true}).click()

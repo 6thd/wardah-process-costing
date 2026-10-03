@@ -63,7 +63,7 @@ def blocked(observer,waiter,holder,timeout=5):
  end=time.monotonic()+timeout
  while time.monotonic()<end:
   if observer.execute('SELECT %s=ANY(pg_blocking_pids(%s))',(holder,waiter)).fetchone()[0]:
-   return
+   return 1
   time.sleep(.01)
  raise AssertionError('QC_MATERIAL_WAITER_NOT_BLOCKED')
 
@@ -78,6 +78,12 @@ def stock_effects(before,after,mo,n):
  res1=find_row(after['material_reservations'],'id',res0['id'])
  assert res1['quantity_consumed']-res0['quantity_consumed']==10*n, 'QC_MATERIAL_QUANTITY_DRIFT'
  assert sum(float(r['actual_qty']) for r in before['bins'])-sum(float(r['actual_qty']) for r in after['bins'])==10*n
+ for product in before['products']:
+  final=find_row(after['products'],'id',product['id'])
+  initial_qty=sum(r['actual_qty'] for r in before['bins'] if r['product_id']==product['id'])
+  final_qty=sum(r['actual_qty'] for r in after['bins'] if r['product_id']==product['id'])
+  assert final['stock_quantity']-product['stock_quantity']==final_qty-initial_qty, 'QC_MATERIAL_PRODUCT_PROJECTION_DRIFT'
+  assert final['stock_quantity']==final_qty, 'QC_MATERIAL_PRODUCT_BIN_DRIFT'
 
 def cost_effects(before,after,mo,n):
  w0=find_row(before['stage_wip_log'],'mo_id',mo)
@@ -98,6 +104,7 @@ def effects(before,after,mo,v,status,consumptions,reserves,wos):
   cost_effects(before,after,mo,consumptions)
 
 count=0
+blocked_count=0
 last=None
 with connect('postgres',autocommit=True) as admin:
  for transition in ('hold','return'):
@@ -130,7 +137,7 @@ with connect('postgres',autocommit=True) as admin:
       after_first=snapshot(holder)
       with ThreadPoolExecutor(max_workers=1) as pool:
        future=pool.submit(attempt,waiter,second)
-       blocked(observer,waiter.info.backend_pid,holder.info.backend_pid)
+       blocked_count+=blocked(observer,waiter.info.backend_pid,holder.info.backend_pid)
        holder.commit()
        second_result=future.result(timeout=12)
        waiter.commit()
@@ -198,7 +205,7 @@ with connect('postgres',autocommit=True) as admin:
      after_first=snapshot(holder)
      with ThreadPoolExecutor(max_workers=1) as pool:
       future=pool.submit(pending,waiter)
-      blocked(observer,waiter.info.backend_pid,holder.info.backend_pid)
+      blocked_count+=blocked(observer,waiter.info.backend_pid,holder.info.backend_pid)
       holder.commit()
       result=future.result(timeout=12)
       waiter.commit()
@@ -229,7 +236,7 @@ with connect('postgres',autocommit=True) as admin:
    receipt=consume(holder,mo,event,lines)
    with ThreadPoolExecutor(max_workers=1) as pool:
     future=pool.submit(consume,waiter,mo,event,lines)
-    blocked(observer,waiter.info.backend_pid,holder.info.backend_pid)
+    blocked_count+=blocked(observer,waiter.info.backend_pid,holder.info.backend_pid)
     qc(holder,mo,'hold',v)
     holder.execute('RESET ROLE')
     committed=snapshot(holder)
@@ -245,6 +252,7 @@ with connect('postgres',autocommit=True) as admin:
   after=read(db)
   assert result==receipt and after==committed
   effects(before,after,mo,v+1,'quality_check',1,0,0)
+  successful=(before,after,mo,v+1,'quality_check',1,0,0)
   count+=1
   print('QC_MATERIAL_RACE_PASS case=uncommitted_consume_retry_then_hold blocked=true',flush=True)
  finally:
@@ -270,4 +278,14 @@ for label in ('version','status','consumption','reservation','work_order','finan
   print('QC_MATERIAL_RACE_ORACLE_REFUSED case='+label)
  else:
   raise AssertionError('QC_MATERIAL_RACE_FALSE_GREEN: '+label)
-print(f'QC_MATERIAL_JOINT_RACES_PASS cases={count} blocked={count} oracle_mutants=7',flush=True)
+before,after,mo,v,status,n,reserves,wos=successful
+mutant=copy.deepcopy(after)
+mutant['products'][0]['stock_quantity']+=1
+try:
+ effects(before,mutant,mo,v,status,n,reserves,wos)
+except AssertionError:
+ print('QC_MATERIAL_RACE_ORACLE_REFUSED case=successful_product_projection')
+else:
+ raise AssertionError('QC_MATERIAL_PRODUCT_FALSE_GREEN')
+assert blocked_count==count==17
+print(f'QC_MATERIAL_JOINT_RACES_PASS cases={count} blocked={blocked_count} oracle_mutants=8',flush=True)
