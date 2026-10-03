@@ -156,6 +156,10 @@ const MANUFACTURING_ROUTES: RoutePattern[] = [
   { pattern: '/', requirement: MANUFACTURING_OVERVIEW },
   { pattern: '/overview', requirement: MANUFACTURING_OVERVIEW },
   { pattern: '/orders', requirement: { key: 'manufacturing.orders.read' } },
+  // Dedicated scoped selectors under the exact issue permission; #229 release hold remains.
+  { pattern: '/material-issue', requirement: { anyOf: ['manufacturing.material_consumption.consume',
+    'manufacturing.material_issue_setup.prepare', 'manufacturing.material_reservation.reserve', 'manufacturing.material_reservation.release'] } },
+  { pattern: '/material-issue-policy', requirement: { key: 'manufacturing.material_consumption.consume' } },
   { pattern: '/mes', requirement: { key: 'manufacturing.work_centers.read' } },
   // Routing (routingService.ts) reads/writes `routings`, `routing_operations`
   // and `operation_resources` — tables with no relationship to
