@@ -121,6 +121,45 @@ BEGIN
         'WORK_ORDER_NOT_ELIGIBLE_FOR_MATERIAL_ISSUE' THEN
     RAISE EXCEPTION 'GREEN_192_WRONG_MO_WO_ALLOWED: %',v_call;
   END IF;
+
+  -- Cross-org ownership is distinct from WO->MO linkage: this WO points
+  -- at the target MO but carries the second organization's own org_id.
+  INSERT INTO public.organizations(id,name,code) VALUES
+    ('ed000000-0000-4000-8000-000000000002',
+     'GREEN 192 foreign WO org','GREEN-192-OTHER');
+  INSERT INTO public.user_organizations
+    (user_id,org_id,role,is_active,is_org_admin) VALUES
+    (pg_temp.admin(),'ed000000-0000-4000-8000-000000000002',
+     'admin',true,true);
+  INSERT INTO public.work_centers(id,org_id,code,name) VALUES
+    ('ed000000-0000-4000-8000-0000000000f3',
+     'ed000000-0000-4000-8000-000000000002',
+     'GREEN-192-FOREIGN-WC','GREEN 192 foreign work center');
+  PERFORM set_config('request.jwt.claim.sub',pg_temp.admin()::text,true);
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub',pg_temp.admin(),'role','authenticated')::text,true);
+  INSERT INTO public.work_orders(
+    org_id,mo_id,work_center_id,work_order_number,
+    operation_sequence,operation_name,planned_quantity,status
+  ) VALUES (
+    'ed000000-0000-4000-8000-000000000002',
+    v_mo,'ed000000-0000-4000-8000-0000000000f3',
+    'GREEN-192-CROSS-ORG-WO',7,'Cross-org guard fixture',5,'IN_PROGRESS'
+  ) RETURNING id INTO v_wo;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.work_orders wo
+    WHERE wo.id=v_wo AND wo.mo_id=v_mo
+      AND wo.org_id='ed000000-0000-4000-8000-000000000002'
+      AND wo.status='IN_PROGRESS'
+  ) THEN RAISE EXCEPTION 'GREEN_192_CROSS_ORG_WO_FIXTURE_MISSING'; END IF;
+  v_call:=pg_temp.try_as(pg_temp.consumer(),
+    pg_temp.issue_for_wo(v_mo,v_wo,gen_random_uuid()));
+  IF v_call->>'ok' IS DISTINCT FROM 'false'
+     OR v_call->>'error' IS DISTINCT FROM
+        'WORK_ORDER_NOT_ELIGIBLE_FOR_MATERIAL_ISSUE'
+     OR v_call->>'sqlstate' IS DISTINCT FROM 'P0001' THEN
+    RAISE EXCEPTION 'GREEN_192_CROSS_ORG_WO_ALLOWED_OR_WRONG_REASON: %',v_call;
+  END IF;
 END
 $foreign_wo$;
 ROLLBACK;
