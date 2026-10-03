@@ -18,6 +18,11 @@ actual_baselines={p.relative_to(root).as_posix() for p in (root/'sql/baseline').
 if actual_baselines!=expected_baselines:
     raise SystemExit('REFUSED: baseline candidate set drift')
 for path,expected in lock['sources'].items():
+    relative=Path(path)
+    if relative.is_absolute() or '..' in relative.parts:
+        raise SystemExit('REFUSED: source path outside root: '+path)
+    if any((root/Path(*relative.parts[:index])).is_symlink() for index in range(1,len(relative.parts)+1)):
+        raise SystemExit('REFUSED: symlinked source component: '+path)
     if (root/path).is_symlink() or not (root/path).is_file():
         raise SystemExit('REFUSED: reviewed source is not a regular file: '+path)
     if hashlib.sha256((root/path).read_bytes()).hexdigest()!=expected:

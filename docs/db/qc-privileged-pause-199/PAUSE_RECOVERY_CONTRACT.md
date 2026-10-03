@@ -186,3 +186,54 @@ epoch-stamped receipts and the trusted audit store independent of #165.
 Implementation needs a separate additive correction and independent review. The
 proof's canonical M199, frozen #308 client and #310 head stay unchanged. G05,
 G01–G04/G06–G08, all route dispositions and NO-GO/M192 holds remain open.
+
+## Round 3 implementation requirements
+
+The supplied Round 2 reviewer independently observed these additional surfaces.
+They are requirements for future implementation, not implemented protections.
+
+1. Owner identity alone is insufficient: the reviewer counted 110 postgres-owned
+   DEFINER functions executable by service_role, eight with dynamic SQL. Require
+   both the intended RPC owner and an RPC-specific transaction-local marker
+   (review M169's pattern) for QC, fence and trusted audit writes. A caller-settable
+   marker alone is not authority. Inventory dynamic SQL, helper EXECUTE grants,
+   marker spoofing, nested entry and marker lifetime/reset on every exit.
+2. Reserve a class ID in the two-int4 advisory namespace, separate from existing
+   single-bigint locks in M191/M192/M194/M196–M198. Document collision-free org
+   mapping and global key allocation; hash collisions must be explicitly handled.
+   All fence advisory locks precede existing business advisory and row locks.
+   Inventory each writer's first advisory lock as well as first row lock.
+3. Use a reviewed hierarchy: global shared barrier -> org shared barriers in
+   ascending order -> pause rows -> business locks. A global controller takes
+   the global exclusive barrier before org enumeration/state transitions, so it
+   need not hold N org exclusive advisory locks. Every writer and new-org
+   provisioning must take the global prefix. A writer without a server-resolved
+   org refuses before org/business locks; no caller-supplied org is trusted.
+   Review global controller overlap with org controllers and provisioning.
+   Read back max_locks_per_transaction and budget the remaining locks under
+   realistic transactions; it sizes shared capacity, not a hard per-tx cap.
+4. A queued exclusive controller convoys new writers. Define bounded controller
+   and writer lock_timeout/statement_timeout, monitor queue age and blocking
+   PIDs, and refuse on timeout without a quiescence marker. Load rehearsal must
+   cover arrivals during controller wait and recovery after failed pause.
+5. Read back pg_parameter_acl and effective has_parameter_privilege for SET of
+   session_replication_role, including inherited roles. Replica mode can disable
+   ordinary triggers including M193/M199 and the proposed F1 guard. No target
+   guarantee is accepted until bypass-capable credentials are closed or covered
+   by reviewed external controls; owner/superuser limitations remain explicit.
+6. RECOVERY identity requires a helper clients cannot execute directly, invoked
+   with a literal function identity only by allowlisted DEFINER entrypoints.
+   Protect helper owner/search_path/grants and validate caller/marker provenance.
+   A literal argument or session marker alone proves nothing. Reconciliation
+   only closes unknown events; ordinary writer admission stays closed.
+7. Read back max_prepared_transactions. If zero, P06's prepared case is the
+   verified disabled configuration; if nonzero, inventory prepared holders and
+   rehearse reviewed resolution and durable outcome recording before acceptance.
+
+F1 defence in depth must cover NULL sequence ordering (the reviewer reproduced
+a NULL FINAL PASS shadowing a genuine FAIL): review NOT NULL for M199-era rows
+or explicit NULLS LAST, with legacy compatibility and Fresh DB probes. Forged
+history remediation requires an approved append-only superseding mechanism
+that actually overrides arbitrary high/NULL sequence evidence; merely appending
+a normal lower-sequence row is insufficient. No such remediation is implemented
+or authorized by this contract.

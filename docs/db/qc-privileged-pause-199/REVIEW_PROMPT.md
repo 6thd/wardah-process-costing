@@ -1,8 +1,17 @@
-# Independent Round 2 review: privileged QC and pause contract hardening
+# Independent Round 3 review: privileged QC and pause contract hardening
+
+Round 2 reviewed head: `8c69605cfb22c4fb184c9cd14a74704ba20c96e0`,
+tree `937a46208afb48ab418de4fe0351d7480ddc3c32`. Its supplied independent
+scoped PASS included full stock PG17 reproduction. Review the new delta against
+that head, including the seven Round 3 implementation requirements, NULL sequence
+shadowing/remediation boundary, corrected twelve raise sites and parent-directory
+symlink refusal. Replace a source parent directory with a symlink in a scratch
+copy and require named pre-client refusal with zero client calls. Capture real
+mutant/candidate outputs yourself; the runner deletes its temporary outputs.
 
 Prior reviewed head: `fcca92fe0eefa7638959667ae739614fef294e01`.
 Round 1 PASS covered counterexample accuracy and further review only; it required
-contract changes before implementation. Re-derive the Round 2 delta independently.
+contract changes before implementation. Re-derive the current delta independently.
 Resolve the current #313 head/tree and freeze it before testing. If it differs
 from the owner-supplied review SHA, stop and report drift.
 
@@ -91,7 +100,7 @@ additive correction, and no target or pause acceptance is implied.
 
 Return exact identities, commands/environment, independently observed outcomes,
 findings/severity and one scoped verdict: PASS/FAIL for **accuracy of these two
-counterexamples and suitability of the proposed contract for further review**.
+counterexamples and suitability of the hardened contract for further review**.
 List contract changes and remaining acceptance dependencies separately. Do not
 approve merge, working pause, whole-QC/security, target application or rollout.
 All 33 route dispositions, eight operational gates and NO-GO/M192 holds remain.

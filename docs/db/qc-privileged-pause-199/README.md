@@ -102,12 +102,25 @@ source, changed M199 content, wrong host/port and PGSERVICE all refused with
 zero logged DB client calls. Unchanged sources passed and reached a deliberately
 failing client shim. The actual wait-oracle branch raised
 `PAUSE_WRITER_NOT_STARTED` and executed its wait exactly once under normal Python,
-`-O` and `-OO`; ten explicit failure branches remain in the AST. This is a
+`-O` and `-OO`; ten converted assertion branches plus two existing explicit
+failures give twelve `raise AssertionError` sites. This is a
 non-DB optimization control, not a concurrency reproduction. Ruff check/format,
 full Bandit without exclusions, Python compilation, Bash syntax and whitespace
 checks passed. PostgreSQL was unavailable in this fresh environment, so a full
 Round 2 PG17 runner and optimized concurrency reproduction remain required in
 independent review. No target was accessed.
+
+Round 2 independent review supplied by the owner at head `8c69605c` returned
+scoped PASS: stock PG17.11 runner normal and PYTHONOPTIMIZE=2; 12 pre-client
+refusals; 70/70 originals and candidate positives; named mutants; all five
+Python modes and three optimized mutated oracles; quarantine 72 and frozen
+mocked units 26/26. These are attributed reviewer results, not a new executor
+run. It also found NULL inspection sequence shadowing and seven further
+implementation-contract requirements. Round 3 incorporates those requirements
+and refuses symlinked parent path components. Independent Round 3 review remains
+pending. Raw temporary mutant/candidate outputs are deleted by the runner;
+markers alone are not durable proof of their effects. A reviewer must capture
+the actual outputs independently as in Round 2.
 
 ## Existing history protection: TRUNCATE is denied
 
@@ -203,3 +216,8 @@ target ledger/application and UI-only promotion still need their respective
 evidence and approvals. NO-GO and M192 holds remain. #308/#310/#311 remain Draft
 references. No merge, target access, deployment or live change is authorized by
 this evidence packet. Use [REVIEW_PROMPT.md](REVIEW_PROMPT.md) for the next review.
+
+Round 3 executor check: parent-directory symlink refused before any client call;
+unchanged-source control reached the client shim; all 44 hashes remain unchanged,
+twelve explicit raise sites confirmed, Bash syntax and whitespace checks passed.
+No additional PG17 run is claimed for Round 3.
