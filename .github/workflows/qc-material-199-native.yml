@@ -1,0 +1,103 @@
+name: QC and material issue native M199 acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/fixtures/qc-material-199/**'
+      - 'docs/db/qc-material-199-closure/**'
+      - '.github/workflows/qc-material-199-native.yml'
+      - 'sql/migrations/19[0-9]_*.sql'
+      - 'sql/baseline/**'
+      - 'scripts/ci/fresh-db/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    name: Frozen QC/material client on canonical PG17 M199
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['55439:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '55439'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+      WARDAH_QC_OUTPUT: /tmp/qc-material-199-evidence
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 2ea72541fec4b52e7e0af2a3809ecb7be791bb47
+          path: reviewed-client
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install local PG17 client and browser dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [ ! -x /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh ]; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-common
+          fi
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+          python -m pip install 'psycopg[binary]==3.3.6'
+          npm ci --ignore-scripts
+          ln -s "$GITHUB_WORKSPACE/node_modules" reviewed-client/node_modules
+          npx playwright install --with-deps chromium
+          mkdir -p "$WARDAH_QC_OUTPUT"
+      - name: Prove input and connection refusals
+        run: |
+          set -Eeuo pipefail
+          python3 tests/fixtures/qc-material-199/test_controls.py reviewed-client | tee "$WARDAH_QC_OUTPUT/refusals.txt"
+          grep -Fxq 'QC_MATERIAL_REFUSAL_CONTROLS_PASS connections=9 sources=4' "$WARDAH_QC_OUTPUT/refusals.txt"
+      - name: Prove native browser and joint races on one M199 database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "checkout: $(git rev-parse HEAD) tree: $(git rev-parse HEAD^{tree})" | tee "$WARDAH_QC_OUTPUT/acceptance.txt"
+          psql --version | tee -a "$WARDAH_QC_OUTPUT/acceptance.txt"
+          psql --version | grep -Eq '^psql \(PostgreSQL\) 17\.'
+          bash tests/fixtures/qc-material-199/run_local.sh reviewed-client 2>&1 | tee -a "$WARDAH_QC_OUTPUT/acceptance.txt"
+          for marker in \
+            'QUARANTINE_COLUMN_GRANT_CONTROLS_PASS controls=9' \
+            'QC_MATERIAL_JOINT_RACES_PASS cases=17 blocked=17 oracle_mutants=7' \
+            'QC_MATERIAL_BROWSER_RECEIPT_REPLAY_DURING_HOLD_PASS' \
+            'QC_MATERIAL_BROWSER_STALE_FORM_NEW_EVENT_REFUSED_PASS' \
+            'QC_MATERIAL_BROWSER_FINAL_INSPECTION_LOST_RESPONSE_REPLAY_PASS' \
+            'QC_MATERIAL_BROWSER_RETURN_NEW_CONSUMPTION_PASS' \
+            'QC_MATERIAL_BROWSER_NEW_CYCLE_REVOKED_GRANT_NO_EFFECTS_PASS' \
+            'QC_MATERIAL_NATIVE_199_PASS chain=10 readback=22 identity=simulated release_ready=false'; do
+            grep -Fxq "$marker" "$WARDAH_QC_OUTPUT/acceptance.txt" || { echo "missing $marker" >&2; exit 1; }
+          done
+          test "$(grep -Fxc 'QC_MATERIAL_199_CATALOG_PASS functions=22 controls=6 role_template=M199' "$WARDAH_QC_OUTPUT/acceptance.txt")" -eq 2
+          test "$(grep -c '^QC_MATERIAL_RACE_PASS case=.* blocked=true$' "$WARDAH_QC_OUTPUT/acceptance.txt")" -eq 17
+          grep -q '^QC_MATERIAL_BROWSER_199_PASS proofs=5 profiles=4 database=wardah_issue_parent_198_canonical_qc199_browser_.* identity=simulated$' "$WARDAH_QC_OUTPUT/acceptance.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qc-material-199-native-${{ github.run_id }}
+          path: /tmp/qc-material-199-evidence/
+          retention-days: 30
