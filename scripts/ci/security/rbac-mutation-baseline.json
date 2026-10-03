@@ -3,6 +3,6 @@
   "scanner_schema_version": 2,
   "candidate_count": 354,
   "signature_count": 328,
-  "signature_sha256": "e400feb32313f1acd801f01ab9d7930115a2a863bb5a9e1dfaa3dcec05fe1b7c",
-  "note": "Reviewed #278 boundary change: in supabase-service.ts the direct stage_wip_log close UPDATE was replaced by the audited rpc_close_stage_wip_194 RPC. The direct stage_wip_log update count goes 2 to 1 and one rpc_call signature is added; the candidate total stays 354 and every other signature is unchanged."
+  "signature_sha256": "12f4fc98681b1960fee68ba3fb052656b116afedfb39783f3cd9b98bc3d5face",
+  "note": "Reviewed combined #229 client and #278 stage-WIP boundary: three retired material-consumption/backflush signatures were replaced by the event and get/set WO-policy RPC calls; the direct stage_wip_log close UPDATE became rpc_close_stage_wip_194. The merged inventory has 354 candidates and 328 signatures."
 }
