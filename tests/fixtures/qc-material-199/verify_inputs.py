@@ -30,5 +30,6 @@ def verify(client):
  print('QC_MATERIAL_INPUTS_PASS client='+lock['client_head']+' database_sources='+str(len(lock['database_sources'])))
 
 if __name__=='__main__':
- if len(sys.argv)!=2: raise SystemExit('USAGE: verify_inputs.py CLEAN_PINNED_CLIENT')
+ if len(sys.argv)!=2:
+  raise SystemExit('USAGE: verify_inputs.py CLEAN_PINNED_CLIENT')
  verify(Path(sys.argv[1]).resolve())

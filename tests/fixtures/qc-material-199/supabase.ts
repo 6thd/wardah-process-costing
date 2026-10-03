@@ -23,10 +23,9 @@ export const supabase = {
   const query={ select:(_columns:string)=>query,
    eq:(key:string,value:unknown)=>{ if(key==='id') id=String(value); else if(key==='org_id') org=String(value); else filters[key]=value; return query },
    in:(key:string,value:string[])=>{filters[key]=value;return query},
-   single:execute, order:(_column:string)=>query,
+   single:execute, order:(column:string)=>table==='manufacturing_stages' && column==='order_sequence'?execute():query,
    gt:(column:string,value:string)=>{if(column!=='id') throw new Error('UNREVIEWED_FIXTURE_READ');after=value;return query},
-   limit:(value:number)=>{size=value;return query},
-   then:(resolve:(value:unknown)=>unknown,reject:(reason:unknown)=>unknown)=>execute().then(resolve,reject) }
+   limit:(value:number)=>{size=value;return execute()} }
   return query
  }
 }

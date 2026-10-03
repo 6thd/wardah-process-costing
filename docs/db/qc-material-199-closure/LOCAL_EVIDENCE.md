@@ -70,3 +70,17 @@ NO-GO/M192, owner33/operations8, service_role INSERT decision, #278, target appl
 hosted identity/operator/device/monitoring, pause/in-flight/retry/pending recovery and
 DB-first UI promotion all remain open. No Production/Staging access, live migration,
 deployment, merge or hold change occurred.
+
+## Analyzer follow-up on the initial published head
+
+The first hosted native run37107404098 at `b65b13be` succeeded on stock postgres:17
+(all installation, refusal, native/race and artifact steps passed). This is evidence for
+that earlier head, not a claim for the follow-up head.
+CodeFactor reported Python E702 statement layout and the test transport's explicit thenable.
+Codacy flagged two safely quoted CREATE DATABASE format calls and the seed's psql meta-command.
+The follow-up splits Python statements, ends the known read chains with real Promises,
+uses psycopg `sql.Composed` plus `sql.Identifier` for database names, and removes the
+redundant meta-command (the caller already sets ON_ERROR_STOP). No suppression/config was
+added for those reports, and no runtime, canonical source, assertion or timeout changed.
+The complete native/race runner passed again after this repair. The new exact-head hosted
+result remains pending until verified separately.

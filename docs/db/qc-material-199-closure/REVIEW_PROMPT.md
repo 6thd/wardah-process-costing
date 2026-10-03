@@ -17,7 +17,7 @@ Frozen accepted inputs:
   `6ed7d21a7a6654382fc7cbff5265fd244b6012fb`.
 
 1. Verify the proposal's exact diff and confirm it adds only the new workflow, fixture and
-   three closure documents. No SQL, baseline, runtime src, generated type, dependencies,
+   three closure documents. No changes under sql/ (migrations/baselines), runtime src, generated type, dependencies,
    existing acceptance assertion, RBAC baseline or deployment condition may change.
    The frozen #308 checkout must stay byte-identical and clean throughout.
 2. Inspect `SOURCE_LOCK.json` and independently recompute its 42 main DB-source hashes
