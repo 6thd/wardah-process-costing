@@ -11353,6 +11353,18 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_set_gl_event_mapping: {
+        Args: {
+          p_credit_account_code: string
+          p_debit_account_code: string
+          p_description?: string
+          p_event_code: string
+          p_is_active?: boolean
+          p_org_id: string
+          p_work_center_code?: string
+        }
+        Returns: Json
+      }
       rpc_set_material_issue_wo_statuses: {
         Args: { p_allowed_statuses: string[]; p_org_id: string }
         Returns: Json
