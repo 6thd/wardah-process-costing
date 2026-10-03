@@ -84,3 +84,9 @@ redundant meta-command (the caller already sets ON_ERROR_STOP). No suppression/c
 added for those reports, and no runtime, canonical source, assertion or timeout changed.
 The complete native/race runner passed again after this repair. The new exact-head hosted
 result remains pending until verified separately.
+
+Codacy subsequently classified the PostgreSQL-only seed file as T-SQL and required
+SET QUOTED_IDENTIFIER. The seed is now a local guarded Python script executing the same
+fixed grant/policy SQL with bound parameters. No analyzer setting or DB semantics changed.
+The complete runner passed with this parameterized seed as well (17 races, five browser
+proofs, quarantine72/controls9 and two22-function readbacks).

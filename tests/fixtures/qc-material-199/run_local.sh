@@ -38,7 +38,7 @@ psql -X -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/acceptance_195_legacy_mo_quara
 bash scripts/ci/fresh-db/test_195_legacy_mo_quarantine_column_grants.sh
 psql -X -q -v ON_ERROR_STOP=1 -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
 psql -X -q -v ON_ERROR_STOP=1 -f "$WARDAH_QC_CLIENT/docs/db/material-issue-release/seed_after_containment.sql" >/dev/null
-psql -X -q -v ON_ERROR_STOP=1 -f "$HERE/seed.sql" >/dev/null
+python3 "$HERE/seed.py"
 python3 "$HERE/races.py"
 python3 "$HERE/bridge.py" > "${WARDAH_QC_OUTPUT:-$TASK_DIR}/bridge.txt" 2>&1 & BRIDGE_PID=$!
 node node_modules/vite/bin/vite.js --config "$HERE/vite.config.ts" > "${WARDAH_QC_OUTPUT:-$TASK_DIR}/vite.txt" 2>&1 & VITE_PID=$!
