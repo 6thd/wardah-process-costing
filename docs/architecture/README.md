@@ -12,6 +12,7 @@
 - [`ASTRA_REMEDIATION_TODO_20260905.md`](./ASTRA_REMEDIATION_TODO_20260905.md) — سجل Findings/Status/TODO ومعايير الإغلاق والربط بالـIssues.
 - [`EXECUTION_LEDGER.md`](./EXECUTION_LEDGER.md) — سجل التنفيذ التاريخي؛ يقرأ للسياق ولا يتجاوز checkpoint 2026-09-25.
 - [`PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md`](./PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md) — خطة `ALIGN-P*` لمواءمة خريطة المنتج والتنقّل وهيكل المستودع.
+- [`MANUFACTURING_SETTINGS_INVENTORY_20261003.md`](./MANUFACTURING_SETTINGS_INVENTORY_20261003.md) — جرد إعدادات التصنيع: عشرة مخازن متفرقة، تقاطعها مع كل نافذة، فجوات RLS والجداول المفقودة، والتصميم المقترح لـ`/manufacturing/settings`. جرد لا تنفيذ.
 - [`PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md`](./PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md) — snapshot تاريخي قبل `ALIGN-P1` مع توثيق نتيجة PR #193؛ ليس backlog حاليًا.
 
 > لتجنب الالتباس لا تستخدم `P0/P1/P2/P3` وحدها.  
