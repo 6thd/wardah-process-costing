@@ -159,3 +159,16 @@ Bandit/Ruff, syntax and marker controls passed after the byte-comparison change.
 The intermediate hosted success does not certify the resulting changed head; resolve
 new-head CI and fresh independent review separately. No source lock, frozen client,
 canonical SQL, runtime source, dependency or rollout hold changed.
+
+
+At intermediate head `647f6f8f`, Codacy's two exact annotations were
+"Detected subprocess function 'check_output' without a static string" on the
+shared command-list variable. Both calls now expose the fixed `/usr/bin/git`
+argv prefix directly, and cat-file exposes its exact two read-only flags; the
+other queries still come only from the existing fixed allowlist. The argument
+values, environment stripping, shell=False and byte/mode verification are unchanged.
+No analyzer suppression/config was added. Content/refusal controls were rerun.
+
+A fourth complete run after this static-argv repair exited0, with all markers and
+one-positive/19 marker refusals. Output SHA256:
+`201bac0db0ea1c0a3dd363f0920fef1d7cef3fcec661be556a04c6f46583de10`.

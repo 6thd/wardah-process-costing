@@ -19,10 +19,9 @@ def git(directory,query,blob_ids=None):
  args=commands[query]  # Unsupported queries fail before invoking anything.
  env={k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
  # argv only; no shell, PATH lookup, fsmonitor hook or GIT_* redirection.
- command=['/usr/bin/git','-c','core.fsmonitor=false','-C',str(directory),*args]
  if query=='blobs':
-  return subprocess.check_output(command,input=('\n'.join(blob_ids)+'\n').encode(),env=env,shell=False)  # nosec B603
- return subprocess.check_output(command,env=env,text=True,shell=False).strip()  # nosec B603
+  return subprocess.check_output(['/usr/bin/git','-c','core.fsmonitor=false','-C',str(directory),'cat-file','--batch'],input=('\n'.join(blob_ids)+'\n').encode(),env=env,shell=False)  # nosec B603
+ return subprocess.check_output(['/usr/bin/git','-c','core.fsmonitor=false','-C',str(directory),*args],env=env,text=True,shell=False).strip()  # nosec B603
 
 def expected_blobs(client,entries):
  identifiers=list(dict.fromkeys(entry[2] for entry in entries))
