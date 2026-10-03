@@ -1,4 +1,10 @@
-# Independent review request: privileged QC and pause counterexamples
+# Independent Round 2 review: privileged QC and pause contract hardening
+
+Prior reviewed head: `fcca92fe0eefa7638959667ae739614fef294e01`.
+Round 1 PASS covered counterexample accuracy and further review only; it required
+contract changes before implementation. Re-derive the Round 2 delta independently.
+Resolve the current #313 head/tree and freeze it before testing. If it differs
+from the owner-supplied review SHA, stop and report drift.
 
 Review the new Draft PR containing this directory. Resolve its exact head/tree
 at the start and end; do not inherit the executor's conclusions. This is a
@@ -24,6 +30,9 @@ its eight P3 notes or infer whole-QC/security acceptance.
 - Recompute all 44 hashes from accepted-main git blobs and verify coverage of
   the runner's consumed files, including transitive helpers. Change a source in
   a scratch copy and prove refusal before any database connection/setup.
+  Also add a new later-timestamp cutoff-189 baseline, remove a locked candidate,
+  and replace a locked file with a symlink. Require named pre-client refusal,
+  zero logged psql/createdb calls and unchanged database inventory.
 - Prefer stock `postgres:17`, UTF8, on a disposable explicit loopback port in
   55000–65535, with psycopg 3.3.6 and a PG17 client. Record exact image digest,
   server/client/Python versions and any differences. The executor used a managed
@@ -49,8 +58,10 @@ its eight P3 notes or infer whole-QC/security acceptance.
 - Optionally rerun the five existing frozen-client QC unit suites (26 tests) in
   a separate copy. The focused command uses `--coverage.enabled=false`; no full
   project coverage or new native-browser proof is claimed.
-- Run syntax, Ruff, whitespace and Bandit. Test-oracle `assert` statements are
-  intentional; an assertions-excluded Bandit run is not an assertions-free claim.
+- Run syntax, Ruff, whitespace and full Bandit without excluding B101. Run the
+  harness normally, under `-O`/`-OO` and PYTHONOPTIMIZE=1/2; explicit oracles and
+  waits must remain active. Mutate a required observation in a scratch copy to
+  prove the optimized run refuses instead of printing PASS.
 
 ## Judgment requested
 
@@ -66,6 +77,17 @@ exclusive-controller ordering, complete writer coverage, direct privileged
 paths, unknown-event reconciliation writes, fail-closed crashes/timeouts and
 untrusted build/device metadata. All implementation/rehearsal claims remain
 pending. Identify gaps before this contract could guide implementation.
+
+Check all twelve Round 1 contract requests: anti-starvation advisory barrier and
+load proof; explicit FOR SHARE/FOR UPDATE; state read under lock and 40001 retry;
+missing row/provision/backfill/delete/truncate/cascade guards; deterministic
+multi-org/global/new-org/nested ordering; complete effective-grant writer/call
+inventory; precise BYPASSRLS/owner boundary and F1 prerequisite; server-identified
+RECOVERY that only closes unknown events; stuck/prepared holders and reviewed
+abort/timeout monitoring; signed identity plus current server admission state;
+epoch-stamped receipts; and server-authored audit independent of #165.
+Check that REVOKE ALL plus independent RPC-owner guard remains a separate
+additive correction, and no target or pause acceptance is implied.
 
 Return exact identities, commands/environment, independently observed outcomes,
 findings/severity and one scoped verdict: PASS/FAIL for **accuracy of these two

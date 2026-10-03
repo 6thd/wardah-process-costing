@@ -139,7 +139,8 @@ with connect("postgres", True) as admin:
             thread = threading.Thread(target=writer, daemon=True)
             thread.start()
             try:
-                assert ready.wait(5), "PAUSE_WRITER_NOT_STARTED"
+                if not (ready.wait(5)):
+                    raise AssertionError("PAUSE_WRITER_NOT_STARTED")
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
                     if errors:
@@ -160,43 +161,62 @@ with connect("postgres", True) as admin:
                     try:
                         newcomer.execute(CALL, (MO, str(uuid.uuid4()), PAYLOAD))
                     except psycopg.errors.InsufficientPrivilege as exc:
-                        assert exc.sqlstate == "42501"
-                        assert exc.diag.message_primary == (
-                            "permission denied for function rpc_record_quality_inspection"
-                        )
+                        if not (exc.sqlstate == "42501"):
+                            raise AssertionError(
+                                "PAUSE_ORACLE_FAILED: exc.sqlstate == '42501'"
+                            )
+                        if not (
+                            exc.diag.message_primary
+                            == "permission denied for function rpc_record_quality_inspection"
+                        ):
+                            raise AssertionError(
+                                "PAUSE_ORACLE_FAILED: exc.diag.message_primary == 'permission denied for function rpc_record_quality_inspection'"
+                            )
                     else:
                         raise AssertionError("PAUSE_NEW_CALL_NOT_DENIED")
-                assert (
+                if (
                     holder_pid
-                    in observer.execute(
+                    not in observer.execute(
                         "SELECT pg_blocking_pids(%s)", (worker_pid[0],)
                     ).fetchone()[0]
-                )
-                assert (
+                ):
+                    raise AssertionError(
+                        "PAUSE_ORACLE_FAILED: holder_pid in observer.execute('SELECT pg_blocking_pids(%s)', (worker_pid[0],)).fetchone()[0]"
+                    )
+                if not (
                     observer.execute(
                         "SELECT count(*) FROM public.quality_inspections WHERE mo_id=%s",
                         (MO,),
                     ).fetchone()[0]
                     == 0
-                )
+                ):
+                    raise AssertionError(
+                        "PAUSE_ORACLE_FAILED: observer.execute('SELECT count(*) FROM public.quality_inspections WHERE mo_id=%s', (MO,)).fetchone()[0] == 0"
+                    )
                 holder.commit()
                 thread.join(10)
-                assert not thread.is_alive(), "PAUSE_WRITER_DID_NOT_FINISH"
+                if not (not thread.is_alive()):
+                    raise AssertionError("PAUSE_WRITER_DID_NOT_FINISH")
                 if errors:
                     raise errors[0]
-                assert len(result) == 1 and result[0]["replayed"] is False
-                assert (
+                if not (len(result) == 1 and result[0]["replayed"] is False):
+                    raise AssertionError(
+                        "PAUSE_ORACLE_FAILED: len(result) == 1 and result[0]['replayed'] is False"
+                    )
+                if not (
                     observer.execute(
                         "SELECT count(*) FROM public.quality_inspections WHERE mo_id=%s",
                         (MO,),
                     ).fetchone()[0]
                     == 1
-                ), "PAUSE_COMMITTED_COUNT"
+                ):
+                    raise AssertionError("PAUSE_COMMITTED_COUNT")
                 row = observer.execute(
                     "SELECT inspector_id::text,result FROM public.quality_inspections WHERE mo_id=%s",
                     (MO,),
                 ).fetchone()
-                assert row == (ACTOR, "PASS"), "PAUSE_COMMITTED_EFFECT_MISSING"
+                if not (row == (ACTOR, "PASS")):
+                    raise AssertionError("PAUSE_COMMITTED_EFFECT_MISSING")
                 print(
                     "QC_EXECUTE_REVOKE_DRAIN_RED blocked=true new_call=42501 inflight_committed=true"
                 )
@@ -204,9 +224,8 @@ with connect("postgres", True) as admin:
                 holder.rollback()
                 thread.join(16)
         with connect(SOURCE, True) as source:
-            assert source.execute(SNAPSHOT).fetchone()[0] == before, (
-                "PAUSE_SOURCE_CHANGED"
-            )
+            if not (source.execute(SNAPSHOT).fetchone()[0] == before):
+                raise AssertionError("PAUSE_SOURCE_CHANGED")
         print("QC_PAUSE_SOURCE_UNCHANGED source_state=true")
     finally:
         admin.execute(

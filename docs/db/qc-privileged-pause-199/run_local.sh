@@ -13,7 +13,13 @@ root=Path(sys.argv[1])
 lock=json.loads(Path(sys.argv[2]).read_text())
 if lock['main']!='3d01f99fae2fb294fa0586084c32f0cd6bdf21fe' or len(lock['sources'])!=44:
     raise SystemExit('REFUSED: source manifest identity')
+expected_baselines={p for p in lock['sources'] if p.startswith('sql/baseline/000_schema_baseline_') and p.endswith('.sql')}
+actual_baselines={p.relative_to(root).as_posix() for p in (root/'sql/baseline').glob('000_schema_baseline_*.sql')}
+if actual_baselines!=expected_baselines:
+    raise SystemExit('REFUSED: baseline candidate set drift')
 for path,expected in lock['sources'].items():
+    if (root/path).is_symlink() or not (root/path).is_file():
+        raise SystemExit('REFUSED: reviewed source is not a regular file: '+path)
     if hashlib.sha256((root/path).read_bytes()).hexdigest()!=expected:
         raise SystemExit('REFUSED: reviewed source drift: '+path)
 print('QC_REVIEW_SOURCES_PASS files=44')

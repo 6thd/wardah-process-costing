@@ -2,7 +2,10 @@
 
 2026-10-03 UTC. Executor evidence for the first isolated-acceptance preparation
 step in [#311](https://github.com/6thd/wardah-process-costing/pull/311).
-Independent review of this new evidence and the proposed contract is pending.
+Independent Round 1 review of `fcca92fe0eefa7638959667ae739614fef294e01`
+returned PASS for the two counterexamples and suitability for further review,
+with contract changes required before implementation. Round 2 hardens the
+contract and harness; independent acceptance of this delta is pending.
 This packet adds reproducible counterexamples, not a migration or a working pause.
 
 ## Frozen inputs and scope
@@ -54,10 +57,11 @@ is a blocker to claiming RPC-only QC evidence integrity in a deployment that
 permits that writer. Treat it as a candidate P2 for that acceptance scope, subject
 to independent severity review and the owner's integration policy.
 
-Proposed correction to review separately: revoke privileged direct INSERT with
-effective table/column/inherited-grant readback, preserve the reviewed
-authenticated RPC path, and require an attributable, audited path for any named
-server integration. This packet does not allocate a migration number, modify
+Proposed correction to review separately: REVOKE ALL direct privileges including
+service_role, with effective table/column/inherited-grant readback and an
+independent reviewed RPC-owner write guard. Preserve the reviewed authenticated
+RPC path and require an attributable, audited path for any named server
+integration. This packet does not allocate a migration number, modify
 canonical M199, or implement that correction.
 
 Non-vacuity: temporarily revoking service_role INSERT makes the reproduction
@@ -65,6 +69,45 @@ fail at `SERVICE_ROLE_INSERT`. In a separate rolled-back transaction, the same
 candidate revoke leaves all 70 unchanged original QC assertions passing. That
 supports a narrow candidate; it does not prove compatibility with unregistered
 privileged integrations.
+
+The supplied independent review also reproduced sequence shadowing: a forged
+FINAL PASS at sequence 999 remains the selected final inspection after a later
+genuine FINAL FAIL. It confirmed service_role cannot UPDATE manufacturing_orders.
+These are reviewer observations, not additional executor or hosted proofs.
+Existing immutability complicates remediation; target forensic readback is
+heuristic because known issue #165 permits client-authored audit attribution.
+Neither an audit row nor its absence alone establishes trusted provenance.
+
+## Round 2 changes and evidence boundary
+
+The pause harness replaces every bare Python `assert` with explicit conditions
+raising named failures. Waiting and other required side effects execute under
+normal Python, `-O` and `-OO`; no assertion-exclusion policy is needed for this
+harness. The source verifier compares the complete top-level baseline candidate
+set against the locked paths before any DB client invocation, rejects symlinked
+locked sources, and retains the 44 original content hashes unchanged. A new
+baseline candidate is refused even if its cutoff would otherwise be selected.
+
+The contract now specifies advisory and row lock modes/order, locked state
+reads/isolation refusals, provisioning and missing-row guards, expanded writer
+inventory, F1 as a P04 prerequisite, server-identified recovery, stuck-holder
+handling, epoch receipts and trusted audit independent of #165. All P01–P12
+remain PENDING. These changes implement test/contract hardening only.
+
+The results below describe the original executor run at the Round 1 head.
+They must not be read as a complete PostgreSQL rerun of the Round 2 delta.
+
+Round 2 executor checks: added baseline, removed baseline, symlinked locked
+source, changed M199 content, wrong host/port and PGSERVICE all refused with
+zero logged DB client calls. Unchanged sources passed and reached a deliberately
+failing client shim. The actual wait-oracle branch raised
+`PAUSE_WRITER_NOT_STARTED` and executed its wait exactly once under normal Python,
+`-O` and `-OO`; ten explicit failure branches remain in the AST. This is a
+non-DB optimization control, not a concurrency reproduction. Ruff check/format,
+full Bandit without exclusions, Python compilation, Bash syntax and whitespace
+checks passed. PostgreSQL was unavailable in this fresh environment, so a full
+Round 2 PG17 runner and optimized concurrency reproduction remain required in
+independent review. No target was accessed.
 
 ## Existing history protection: TRUNCATE is denied
 
