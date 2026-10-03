@@ -154,8 +154,11 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 2. فشل العضوية النشطة في `p_org_id` (`wardah_assert_org_member`).
 3. `NOT_ORG_ADMIN` — عضو نشط لكنه ليس `admin`/`owner`/`is_org_admin` ولا Super Admin.
 
-لا يفحص مفتاح صلاحية. **قرار D3 في #312** يحدد هل يصبح الحارس `manufacturing.settings.update`
-(مع تجاوز المسؤول أو بدونه)؛ حتى ذلك الحين الدالة لمسؤول المؤسسة فقط.
+لا يفحص مفتاح صلاحية في 200. **بعد Migration 201** (قرار D3: صلاحية يمنحها المسؤول للأدوار)
+صار الحارس `wardah_assert_org_member` ثم `wardah_internal.manufacturing_settings_can_update_201`
+= Super Admin أو `wardah_is_org_admin` أو حامل `manufacturing.settings.update`، ويرفض بـ
+`MANUFACTURING_SETTINGS_UPDATE_DENIED` (`42501`). العقد الحي هو اتحاد 200 و201؛ التفاصيل في
+`docs/db/MANUFACTURING_SETTINGS_PERMISSIONS_201_RUNBOOK.md` §4.
 
 ### 8.3 التحقق من المدخلات (بالترتيب، كلها SQLSTATE `22023`)
 
