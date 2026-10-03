@@ -43,7 +43,7 @@ including both readback SQL and comparators. Clean HEAD/tree identity is checked
 and after execution. Tracked contents and modes are checked against immutable HEAD blobs,
 including assume-unchanged/skip-worktree files; untracked and ignored source files are refused.
 Only archived .bat/.cmd/.ps1 checkout CRLF is normalized per the frozen .gitattributes; runtime
-source bytes are exact. Git uses a fixed executable, four read-only allowlisted queries,
+source bytes are exact. Git uses a fixed executable, five read-only allowlisted queries,
 no fsmonitor and no inherited `GIT_*` variables.
 
 ## Proof boundaries

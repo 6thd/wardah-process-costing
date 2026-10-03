@@ -139,3 +139,23 @@ Test & Build, CodeFactor, Codacy and SonarQube checks succeeded; Production depl
 Those old results do not certify this follow-up. New-head CI must be resolved separately
 and recorded in the PR body; independent review is still pending. No merge or target
 migration application was performed. All NO-GO/M192/owner33/ops8 and DB-first gates remain.
+
+
+### Analyzer-driven byte comparison follow-up
+
+At intermediate head `d8db7da2`, the hosted native M199 run37114130320 succeeded,
+as did CodeFactor. Codacy objected to the explicit SHA1 algorithm used to reproduce
+Git blob identities (`verify_inputs.py` line59); its exact annotation was read via
+the public GitHub API. The verifier now reads the pinned immutable blobs with fixed,
+read-only `git cat-file --batch` and compares actual bytes directly, without any
+weak-hash algorithm or suppression. The existing Windows-script checkout normalization
+and all mode/source-shadow checks remain. Git now has five read-only query kinds.
+
+The content/refusal controls passed again, including the former-status-only positive
+mutants, and a third complete native/race/server/HTTP run exited0 with all markers.
+Third-run output SHA256:
+`201bac0db0ea1c0a3dd363f0920fef1d7cef3fcec661be556a04c6f46583de10`.
+Bandit/Ruff, syntax and marker controls passed after the byte-comparison change.
+The intermediate hosted success does not certify the resulting changed head; resolve
+new-head CI and fresh independent review separately. No source lock, frozen client,
+canonical SQL, runtime source, dependency or rollout hold changed.

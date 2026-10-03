@@ -1,5 +1,6 @@
 """Bind the real DB sources and clean, frozen client before executing anything."""
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -10,14 +11,31 @@ import sys
 HERE=Path(__file__).resolve().parent
 ROOT=HERE.parents[2]
 
-def git(directory,query):
+def git(directory,query,blob_ids=None):
  commands={'head':('rev-parse','HEAD'),'tree':('rev-parse','HEAD^{tree}'),
            'status':('status','--porcelain','--untracked-files=no'),
-           'files':('ls-tree','-rz','HEAD')}
+           'files':('ls-tree','-rz','HEAD'),
+           'blobs':('cat-file','--batch')}
  args=commands[query]  # Unsupported queries fail before invoking anything.
  env={k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
  # argv only; no shell, PATH lookup, fsmonitor hook or GIT_* redirection.
- return subprocess.check_output(['/usr/bin/git','-c','core.fsmonitor=false','-C',str(directory),*args],env=env,text=True,shell=False).strip()  # nosec B603
+ command=['/usr/bin/git','-c','core.fsmonitor=false','-C',str(directory),*args]
+ if query=='blobs':
+  return subprocess.check_output(command,input=('\n'.join(blob_ids)+'\n').encode(),env=env,shell=False)  # nosec B603
+ return subprocess.check_output(command,env=env,text=True,shell=False).strip()  # nosec B603
+
+def expected_blobs(client,entries):
+ identifiers=list(dict.fromkeys(entry[2] for entry in entries))
+ stream=io.BytesIO(git(client,'blobs',identifiers))
+ result={}
+ for expected in identifiers:
+  digest,kind,size=stream.readline().decode().split()
+  if digest!=expected or kind!='blob':
+   raise SystemExit('PINNED_CLIENT_BLOB_IDENTITY_DRIFT')
+  result[digest]=stream.read(int(size))
+  if len(result[digest])!=int(size) or stream.read(1)!=b'\n':
+   raise SystemExit('PINNED_CLIENT_BLOB_BYTES_MISSING')
+ return result
 
 def blob_bytes(path,mode):
  info=path.lstat()
@@ -46,18 +64,19 @@ def verify_untracked_sources(client,tracked):
 def verify_worktree(client):
  # Read immutable HEAD blobs, not index flags or status caches. Check every
  # tracked byte and mode, including files hidden by assume/skip-worktree flags.
+ entries=[]
+ for record in git(client,'files').split('\0'):
+  if record:
+   metadata,name=record.split('\t',1)
+   entries.append((*metadata.split(),name))
+ blobs=expected_blobs(client,entries)
  tracked=set()
- for entry in git(client,'files').split('\0'):
-  if not entry:
-   continue
-  metadata,name=entry.split('\t',1)
-  mode,kind,digest=metadata.split()
+ for mode,kind,digest,name in entries:
   path=client/name
   tracked.add(name)
   try:
    data=blob_bytes(path,mode)
-   actual=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data,usedforsecurity=False).hexdigest()
-   if kind!='blob' or actual!=digest:
+   if kind!='blob' or data!=blobs[digest]:
     raise ValueError('BLOB_BYTES')
   except (OSError,ValueError) as error:
    raise SystemExit('PINNED_CLIENT_CONTENT_DRIFT: '+name) from error
