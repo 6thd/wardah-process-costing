@@ -195,7 +195,7 @@ They are requirements for future implementation, not implemented protections.
 1. Owner identity alone is insufficient: the reviewer counted 110 postgres-owned
    DEFINER functions executable by service_role, eight with dynamic SQL. Require
    both the intended RPC owner and an RPC-specific transaction-local marker
-   (review M169's pattern) for QC, fence and trusted audit writes. A caller-settable
+   (do not copy M169's owner-session bypass) for QC, fence and trusted audit writes. A caller-settable
    marker alone is not authority. Inventory dynamic SQL, helper EXECUTE grants,
    marker spoofing, nested entry and marker lifetime/reset on every exit.
 2. Reserve a class ID in the two-int4 advisory namespace, separate from existing
@@ -206,8 +206,8 @@ They are requirements for future implementation, not implemented protections.
 3. Use a reviewed hierarchy: global shared barrier -> org shared barriers in
    ascending order -> pause rows -> business locks. A global controller takes
    the global exclusive barrier before org enumeration/state transitions, so it
-   need not hold N org exclusive advisory locks. Every writer and new-org
-   provisioning must take the global prefix. A writer without a server-resolved
+   need not hold N org exclusive advisory locks. Every writer, org controller and new-org
+   provisioning must take the global shared prefix before any org lock. A writer without a server-resolved
    org refuses before org/business locks; no caller-supplied org is trusted.
    Review global controller overlap with org controllers and provisioning.
    Read back max_locks_per_transaction and budget the remaining locks under
@@ -237,3 +237,136 @@ history remediation requires an approved append-only superseding mechanism
 that actually overrides arbitrary high/NULL sequence evidence; merely appending
 a normal lower-sequence row is insufficient. No such remediation is implemented
 or authorized by this contract.
+
+
+## Round 4 selected design and live-main reconciliation
+
+These choices refine the proposal; they are not implemented admission, grants,
+remediation or target acceptance. P02/P08 sustained-load and queue/timeout proofs
+remain mandatory. Earlier generic requirements must be read with these choices.
+
+### Frozen proof versus current source scope
+
+The counterexample runner still consumes only the locked M190–M199 chain at
+`3d01f99fae2fb294fa0586084c32f0cd6bdf21fe`. Live main was independently read at
+`1fe5eccc8e52874bc6038f26ffd4366628c46ca1`, tree
+`b7dd9baa1d92b434118400c0e5ceaac30da45db8`, after #312 and merged #314/M200.
+The Round 3 review's docs-only drift statement is historical. Do not rebase,
+relock or claim that the frozen runner tests M200 or current-main acceptance.
+No target ledger was read; repository presence is not target application.
+
+M200 is INCLUDED in the future pause and paired DB/client inventory because GL
+mapping mutations affect account selection for manufacturing posting. It is not
+implicitly accepted by the ten-step reproduction. Scope ledger/application
+verification against the selected target's actual chain, including M200 when
+applicable, with separately authorized missing-only ordered application. Any
+later migration requires a new source/inventory reconciliation before P04/P12.
+
+| Surface at live main | Required future treatment |
+| --- | --- |
+| `rpc_set_gl_event_mapping(uuid,text,text,text,text,text,boolean)` | Include authenticated admin writes; fence before its single-bigint mapping advisory lock and before INSERT/conflict wait/FOR UPDATE; retain M200 validation and exact audit before-image contract |
+| `rpc_upsert_event_mapping(text,text,text,text,text,uuid)` | Include service_role writer and seed/jobs; it does not take the new setter's mapping lock; resolve server org before common prefix or refuse |
+| service_role direct `gl_event_mappings` writes, inherited/column grants and trigger paths | Close or independently prove participating admission; M200 deliberately preserves them |
+| M200 `audit_logs` insert and posting consumers | Include audit mutation and transitive effects; #165 means this audit is not trusted RPC provenance; mapping pause does not prove all posting consumers are fenced |
+
+Read M200 runbook §§8–9 before future function replacement. The setter validates
+org admin/accounts, has a single-bigint business advisory lock, then inserts or
+locks/updates, and audits. The runbook records that the legacy setter is a
+separate service_role seed path with weaker validation and no audit. Future
+fencing must not silently replace those contracts or authorize their use.
+
+### Provenance, marker and recovery identity
+
+Do not copy the M169 `session_user = current_user` disjunct. Direct owner-session
+DML without a valid entry context is refused by the proposed guard, even though
+an owner/superuser can ultimately alter the mechanism outside its guarantee.
+
+Selected SQL-only marker design: a protected server-authored transaction context
+in a private schema, not a caller-settable custom GUC. Bind it to backend identity,
+full transaction ID, org, epoch, literal entrypoint identity and nesting depth.
+Only narrow, reviewed DEFINER entrypoints with dedicated NOLOGIN owners may
+establish/push/pop context. No client EXECUTE on the context mutator, no direct
+DML/DDL or owner membership for client/service roles; pinned search_path and
+fully qualified references are required. Context rows must be removed on normal
+exit, scoped/restored on nested exit and rolled back on errors; committed orphan
+context is a failed invariant. Guards check both intended execution owner and
+matching context. Current_user, literal arguments or context existence alone
+are insufficient. Inventory all owner-executed dynamic SQL and callable helpers
+that could forge context or reach protected QC/fence/audit stores. No acceptance
+until spoof/direct-helper/nested/error/pool-reuse probes pass.
+
+RECOVERY allowlist is a fixed server-code constant containing only reviewed
+recovery entrypoint identities (initially only
+`public.rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid)` for unknown
+material issue events), with literal identity in the allowlisted entrypoint body. No
+client-writable allowlist table, payload-based identity or arbitrary name passed
+to a helper. The helper is reachable only through restricted entrypoints and
+uses the protected context above; reconciliation may close, never apply events.
+Exact deployed function signatures/owners are frozen by implementation review.
+
+If a parameter marker is retained in a later implementation, reserve
+`wardah.qc_entry_context`, revoke SET/ALTER SYSTEM grants via pg_parameter_acl
+from PUBLIC, anon, authenticated, service_role and inherited/settable roles,
+and read back effective has_parameter_privilege plus actual SET/set_config
+attempts in new sessions. This is NOT protection for an ordinary USERSET custom
+GUC: PostgreSQL parameter SET ACL matters for otherwise restricted parameters.
+Such an alternative needs a registered protected parameter in every backend and
+independent hosted feasibility/negative probes; absent that, it is refused and
+the selected protected context remains authoritative. Apply the separate
+session_replication_role ACL/readback requirement as well.
+
+References: [PostgreSQL 17 parameter SET privilege](https://www.postgresql.org/docs/17/ddl-priv.html)
+and [custom option placeholders](https://www.postgresql.org/docs/17/runtime-config-custom.html).
+
+### Selected advisory keys and controller order
+
+Reserve two-int4 class ID `1463898704` for this proposed fence only. Global key
+is `(1463898704, 0)`. Org keys are `(1463898704, org_lock_id)`, where an immutable,
+server-owned registry assigns UNIQUE positive int4 IDs monotonically, never
+reuses deleted-org IDs and refuses on exhaustion. No UUID hash or modulo mapping:
+distinct orgs cannot collide. Registry protection/provisioning is part of the
+writer inventory. Read-only lookup of an existing immutable mapping happens
+under the global shared barrier before org locks; missing mapping refuses.
+Namespace/key ownership must be checked against all source/catalog/external
+advisory users before allocation, not just this repository's numeric literals.
+
+| Participant | Transaction-duration lock prefix |
+| --- | --- |
+| Ordinary or recovery writer | global shared -> org shared in ascending org_lock_id -> pause rows FOR SHARE -> existing business advisory/row order |
+| Org pause/resume/recovery controller | global shared -> org exclusive in ascending org_lock_id -> pause rows FOR UPDATE; no business locks while waiting |
+| Global controller | global exclusive -> pause rows FOR UPDATE in ascending org_lock_id; no per-org advisory locks are required because every org controller/writer takes the global shared prefix |
+| New-org provisioning | global shared -> protected registry allocation -> new org exclusive -> provision pause row; reject if durable global state is PAUSED except separately authorized recovery provisioning |
+
+Global state must be read under the acquired global barrier by every participant;
+per-org state is read in its locking statement. Multi-org writers determine all
+server-authorized orgs before the org-lock phase; late discovery of a lower key
+requires rollback/restart. A writer unable to resolve its org refuses before
+business locks. Never upgrade a held shared barrier to exclusive in a nested
+call. Registry allocation and global pause-row ordering need a reviewed
+non-inverting lock path. Bound both controller and writer waits, monitor convoy
+age, and budget max_locks_per_transaction for real row/business workloads.
+A single advisory queue sample is not proof of sustained-load drain.
+
+### Uniform QC ordering and supersession
+
+Select one policy for FINAL, IN_PROCESS and list projections within each
+(org, MO, QC cycle, inspection type): trusted authority revision DESC, then
+inspection_seq DESC NULLS LAST, then stable ID DESC. Legacy evidence has authority
+revision 0; new RPC inspections use server-generated non-NULL sequences. Require
+NOT NULL for new-era sequence data and compatibility probes for existing NULLs.
+Apply the same ordering to both evaluator selectors and the list RPC; list
+ordering alone does not fix the gate.
+
+Append-only remediation creates a trusted positive authority revision under the
+common fence and per-cycle/type serialization, greater than the trusted revision
+counter, not greater than an untrusted inspection sequence. A supersession record
+identifies affected history, rationale, approver and replacement decision; the
+original rows remain immutable. Protected revision metadata is separate from
+client/direct-writer fields: no legacy NULL or arbitrary high sequence can raise
+its revision above 0. The gate selects only evidence linked to the latest trusted
+revision; a remediation revision with no validated replacement keeps release
+blocked. Future genuine inspections in that revision then use their normal
+server sequence. This requires a separate additive correction and owner-approved
+forensics/remediation policy. Probe forged NULL and arbitrarily high sequences,
+FINAL and IN_PROCESS independently, revisions/retries/concurrency and no-valid-
+replacement denial. No revision/schema/selector change is made in this packet.

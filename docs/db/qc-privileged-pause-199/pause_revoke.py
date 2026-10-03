@@ -195,7 +195,7 @@ with connect("postgres", True) as admin:
                     )
                 holder.commit()
                 thread.join(10)
-                if not (not thread.is_alive()):
+                if thread.is_alive():
                     raise AssertionError("PAUSE_WRITER_DID_NOT_FINISH")
                 if errors:
                     raise errors[0]

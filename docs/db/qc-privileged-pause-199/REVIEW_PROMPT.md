@@ -1,106 +1,73 @@
-# Independent Round 3 review: privileged QC and pause contract hardening
+# Independent Round 4 delta review — QC evidence and pause contract
 
-Round 2 reviewed head: `8c69605cfb22c4fb184c9cd14a74704ba20c96e0`,
-tree `937a46208afb48ab418de4fe0351d7480ddc3c32`. Its supplied independent
-scoped PASS included full stock PG17 reproduction. Review the new delta against
-that head, including the seven Round 3 implementation requirements, NULL sequence
-shadowing/remediation boundary, corrected twelve raise sites and parent-directory
-symlink refusal. Replace a source parent directory with a symlink in a scratch
-copy and require named pre-client refusal with zero client calls. Capture real
-mutant/candidate outputs yourself; the runner deletes its temporary outputs.
+READ ONLY. Freeze the owner-supplied #313 review SHA/tree at start and end.
+Do not commit, push, post reviews/comments, merge, mark Ready, allocate/apply a
+migration, access Production/Staging or implement a pause. Return drift rather
+than silently changing inputs. No whole-QC/security or rollout acceptance.
 
-Prior reviewed head: `fcca92fe0eefa7638959667ae739614fef294e01`.
-Round 1 PASS covered counterexample accuracy and further review only; it required
-contract changes before implementation. Re-derive the current delta independently.
-Resolve the current #313 head/tree and freeze it before testing. If it differs
-from the owner-supplied review SHA, stop and report drift.
+## Anchors and the scope of this review
 
-Review the new Draft PR containing this directory. Resolve its exact head/tree
-at the start and end; do not inherit the executor's conclusions. This is a
-read-only evidence/contract review, not permission to merge, allocate/apply a
-migration, trigger deployment or access Production/Staging.
+Prior Round 3 reviewed head: `5f60aba31f2ac4cab4c21ecb2811efaffe9db7ac`,
+tree `cb6428f027f0438e8bb43875c3c9a28963775a60`.
+Frozen counterexample base: `3d01f99fae2fb294fa0586084c32f0cd6bdf21fe`,
+tree `ad60355c42a0e725bbe431ff3032f95ac5f05d35`.
+Live main read by the executor: `1fe5eccc8e52874bc6038f26ffd4366628c46ca1`,
+tree `b7dd9baa1d92b434118400c0e5ceaac30da45db8`, includes #312 and #314/M200.
+#308 `2ea72541fec4b52e7e0af2a3809ecb7be791bb47`, #310
+`0e91e3527e8201ffae6f051cd31f8e4e3e7d9c86`, #311
+`33b1806b9fd8cb6639a7a929c6c73b90c9c6d08a` remain frozen references.
 
-## Anchors and scope
+Compare the new head to Round 3: only contract, README, this prompt and the
+one-condition equivalent Python simplification should change. The complete PR
+against the frozen base remains seven added packet files. Do not use a two-dot
+live-main diff to mistake missing main-only additions for PR deletions. Verify
+unchanged SOURCE_LOCK.json, RED SQL, runner and all 44 frozen source bytes.
+Do not rebase/relock M200 into the old ten-step proof.
 
-Accepted main is `3d01f99fae2fb294fa0586084c32f0cd6bdf21fe`, tree
-`ad60355c42a0e725bbe431ff3032f95ac5f05d35`. #310 is frozen at
-`0e91e3527e8201ffae6f051cd31f8e4e3e7d9c86`; #308 at
-`2ea72541fec4b52e7e0af2a3809ecb7be791bb47`; #311 at
-`33b1806b9fd8cb6639a7a929c6c73b90c9c6d08a`. Re-resolve and report drift. Verify
-the delta contains only seven additions in `docs/db/qc-privileged-pause-199/`,
-with no canonical SQL, application source, types, package, RBAC or deploy changes.
+## Focused questions
 
-Read README, contract, runner, RED SQL, pause harness and source manifest. The
-prior #310 two-proof PASS is context only; this packet does not ask you to close
-its eight P3 notes or infer whole-QC/security acceptance.
+1. Is M200 INCLUDED in future P04/P12 inventory with both setters, service_role
+   direct/inherited/column paths, its business advisory lock, audit and posting
+   consumers? Inspect M200 and runbook §§8–9 from the live-main anchor. Source
+   analysis does not prove target grants, external jobs or actual application.
+2. Does the proposed guard explicitly refuse owner-session DML without entry
+   context and avoid M169's session_user=current_user disjunct? Is server context
+   protected against direct helper calls, dynamic SQL, nesting, errors and reuse?
+   Check that caller-settable GUCs never prove entrypoint identity. Parameter ACL
+   revocation is not a USERSET denial mechanism: verify the cited PG17 distinction
+   and require actual negative SET/set_config probes for any protected-parameter
+   alternative. Do not accept a parameter ACL readback alone as spoof closure.
+3. Are class ID 1463898704, global key 0 and immutable UNIQUE positive int4 org
+   registry specified, with no hashing/reuse and exhaustion refusal? Check source
+   and available catalog namespace conflicts, global-shared prefix for org
+   controllers, new-org provisioning, ascending multi-org order, global-exclusive
+   controller, no lock upgrade and no inverted registry/business ordering.
+4. Is RECOVERY allowlist a server-code constant, initially only the literal
+   rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid) entrypoint, with
+   protected helper/context? No writable table or client flag may extend it.
+5. Does one authority-revision/sequence NULLS LAST policy cover FINAL,
+   IN_PROCESS and list projection? Can trusted append-only supersession outrank
+   legacy NULL/arbitrary-high sequences without rewriting history? Missing
+   validated replacement must remain blocked. These are future design only.
+6. Are P02/P08 sustained-load, convoy/timeouts, marker spoofing, parameter bypass,
+   dynamic writers, revision concurrency and complete inventory still mandatory
+   gates? A one-waiter advisory sample is not sustained-load proof.
 
-## Independent reproduction
+## Small validation delta
 
-- Recompute all 44 hashes from accepted-main git blobs and verify coverage of
-  the runner's consumed files, including transitive helpers. Change a source in
-  a scratch copy and prove refusal before any database connection/setup.
-  Also add a new later-timestamp cutoff-189 baseline, remove a locked candidate,
-  and replace a locked file with a symlink. Require named pre-client refusal,
-  zero logged psql/createdb calls and unchanged database inventory.
-- Prefer stock `postgres:17`, UTF8, on a disposable explicit loopback port in
-  55000–65535, with psycopg 3.3.6 and a PG17 client. Record exact image digest,
-  server/client/Python versions and any differences. The executor used a managed
-  PGDG 17.11 startup adapter; do not describe it as stock Docker or hosted Auth.
-- Run the chain and unchanged 70 QC assertions. Check the RED assertions' actual
-  effects/SQLSTATE/audit oracle, not merely the script's exit status or markers.
-- Verify anon/authenticated direct INSERT is denied; service_role has BYPASSRLS
-  and direct INSERT succeeds with empty actor claims. Confirm chosen inspector,
-  non-RPC request hash, evaluated gate change and zero QC RPC audit delta. Do not
-  infer finished-goods receipt, GL posting or a leaked service credential.
-- Verify M193's TRUNCATE protection and M199 UPDATE/DELETE immutability with exact
-  diagnostics and preserved rows. **TRUNCATE is not a claimed vulnerability.**
-- Run both explicit mutants: revoke privileged INSERT and remove the M193
-  TRUNCATE trigger in separate rollback transactions. Require named assertion
-  failures, not syntax/setup errors. Independently check the candidate INSERT
-  revoke leaves the unchanged 70 positive assertions passing and is rolled back.
-- For pause, verify a real authenticated call is blocked by the actual holder
-  PID before EXECUTE is revoked/committed. A new call must fail 42501 while the
-  earlier call still waits. Release the holder and prove exactly one fresh
-  inspection commits. Confirm source snapshot scope and clone/database cleanup.
-- Confirm the 72-probe quarantine check still passes after these tests. Snapshot
-  additional canonical catalog/state if needed to assess rollback claims.
-- Optionally rerun the five existing frozen-client QC unit suites (26 tests) in
-  a separate copy. The focused command uses `--coverage.enabled=false`; no full
-  project coverage or new native-browser proof is claimed.
-- Run syntax, Ruff, whitespace and full Bandit without excluding B101. Run the
-  harness normally, under `-O`/`-OO` and PYTHONOPTIMIZE=1/2; explicit oracles and
-  waits must remain active. Mutate a required observation in a scratch copy to
-  prove the optimized run refuses instead of printing PASS.
+Run AST/compile, Ruff 0.16.10 including SIM208, format, full Bandit and whitespace.
+Confirm only `if not (not thread.is_alive())` becomes `if thread.is_alive()`;
+retain twelve raise sites and zero assert nodes. Check refusal controls if runner
+source inputs are changed in scratch. PostgreSQL reproduction of the unchanged
+REDs was already independently supplied for Round 3; do not invent a new run.
+If reproducing, use disposable loopback PG17 only, preserve actual mutant output,
+record all environment differences and prove cleanup. No hosted identity proof.
 
-## Judgment requested
-
-Assess the privileged INSERT finding against the trusted integration boundary:
-is the reproduction accurate, is candidate P2 justified for RPC-only acceptance,
-and what explicit owner policy/additive correction would close it? Do not turn a
-privileged-credential capability into an ordinary-user exploit claim.
-
-Assess the operational counterexample: does it demonstrate why ACL revocation
-alone cannot establish G05 drain, without alleging a PostgreSQL defect? Review
-the proposed persistent fence's common lock prefix, missing-row behavior,
-exclusive-controller ordering, complete writer coverage, direct privileged
-paths, unknown-event reconciliation writes, fail-closed crashes/timeouts and
-untrusted build/device metadata. All implementation/rehearsal claims remain
-pending. Identify gaps before this contract could guide implementation.
-
-Check all twelve Round 1 contract requests: anti-starvation advisory barrier and
-load proof; explicit FOR SHARE/FOR UPDATE; state read under lock and 40001 retry;
-missing row/provision/backfill/delete/truncate/cascade guards; deterministic
-multi-org/global/new-org/nested ordering; complete effective-grant writer/call
-inventory; precise BYPASSRLS/owner boundary and F1 prerequisite; server-identified
-RECOVERY that only closes unknown events; stuck/prepared holders and reviewed
-abort/timeout monitoring; signed identity plus current server admission state;
-epoch-stamped receipts; and server-authored audit independent of #165.
-Check that REVOKE ALL plus independent RPC-owner guard remains a separate
-additive correction, and no target or pause acceptance is implied.
-
-Return exact identities, commands/environment, independently observed outcomes,
-findings/severity and one scoped verdict: PASS/FAIL for **accuracy of these two
-counterexamples and suitability of the hardened contract for further review**.
-List contract changes and remaining acceptance dependencies separately. Do not
-approve merge, working pause, whole-QC/security, target application or rollout.
-All 33 route dispositions, eight operational gates and NO-GO/M192 holds remain.
+Return exact identities and drift, the four-file delta, concrete remaining
+contract defects separately from future implementation/acceptance dependencies,
+and a bounded PASS/FAIL for counterexample accuracy and contract suitability for
+further review. If design choices remain unsafe, explain the precise mechanism;
+do not accept owner/helper/marker claims on naming alone. This is not approval
+for implementation readiness, merge or rollout. All 33 route dispositions,
+G01–G08, P01–P12, service_role policy, separate F1 correction, #165, #278 and
+NO-GO/M192 holds remain.

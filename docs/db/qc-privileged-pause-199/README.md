@@ -10,6 +10,12 @@ This packet adds reproducible counterexamples, not a migration or a working paus
 
 ## Frozen inputs and scope
 
+Round 4 live-main readback: `1fe5eccc8e52874bc6038f26ffd4366628c46ca1`,
+tree `b7dd9baa1d92b434118400c0e5ceaac30da45db8`, includes #312 docs and
+#314/M200. This does not change the frozen proof inputs below. M200 is included
+in the future pause inventory; the existing runner does not test it. No current
+target ledger/application is inferred. See the contract's Round 4 section.
+
 | Input | Commit | Tree |
 | --- | --- | --- |
 | Accepted main / canonical M190–M199 | `3d01f99fae2fb294fa0586084c32f0cd6bdf21fe` | `ad60355c42a0e725bbe431ff3032f95ac5f05d35` |
@@ -221,3 +227,27 @@ Round 3 executor check: parent-directory symlink refused before any client call;
 unchanged-source control reached the client shim; all 44 hashes remain unchanged,
 twelve explicit raise sites confirmed, Bash syntax and whitespace checks passed.
 No additional PG17 run is claimed for Round 3.
+
+The owner's supplied Round 3 review at `5f60aba3` returned the same bounded PASS,
+with stock PG17 reproduction and optimized refusal. It noted live-main drift
+through #312 at review time; the subsequent M200 merge is reconciled above.
+It reproduced NULL shadowing in FINAL and identified NULLS FIRST in both gate
+selectors. It also explains the TRUNCATE mutant helper's EXECUTE INTO diagnostic
+(`42601`) on successful TRUNCATE: the named mutant still fails, while an
+independent direct TRUNCATE proves the actual removal. No false claim of a
+successful captured helper result is made. Frozen units were not rerun in Round 3.
+
+Round 4 selects advisory keys/registry and controller hierarchy, server-code
+RECOVERY constants, protected server marker provenance and uniform
+revision/sequence ordering with append-only supersession. These are design
+choices only. In particular, revoking parameter SET does not secure an ordinary
+USERSET GUC; a private server-authored context is the selected authority, and
+any restricted-parameter alternative needs separate feasibility/probes. The
+harness's equivalent double negation is simplified for Ruff SIM208; SQL RED,
+runner and SOURCE_LOCK are unchanged. Independent Round 4 acceptance is pending.
+
+Round 4 executor verification: AST/compile retains zero assert nodes and twelve
+raise sites; the condition is equivalent for both thread-alive states. Ruff
+0.16.10 check, explicit SIM208 check and format, full Bandit 1.9.4, Bash syntax
+and whitespace pass; all 44 hashes match. M200 source/runbook were read from
+the live-main anchor, not executed. No new PG17 run or target access is claimed.
