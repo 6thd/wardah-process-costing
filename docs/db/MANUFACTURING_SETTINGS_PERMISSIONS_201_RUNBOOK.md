@@ -60,8 +60,8 @@
 تحتوي `RAISE`، فلا يستطيع الفرع الإضافي أن يُسقط مسؤولًا كان مقبولًا.
 
 **لا يغيّر:**
-- ACL الدوال الخمس: قورنت `proacl` كاملةً قبل وبعد فتطابقت، والـpostflight يعيد فحص `authenticated`
-  و`anon`.
+- ACL الدوال الخمس ومالكها: تُقارن `proacl` كاملةً قبل 201 وبعدها في CI
+  (`MFG_SETTINGS_201_FULL_ACL_UNCHANGED_OK`)، والـpostflight يعيد فحص `authenticated` و`anon`.
 - أي سطر آخر في الأجسام غير المذكور أعلاه. فرق `pg_get_functiondef` يُظهر فقط سطور الحارس،
   وسطر `can_manage_policy`، وقائمة القالب، وسطر تعليق واحد في `create_role_from_template` صار
   يذكر M201.

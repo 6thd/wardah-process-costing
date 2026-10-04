@@ -171,6 +171,7 @@ jobs:
           grep -q 'MFG_SETTINGS_201_RED_PRECONDITION_OK' /tmp/mfg-settings-201-red.out
           grep -q 'MFG_SETTINGS_201_RED_PROOF_OK' /tmp/mfg-settings-201-red.out
           grep -q 'MFG_SETTINGS_201_RED_PROOF_PASS' /tmp/mfg-settings-201-red.out
+          grep -q 'MFG_SETTINGS_201_FULL_ACL_UNCHANGED_OK' /tmp/mfg-settings-201-layer-order.out
           grep -q 'MFG_SETTINGS_201_LAYER_ORDER_FENCE_FIRST_OK' /tmp/mfg-settings-201-layer-order.out
           grep -q 'MFG_SETTINGS_201_LAYER_ORDER_CONFIG_AND_MISSING_OK' /tmp/mfg-settings-201-layer-order.out
           grep -q 'MFG_SETTINGS_201_LAYER_ORDER_BOTH_LAYERS_OK' /tmp/mfg-settings-201-layer-order.out

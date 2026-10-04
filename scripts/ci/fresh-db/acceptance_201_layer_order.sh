@@ -77,6 +77,28 @@ fence_present() {  # $1 db, $2 signature
 }
 
 # --------------------------------------------------------------------------
+# 0. 201 leaves the complete ACL of all five functions unchanged: proacl
+#    (every grantee, including PUBLIC, anon and service_role) and the owner,
+#    before 201 versus after it.
+# --------------------------------------------------------------------------
+acl_query="SELECT string_agg(p.oid::regprocedure::text || ' owner=' || pg_get_userbyid(p.proowner) || ' acl=' || COALESCE(p.proacl::text, 'NULL'), E'\\n' ORDER BY p.oid::regprocedure::text)
+FROM pg_proc p
+WHERE p.oid IN ('public.rpc_set_gl_event_mapping(uuid,text,text,text,text,text,boolean)'::regprocedure,
+                'public.rpc_set_material_issue_wo_statuses(uuid,text[])'::regprocedure,
+                'public.rpc_set_quality_policy(uuid,jsonb,bigint)'::regprocedure,
+                'public.rpc_get_quality_policy(uuid)'::regprocedure,
+                'public.create_role_from_template(uuid,uuid,character varying,uuid)'::regprocedure);"
+acl_pre=$("${PSQL[@]}" -At -d "$PRE_DB" -c "$acl_query")
+acl_post=$("${PSQL[@]}" -At -d "$POST_DB" -c "$acl_query")
+if [[ -z "$acl_pre" || "$acl_pre" != "$acl_post" ]]; then
+  printf 'before:\n%s\nafter:\n%s\n' "$acl_pre" "$acl_post" >&2
+  echo 'MFG_SETTINGS_201_LAYER_ORDER_FAIL: 201 changed the ACL or owner of a replaced function' >&2
+  exit 1
+fi
+printf '%s\n' "$acl_post"
+echo 'MFG_SETTINGS_201_FULL_ACL_UNCHANGED_OK: proacl and owner identical before and after 201 for all five functions'
+
+# --------------------------------------------------------------------------
 # A. Fence first, then 201.
 # --------------------------------------------------------------------------
 for sig in "${SIGS[@]}"; do
