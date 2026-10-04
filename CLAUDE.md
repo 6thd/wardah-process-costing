@@ -219,9 +219,22 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   `gl_event_mappings` (MS-01: كان أي عضو يعيد توجيه حسابات القيود)، وتُبقي `SELECT`
   للأعضاء، وتضيف `rpc_set_gl_event_mapping` المحروسة بمسؤول المؤسسة والمدققة. تطبيقها
   قبل 195–199 يجعل الـBaseline التالي يطوي migrations لم تُطبَّق. **العقد في §8 من
-  الـrunbook — اقرأه قبل أي `CREATE OR REPLACE` على الدالة** (المرحلة 2 في #312 ستستبدل
-  حارسها)؛ والملاحظات المؤجلة (ثغرة اتساق AP، الكاتب الثاني `rpc_upsert_event_mapping`،
+  الـrunbook — اقرأه قبل أي `CREATE OR REPLACE` على الدالة** (حارسها تستبدله 201 في المستودع)؛ والملاحظات المؤجلة (ثغرة اتساق AP، الكاتب الثاني `rpc_upsert_event_mapping`،
   حدث غير معروف، نشاط الحساب وقت الضبط فقط) في §9.
+- `sql/migrations/201_manufacturing_settings_permissions.sql` +
+  `docs/db/MANUFACTURING_SETTINGS_PERMISSIONS_201_RUNBOOK.md` +
+  `.github/workflows/manufacturing-settings-201-acceptance.yml` — **Migration 201 (مستودع
+  فقط، غير مطبّقة؛ تُطبَّق بعد 195–199 ثم 200)**: قرارا المالك D1/D3 — إعدادات التصنيع داخل
+  الإعدادات العامة (المسار `/settings/manufacturing` اقتراح تصميم)، وتعديلها صلاحية `manufacturing.settings.update` يمنحها مسؤول
+  المؤسسة للأدوار (مع `manufacturing.settings.read` لبوابة الصفحة). توسّع حارس كتّاب الإعدادات
+  الثلاثة (`rpc_set_gl_event_mapping`، `rpc_set_material_issue_wo_statuses`،
+  `rpc_set_quality_policy`) إلى محدِّد واحد `wardah_internal.manufacturing_settings_can_update_201`
+  = Super Admin أو `wardah_is_org_admin` أو حامل المفتاح — **مجموعة عليا للحارس السابق، لا يفقد
+  مسؤول حالي شيئًا** (مثبتة بمصفوفة هويات في القبول) (`has_permission` وحدها كانت ستقفل المسؤول المعرَّف بالدور فقط). المفتاحان
+  مستثنيان من توسيع القوالب بالـwildcard. تستبدل خمس دوال، وتشترط بصمة تامة
+  (`md5(prosrc)`) لأجسامها من 192 و199 و200، فأي استبدال بينها يوقفها مغلقة. **العقد والبصمات
+  قبل 201 وبعدها وتنسيق #313 (مثبت بالترتيبين) في §4 من الـrunbook — اقرأه قبل أي
+  `CREATE OR REPLACE` عليها**.
 
 ## Baseline
 

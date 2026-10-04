@@ -144,4 +144,92 @@ END
 SQL
 
 echo 'GL_EVENT_200_RACE_OK'
+
+# ---------------------------------------------------------------------------
+# Scenario 2: the row is deleted between the RPC's INSERT ... ON CONFLICT and
+# its SELECT ... FOR UPDATE. Session D holds FOR SHARE on the committed row (a
+# lock-only xmax: the INSERT still sees a live conflict and does nothing, but
+# FOR UPDATE must wait). Once the admin is observed waiting, D deletes the row
+# and commits. The RPC must raise GL_EVENT_MAPPING_CONCURRENT_CHANGE with
+# SQLSTATE 40001 and leave no audit row.
+# ---------------------------------------------------------------------------
+deleter_ready="${tmp_prefix}-deleter.ready"
+PGAPPNAME='gle200-deleter' "${PSQL[@]}" >"${tmp_prefix}-deleter.out" 2>"${tmp_prefix}-deleter.err" <<SQL &
+BEGIN;
+SELECT 1 FROM public.gl_event_mappings
+WHERE org_id = '$org_id' AND event_code = 'MATERIAL_ISSUE' FOR SHARE;
+\! touch $deleter_ready
+DO \$wait\$
+BEGIN
+  FOR i IN 1..200 LOOP
+    PERFORM pg_stat_clear_snapshot();
+    IF EXISTS (SELECT 1 FROM pg_stat_activity
+               WHERE application_name = 'gle200-admin2' AND state = 'active'
+                 AND wait_event_type = 'Lock') THEN
+      RAISE NOTICE 'GL_EVENT_200_DELETE_RACE_WAIT_OBSERVED';
+      RETURN;
+    END IF;
+    PERFORM pg_sleep(0.05);
+  END LOOP;
+  RAISE EXCEPTION 'GL_EVENT_200_DELETE_RACE_ADMIN_NEVER_WAITED';
+END
+\$wait\$;
+DELETE FROM public.gl_event_mappings WHERE org_id = '$org_id' AND event_code = 'MATERIAL_ISSUE';
+COMMIT;
+SQL
+deleter_pid=$!
+
+for _ in $(seq 1 100); do
+  [[ -f "$deleter_ready" ]] && break
+  sleep 0.05
+done
+if [[ ! -f "$deleter_ready" ]]; then
+  wait "$deleter_pid" || true
+  echo 'GL_EVENT_200_CONCURRENCY_FAIL: deleter did not become ready' >&2
+  exit 1
+fi
+
+PGAPPNAME='gle200-admin2' psql -X -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qAt \
+  >"${tmp_prefix}-admin2.out" 2>"${tmp_prefix}-admin2.err" <<SQL &
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '$admin_id', true);
+SELECT set_config('request.jwt.claims',
+  '{"sub":"$admin_id","role":"authenticated","org_id":"$org_id"}', true);
+SELECT public.rpc_set_gl_event_mapping('$org_id', 'MATERIAL_ISSUE', '131100', '134100');
+COMMIT;
+SQL
+admin2_pid=$!
+
+deleter_status=0
+admin2_status=0
+wait "$deleter_pid" || deleter_status=$?
+wait "$admin2_pid" || admin2_status=$?
+
+if [[ $deleter_status -ne 0 ]] || ! grep -q 'GL_EVENT_200_DELETE_RACE_WAIT_OBSERVED' "${tmp_prefix}-deleter.err"; then
+  cat "${tmp_prefix}-deleter.err" >&2
+  echo 'GL_EVENT_200_CONCURRENCY_FAIL: the deleter did not observe the admin waiting' >&2
+  exit 1
+fi
+echo 'GL_EVENT_200_DELETE_RACE_WAIT_OBSERVED'
+
+if [[ $admin2_status -eq 0 ]] \
+   || ! grep -q 'ERROR:  40001: GL_EVENT_MAPPING_CONCURRENT_CHANGE' "${tmp_prefix}-admin2.err"; then
+  cat "${tmp_prefix}-admin2.out" "${tmp_prefix}-admin2.err" >&2
+  echo 'GL_EVENT_200_CONCURRENCY_FAIL: expected GL_EVENT_MAPPING_CONCURRENT_CHANGE (40001)' >&2
+  exit 1
+fi
+
+"${PSQL[@]}" <<SQL
+DO \$check2\$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.gl_event_mappings WHERE org_id = '$org_id' AND event_code = 'MATERIAL_ISSUE')
+     OR (SELECT count(*) FROM public.audit_logs
+         WHERE org_id = '$org_id' AND action = 'accounting.gl_event_mapping.set') <> 1 THEN
+    RAISE EXCEPTION 'GL_EVENT_200_DELETE_RACE_STATE_WRONG';
+  END IF;
+END
+\$check2\$;
+SQL
+echo 'GL_EVENT_200_DELETE_RACE_OK'
 echo 'GL_EVENT_200_CONCURRENCY_PASS'
