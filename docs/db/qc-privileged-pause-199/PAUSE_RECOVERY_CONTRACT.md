@@ -136,7 +136,8 @@ termination alone. No abort authority is assigned by this document.
    version, rewrite a saved command or delete IndexedDB history to obtain success.
    Unknown-event fence creation is itself a write and requires its reviewed
    controlled recovery phase while ordinary admission remains closed.
-4. Verify the target ledger and missing-only M190–M199 sequence only after
+4. Verify the target ledger and the selected, separately frozen migration chain
+   (including M200 when applicable), missing-only and in order, only after
    separately authorized target access/application. Complete DB-first readback
    before the compatible UI-only projection is promoted.
 5. Prove old clients cannot resume after the switch. A parent version is not a
@@ -283,9 +284,10 @@ an owner/superuser can ultimately alter the mechanism outside its guarantee.
 
 Selected SQL-only marker design: a protected server-authored transaction context
 in a private schema, not a caller-settable custom GUC. Bind it to backend identity,
-full transaction ID, org, epoch, literal entrypoint identity and nesting depth.
-Only narrow, reviewed DEFINER entrypoints with dedicated NOLOGIN owners may
-establish/push/pop context. No client EXECUTE on the context mutator, no direct
+full transaction ID (`xid8`, never the wrapping 32-bit xid), org, epoch,
+server-derived entrypoint identity and nesting depth.
+Only narrow, reviewed DEFINER entrypoints with distinct per-entrypoint NOLOGIN
+owners may establish/push/pop context, under the role/code binding below. No client EXECUTE on the context mutator, no direct
 DML/DDL or owner membership for client/service roles; pinned search_path and
 fully qualified references are required. Context rows must be removed on normal
 exit, scoped/restored on nested exit and rolled back on errors; committed orphan
@@ -294,6 +296,42 @@ matching context. Current_user, literal arguments or context existence alone
 are insufficient. Inventory all owner-executed dynamic SQL and callable helpers
 that could forge context or reach protected QC/fence/audit stores. No acceptance
 until spoof/direct-helper/nested/error/pool-reuse probes pass.
+
+Selected binding is execution-role isolation, not PL/pgSQL caller introspection.
+Each privileged public entrypoint gets its own distinct NOLOGIN, NOSUPERUSER,
+NOCREATEROLE, NOCREATEDB execution owner; owners are not shared across APIs.
+For example the reconciliation entrypoint is owned by
+`wardah_entry_issue_reconcile`; QC recording uses `wardah_entry_qc_record`.
+A private SECURITY INVOKER context mutator derives the identity from a fixed
+server-code mapping of current execution role to exact regprocedure signature.
+It accepts no caller-supplied function name. Reconciliation and QC owners cannot
+manufacture each other's context or extend the recovery allowlist. Partition
+context privileges/rows by entry owner, with a separate private store owner;
+no entry owner owns that store or can change its access policy. Trigger guard
+checks must preserve/validate the write execution role rather than replace it
+with a shared DEFINER guard owner and then mistake that for caller identity.
+
+This isolation is meaningful only if the owner/code graph is closed. For every
+entry role, acceptance enumerates ALL pg_proc/procedure/trigger/default-ACL and
+membership paths, not just the named endpoint: only that frozen entrypoint and
+its reviewed private SECURITY INVOKER helpers may run as that owner. Reject any
+additional same-owner DEFINER routine, mutable search_path, generic dynamic SQL,
+role-changing/capability-granting helper, client or service-role SET/INHERIT path,
+or executable owner-level route that can bypass isolation. Entry roles cannot
+CREATE in any schema, change ownership or grant access to the context store.
+Fingerprint this closed graph at postflight and admission monitoring; changes
+invalidate acceptance and require re-review. In particular audit the existing
+postgres-owned service_role-callable DEFINER/dynamic-SQL paths: no acceptance
+while any grants arbitrary privileged execution or entry-role access. A trusted
+fixed postgres-owned routine is not automatically an arbitrary-code exploit,
+but an unresolved reachability edge is a blocker.
+
+Adding a same-owner rogue function or a forged-context helper in a local mutant
+must fail the catalog/role binding gate even if it can forge a row at runtime.
+This is not a claim that SQL can distinguish two arbitrary functions running as
+the same owner; it explicitly forbids that deployment. NOLOGIN does not contain
+superusers/DDL administrators; they can SET ROLE or alter the graph and remain
+outside the database-only guarantee. Preserve those operational exclusions.
 
 RECOVERY allowlist is a fixed server-code constant containing only reviewed
 recovery entrypoint identities (initially only
@@ -313,15 +351,27 @@ GUC: PostgreSQL parameter SET ACL matters for otherwise restricted parameters.
 Such an alternative needs a registered protected parameter in every backend and
 independent hosted feasibility/negative probes; absent that, it is refused and
 the selected protected context remains authoritative. Apply the separate
-session_replication_role ACL/readback requirement as well.
+session_replication_role ACL/readback requirement as well. Additionally require
+actual negative `SET session_replication_role = replica` and
+`set_config('session_replication_role','replica',true)` in separate rolled-back,
+fresh sessions for each in-scope login and its reachable SET ROLE/inherited
+capabilities (anon/authenticated/service_role shim plus real target credentials
+only under separate authorization). Log SQLSTATE and verify the setting stays
+origin and history/F1 trigger effects remain enforced. An ACL listing or a probe
+only as postgres does not close this gate. Unexpected SET success blocks P04;
+do not intentionally disable target triggers to test it. Superuser/operator
+sessions cannot pass this denial gate and must be explicitly excluded/controlled.
 
 References: [PostgreSQL 17 parameter SET privilege](https://www.postgresql.org/docs/17/ddl-priv.html)
 and [custom option placeholders](https://www.postgresql.org/docs/17/runtime-config-custom.html).
 
 ### Selected advisory keys and controller order
 
-Reserve two-int4 class ID `1463898704` for this proposed fence only. Global key
-is `(1463898704, 0)`. Org keys are `(1463898704, org_lock_id)`, where an immutable,
+Select two-int4 class ID `1463898704` for this proposed fence; it is NOT yet a
+proven reservation. Global key is `(1463898704, 0)`. Registry allocation uses
+transaction exclusive `(1463898704, -1)` after global shared; provisioning never
+upgrades key 0. The allocator runs before the new org key, never after existing
+org/business/pause-row locks. Positive org IDs cannot collide with 0 or -1. Org keys are `(1463898704, org_lock_id)`, where an immutable,
 server-owned registry assigns UNIQUE positive int4 IDs monotonically, never
 reuses deleted-org IDs and refuses on exhaustion. No UUID hash or modulo mapping:
 distinct orgs cannot collide. Registry protection/provisioning is part of the
@@ -329,13 +379,27 @@ writer inventory. Read-only lookup of an existing immutable mapping happens
 under the global shared barrier before org locks; missing mapping refuses.
 Namespace/key ownership must be checked against all source/catalog/external
 advisory users before allocation, not just this repository's numeric literals.
+M171's `(hashtext(org), hashtext(day))` occupies this same two-int space and can
+collide with every selected fence class. Before fence activation, a separately
+reviewed additive change must move its quota lock to fixed class `1463898705`,
+with second int4 `hashtext(org_uuid_text || ':' || UTC_date_text)`; its rare hash
+collisions serialize quota calls only and never alias fence/registry locks.
+Preserve the quota acceptance and per-org/day concurrency contract. Rekey during
+verified drain of old M171 calls with admission closed, not a rolling mixture of
+old and new lock keys. No M171 modification or rekey proof is made here.
+Every other dynamic/external two-int caller must likewise use a disjoint fixed
+class or be disabled/drained under explicit policy. If its range may include the
+fence class and disposition is unresolved, namespace acceptance fails closed;
+do not treat timeout as proof of reservation. Single-bigint business locks such
+as M200 use PostgreSQL's separate key space. Namespace registration and old-call
+drain are prerequisites of P04/P12, with collision and allocator-upgrade mutants.
 
 | Participant | Transaction-duration lock prefix |
 | --- | --- |
 | Ordinary or recovery writer | global shared -> org shared in ascending org_lock_id -> pause rows FOR SHARE -> existing business advisory/row order |
 | Org pause/resume/recovery controller | global shared -> org exclusive in ascending org_lock_id -> pause rows FOR UPDATE; no business locks while waiting |
 | Global controller | global exclusive -> pause rows FOR UPDATE in ascending org_lock_id; no per-org advisory locks are required because every org controller/writer takes the global shared prefix |
-| New-org provisioning | global shared -> protected registry allocation -> new org exclusive -> provision pause row; reject if durable global state is PAUSED except separately authorized recovery provisioning |
+| New-org provisioning | global shared -> allocator (-1) exclusive -> registry allocation -> new org exclusive -> provision pause row; reject if durable global state is PAUSED except separately authorized recovery provisioning |
 
 Global state must be read under the acquired global barrier by every participant;
 per-org state is read in its locking statement. Multi-org writers determine all
@@ -349,16 +413,29 @@ A single advisory queue sample is not proof of sustained-load drain.
 
 ### Uniform QC ordering and supersession
 
-Select one policy for FINAL, IN_PROCESS and list projections within each
-(org, MO, QC cycle, inspection type): trusted authority revision DESC, then
-inspection_seq DESC NULLS LAST, then stable ID DESC. Legacy evidence has authority
-revision 0; new RPC inspections use server-generated non-NULL sequences. Require
-NOT NULL for new-era sequence data and compatibility probes for existing NULLs.
-Apply the same ordering to both evaluator selectors and the list RPC; list
-ordering alone does not fix the gate.
+Use one ordering rule inside each applicable evidence partition:
+`authority_revision DESC NULLS LAST, inspection_seq DESC NULLS LAST, id DESC`.
+Protected revision metadata and its authoritative counter are NOT NULL with
+CHECK >= 0; legacy unlinked evidence resolves to trusted revision 0 server-side.
+A NULL/corrupt counter or revision linkage is an integrity refusal, never a
+higher revision or an implicit PASS. New-era RPC sequences are NOT NULL; legacy
+NULL sequences remain compatible only at revision 0. Client/direct-writer data
+cannot assign revision metadata. Both selectors and list projection use the
+same rule, while their business partitions retain M199 semantics:
+
+| Inspection type | Evidence/supersession partition |
+| --- | --- |
+| FINAL | (org, MO, current QC cycle, FINAL), with non-NULL server cycle |
+| IN_PROCESS | (org, MO, stage_id, IN_PROCESS), with non-NULL stage and no new QC-cycle filter; M199's current per-stage evaluator is cycle-independent |
+
+List projection preserves each row's stage/cycle and uses the shared ordering
+within those partitions; a display-wide sort cannot replace gate partitioning.
+Adding a cycle scope to IN_PROCESS would be a separate business-policy change,
+not an incidental consequence of supersession. Superseding stage A never
+supersedes stage B, and every required stage must retain a validated decision.
 
 Append-only remediation creates a trusted positive authority revision under the
-common fence and per-cycle/type serialization, greater than the trusted revision
+common fence and serialization of the applicable partition above, greater than the trusted revision
 counter, not greater than an untrusted inspection sequence. A supersession record
 identifies affected history, rationale, approver and replacement decision; the
 original rows remain immutable. Protected revision metadata is separate from
@@ -368,5 +445,6 @@ revision; a remediation revision with no validated replacement keeps release
 blocked. Future genuine inspections in that revision then use their normal
 server sequence. This requires a separate additive correction and owner-approved
 forensics/remediation policy. Probe forged NULL and arbitrarily high sequences,
-FINAL and IN_PROCESS independently, revisions/retries/concurrency and no-valid-
-replacement denial. No revision/schema/selector change is made in this packet.
+FINAL and IN_PROCESS independently, two-stage isolation, cycle compatibility,
+NULL revision refusal, revisions/retries/concurrency and no-valid-replacement
+denial. No revision/schema/selector change is made in this packet.

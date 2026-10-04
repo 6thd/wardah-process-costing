@@ -251,3 +251,38 @@ raise sites; the condition is equivalent for both thread-alive states. Ruff
 0.16.10 check, explicit SIM208 check and format, full Bandit 1.9.4, Bash syntax
 and whitespace pass; all 44 hashes match. M200 source/runbook were read from
 the live-main anchor, not executed. No new PG17 run or target access is claimed.
+
+
+## Round 5 focused contract correction
+
+The owner's supplied Round 4 report at `7041dd0d` returned bounded PASS for
+counterexample accuracy and further review, with four open contract defects.
+This delta addresses those defects in text only:
+
+- Explicit per-entrypoint role/code isolation replaces any implied secure caller
+  introspection. Reject unknown same-owner functions, dynamic capability paths
+  and entry-role memberships; rogue same-owner mutants must fail the closed-graph
+  gate. Superuser/DDL administrators remain outside the guarantee.
+- session_replication_role needs real negative SET/set_config probes per login
+  and reachable role capability, not ACL readback alone.
+- M171's dynamic two-int namespace is a known collision blocker. A separate
+  additive rekey to fixed class 1463898705 and old-call drain is required before
+  activating fence class 1463898704. Registry allocation is key -1, never an
+  upgrade of global key 0. No rekey is implemented by this packet.
+- FINAL remains per current QC cycle; IN_PROCESS remains per stage with its
+  existing cycle-independent scope. Authority revisions are NOT NULL and sorted
+  DESC NULLS LAST. Missing/corrupt revision or replacement refuses release;
+  stage A supersession cannot supersede stage B.
+
+The frozen source lock, RED SQL, runner and Python harness are unchanged from
+Round 4. No new PG17, role-closure, namespace-drain or supersession proof is
+claimed. The four fixes are design requirements pending independent review and
+implementation acceptance; all prior holds remain. #315/M201 was observed open
+and draft at `71192ed30b0bda48e7c2fe0523938a8a4fe37868`; it is not live main or
+part of the frozen reproduction. Any later merge must trigger renewed writer,
+owner and CREATE OR REPLACE reconciliation before fence acceptance.
+
+Round 5 executor validation: all four proof files compare byte-identical to
+Round 4, all 44 locked hashes match, Bash syntax and whitespace pass. Document
+checks confirm the four correction topics and selected-chain wording are
+present; these are text checks, not runtime role, namespace or selector proofs.
