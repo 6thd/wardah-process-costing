@@ -297,6 +297,43 @@ copy_db "${P}_base" "${P}_conc"
 python3 "$HERE/concurrency.py" "${P}_conc" | tee "$TASK_DIR/conc.out" | tail -3
 grep -q M202_CONCURRENCY_PASS "$TASK_DIR/conc.out"
 
+# ------------------------------------------- INSERT-only history rehearsal (F1)
+# The documented two-trigger disable / INSERT-only load / ENABLE ALWAYS procedure
+# (runbook section 6, item 3) executed on a disposable target, with a structural
+# fingerprint (both guarded tables, all column ACLs, recorder owner/ACL/config,
+# entry role and membership, triggers) required to be identical before and after.
+# This is NOT pg_dump, a full logical restore, physical restore/PITR or hosted
+# acceptance. Source rows come from the genuine RPC on a separate copy.
+HIST="$TASK_DIR/hist"; mkdir -p "$HIST"
+copy_db "${P}_base" "${P}_hseed"
+run_checked 'history rehearsal seed' "${P}_hseed" "$HERE/history_rehearsal_seed.sql" "$TASK_DIR/hseed.out" \
+  M202_HISTORY_SEED_OK "$HIST" || exit 1
+copy_db "${P}_hseed" "${P}_hsrc"
+copy_db "${P}_hseed" "${P}_htgt"
+run_checked 'history rehearsal source' "${P}_hsrc" "$HERE/history_rehearsal_source.sql" "$TASK_DIR/hsrc.out" \
+  M202_HISTORY_SOURCE_OK "$HIST" || exit 1
+# Connection 1: fingerprint BEFORE, then the documented BEGIN ... COMMIT (really committed).
+run_checked 'history rehearsal (commit connection)' "${P}_htgt" "$HERE/history_rehearsal.sql" "$TASK_DIR/htgt_a.out" \
+  M202_HISTORY_PROCEDURE_COMMITTED "$HIST" || { echo 'FAIL: INSERT-only history rehearsal (commit connection)' >&2; exit 1; }
+# Independent connection (neither the psql process of step A nor of step B): the load is committed.
+[[ "$(q1 "${P}_htgt" "SELECT (SELECT count(*) FROM public.quality_inspections) || '/' || (SELECT count(*) FROM wardah_internal.quality_inspection_authority_202)")" == 3/3 ]] \
+  || { echo 'FAIL: the history load is not committed (a third connection sees no 3/3 rows)' >&2; exit 1; }
+echo 'history rehearsal: COMMIT confirmed from an independent connection (3 inspections / 3 links)'
+# Connection 2 (fresh psql process): every after-COMMIT observation, against the BASELINE file.
+run_checked 'history rehearsal (fresh connection)' "${P}_htgt" "$HERE/history_rehearsal_after.sql" "$TASK_DIR/htgt_b.out" \
+  M202_HISTORY_INSERT_ONLY_REHEARSAL_PASS "$HIST" || { echo 'FAIL: INSERT-only history rehearsal (fresh connection)' >&2; exit 1; }
+FP_LINE="$(grep -o 'M202_HISTORY_INSERT_ONLY_REHEARSAL_PASS fingerprint_before=[0-9a-f]* fingerprint_after=[0-9a-f]*' "$TASK_DIR/htgt_b.out")"
+FP_B="${FP_LINE#*fingerprint_before=}"; FP_B="${FP_B%% *}"; FP_A="${FP_LINE##*fingerprint_after=}"
+[[ -n "$FP_B" && "$FP_B" == "$FP_A" ]] || { echo "FAIL: history rehearsal fingerprint mismatch ($FP_LINE)" >&2; exit 1; }
+PID_A="$(grep -o 'COMMIT_CONNECTION pid=[0-9]*' "$TASK_DIR/htgt_a.out" | head -1 | cut -d= -f2)"
+PID_B="$(grep -o 'FRESH_CONNECTION pid=[0-9]*' "$TASK_DIR/htgt_b.out" | head -1 | cut -d= -f2)"
+[[ -n "$PID_A" && -n "$PID_B" && "$PID_A" != "$PID_B" ]] || { echo "FAIL: commit and readback were not different connections ($PID_A / $PID_B)" >&2; exit 1; }
+echo "history rehearsal: commit connection backend pid $PID_A, fresh readback connection backend pid $PID_B"
+echo "history rehearsal assertions: commit connection $(grep -c 'NOTICE:  ok ' "$TASK_DIR/htgt_a.out") (non-vacuity mutations $(grep -c 'NOTICE:  ok  non-vacuity' "$TASK_DIR/htgt_a.out")); fresh connection $(grep -c 'NOTICE:  ok ' "$TASK_DIR/htgt_b.out") (oracle rejections $(grep -c 'NOTICE:  ok  oracle rejects' "$TASK_DIR/htgt_b.out"))"
+grep -h -E 'FINGERPRINT_(BEFORE|AFTER)|COMMIT_CONNECTION|FRESH_CONNECTION|FRESH_RPC_RESULT|M202_HISTORY_PROCEDURE_COMMITTED' "$TASK_DIR/htgt_a.out" "$TASK_DIR/htgt_b.out" | cut -c1-140
+echo "$FP_LINE"
+dropdb "${P}_hseed"; dropdb "${P}_hsrc"; dropdb "${P}_htgt"
+
 # -------------------------------------------------------- type-shadow regression
 # Fresh-session attack-before/fix-after for the search_path correction (section 0
 # of the migration): a benign pg_temp.<type> domain whose CHECK only RAISEs
