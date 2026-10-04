@@ -1,0 +1,17 @@
+Sonar PR 316 analysis of head 8babdd6f (SonarCloud public API, no credentials): total 57
+types: {'CODE_SMELL': 57} | rules: {'plsql:S1192': 57} | severities: {'CRITICAL': 57}
+components: {'sql/migrations/202_qc_privileged_write_closure.sql': 57}
+20 x Define a constant instead of duplicating this literal 3 times.
+10 x Define a constant instead of duplicating this literal 4 times.
+6 x Define a constant instead of duplicating this literal 5 times.
+6 x Define a constant instead of duplicating this literal 7 times.
+4 x Define a constant instead of duplicating this literal 8 times.
+3 x Define a constant instead of duplicating this literal 6 times.
+2 x Define a constant instead of duplicating this literal 9 times.
+1 x Define a constant instead of duplicating this literal 13 times.
+1 x Define a constant instead of duplicating this literal 16 times.
+1 x Define a constant instead of duplicating this literal 14 times.
+1 x Define a constant instead of duplicating this literal 12 times.
+1 x Define a constant instead of duplicating this literal 22 times.
+1 x Define a constant instead of duplicating this literal 10 times.
+lines: [39, 40, 41, 53, 54, 55, 56, 71, 71, 84, 98, 110, 110, 110, 128, 133, 135, 149, 281, 281, 307, 333, 375, 415, 433, 441, 454, 467, 467, 467, 518, 635, 753, 789, 809, 810, 814, 815, 815, 816, 816, 817, 817, 844, 848, 862, 865, 866, 867, 868, 870, 871, 883, 894, 894, 898, 910]

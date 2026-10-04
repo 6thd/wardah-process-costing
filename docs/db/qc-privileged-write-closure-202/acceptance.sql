@@ -968,6 +968,125 @@ SELECT pg_temp.ok((SELECT string_agg(e ->> 'inspection_number', ',') FROM jsonb_
   = 'D-TWO-S1,D-TWO-S0,D-TWO-F1',
   'D7 partitions are listed by head sequence (stage 30 then 20, then the FINAL at 10), rows within a partition by sequence');
 
+-- ================================================= F. listing equivalence (frozen reference)
+-- The optimized rpc_list_quality_inspections must return EXACTLY (same JSON, same order, same
+-- error text) what the frozen 8babdd6f listing returned, on identical data, for org-wide and
+-- MO-scoped queries, interleaved partitions, superseded/awaiting, NULL/high sequences, ties, corrupt
+-- authority links, page cuts and limit clamps. The reference is a verbatim copy of the old body.
+\ir list_reference_8babdd6f.sql
+SELECT pg_temp.ok((SELECT md5(prosrc) = 'bb2432f528a97ebb7f4d75a3e5b2f585'
+    FROM pg_proc WHERE oid = 'public.zz_list_ref_8babdd6f(uuid,uuid,integer)'::regprocedure),
+  'F the reference is the frozen 8babdd6f listing body (md5 bb2432f5...)');
+
+-- Extra shapes for the comparison: cross-partition head ties (equal sequence in two MOs), interleaved
+-- stage/final partitions, and more than 500 rows so the 500 clamp and deep page cuts are real.
+INSERT INTO m VALUES ('ilv1', pg_temp.mo('F-ILV1')), ('ilv2', pg_temp.mo('F-ILV2')), ('bulk', pg_temp.mo('F-BULK'));
+SELECT pg_temp.as_user(pg_temp.inspector(), pg_temp.hold_sql((SELECT id FROM m WHERE k='ilv1'), 'hold'));
+SELECT pg_temp.as_user(pg_temp.inspector(), pg_temp.hold_sql((SELECT id FROM m WHERE k='ilv2'), 'hold'));
+SELECT pg_temp.as_user(pg_temp.inspector(), pg_temp.hold_sql((SELECT id FROM m WHERE k='bulk'), 'hold'));
+SELECT pg_temp.legacy_row((SELECT id FROM m WHERE k='ilv1'), 'F-I1-F', 'FINAL', NULL, 1, 70, 'PASS', 10, 0);
+SELECT pg_temp.legacy_row((SELECT id FROM m WHERE k='ilv1'), 'F-I1-A', 'IN_PROCESS', pg_temp.stage(), NULL, 90, 'PASS', 5, 0);
+SELECT pg_temp.legacy_row((SELECT id FROM m WHERE k='ilv1'), 'F-I1-B', 'IN_PROCESS', pg_temp.stage_b(), NULL, 20, 'PASS', 5, 0);
+SELECT pg_temp.legacy_row((SELECT id FROM m WHERE k='ilv2'), 'F-I2-F', 'FINAL', NULL, 1, 70, 'FAIL', 0, 10);
+SELECT pg_temp.legacy_row((SELECT id FROM m WHERE k='ilv2'), 'F-I2-A', 'IN_PROCESS', pg_temp.stage(), NULL, 80, 'PASS', 5, 0);
+SELECT pg_temp.legacy_row((SELECT id FROM m WHERE k='ilv2'), 'F-I2-N', 'IN_PROCESS', pg_temp.stage(), NULL, NULL, 'PASS', 5, 0);
+ALTER TABLE public.quality_inspections DISABLE TRIGGER qc_write_guard_202;
+INSERT INTO public.quality_inspections(org_id, mo_id, stage_id, inspection_number, inspection_type, inspector_id,
+    passed_quantity, failed_quantity, result, qc_cycle, inspection_seq, request_hash)
+SELECT pg_temp.org(), (SELECT id FROM m WHERE k='bulk'),
+       CASE WHEN g % 7 = 0 THEN pg_temp.stage() END, 'F-BULK-' || g,
+       CASE WHEN g % 7 = 0 THEN 'IN_PROCESS' ELSE 'FINAL' END, pg_temp.inspector(), 5, 0, 'PASS',
+       CASE WHEN g % 7 = 0 THEN NULL ELSE 1 END,
+       CASE WHEN g % 11 = 0 THEN NULL ELSE 100 + (g % 97) END,    -- many equal sequences: id breaks the ties; interleaves with the other MOs
+       'bulk'
+FROM generate_series(1, 640) g;
+ALTER TABLE public.quality_inspections ENABLE ALWAYS TRIGGER qc_write_guard_202;
+
+CREATE FUNCTION pg_temp.listcall(p_fn text, p_org uuid, p_mo uuid, p_lim integer) RETURNS jsonb LANGUAGE sql AS $fn$
+  SELECT pg_temp.try_as(pg_temp.inspector(), format('SELECT public.%s(%L::uuid, %L::uuid, %s)',
+    p_fn, p_org, p_mo, COALESCE(p_lim::text, 'NULL'))) $fn$;
+-- Compare p_fn against the frozen reference over the whole parameter grid; returns {combos, mismatches, first}.
+CREATE FUNCTION pg_temp.list_equiv(p_fn text) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+DECLARE
+  v_lims integer[] := ARRAY[NULL,0,-5,1,2,3,4,5,7,8,11,13,17,25,50,100,499,500,501,100000];
+  v_mo_lims integer[] := ARRAY[NULL,0,1,2,3,100];
+  v_mos uuid[];
+  l integer; v_mo uuid; v_n integer := 0; v_bad integer := 0; v_first text; a jsonb; b jsonb;
+BEGIN
+  SELECT array_agg(id ORDER BY k) || ARRAY[gen_random_uuid(), NULL::uuid] INTO v_mos FROM m;  -- + unknown MO + org-wide
+  FOREACH v_mo IN ARRAY v_mos LOOP
+    FOREACH l IN ARRAY (CASE WHEN v_mo IS NULL THEN v_lims ELSE v_mo_lims END) LOOP
+      a := pg_temp.listcall(p_fn, pg_temp.org(), v_mo, l);
+      b := pg_temp.listcall('zz_list_ref_8babdd6f', pg_temp.org(), v_mo, l);
+      v_n := v_n + 1;
+      IF a IS DISTINCT FROM b THEN
+        v_bad := v_bad + 1;
+        IF v_first IS NULL THEN v_first := format('mo=%s limit=%s', v_mo, l); END IF;
+      END IF;
+    END LOOP;
+  END LOOP;
+  -- another tenant's org id and an unknown org: same refusal text
+  FOREACH v_mo IN ARRAY ARRAY[NULL::uuid] LOOP
+    a := pg_temp.listcall(p_fn, pg_temp.org2(), NULL, 100); b := pg_temp.listcall('zz_list_ref_8babdd6f', pg_temp.org2(), NULL, 100);
+    v_n := v_n + 1; IF a IS DISTINCT FROM b THEN v_bad := v_bad + 1; v_first := COALESCE(v_first, 'org2'); END IF;
+  END LOOP;
+  RETURN jsonb_build_object('combos', v_n, 'mismatches', v_bad, 'first', v_first);
+END $fn$;
+
+-- The dataset must actually contain what the comparison claims to cover.
+SELECT pg_temp.ok(
+  (SELECT count(*) FROM public.quality_inspections WHERE org_id = pg_temp.org()) > 640
+  AND EXISTS (SELECT 1 FROM public.quality_inspections WHERE inspection_seq IS NULL AND org_id = pg_temp.org())
+  AND EXISTS (SELECT 1 FROM public.quality_inspections WHERE inspection_seq = 999 AND org_id = pg_temp.org())
+  AND (SELECT count(*) FROM (SELECT mo_id, inspection_type, qc_cycle, stage_id, inspection_seq FROM public.quality_inspections
+        WHERE org_id = pg_temp.org() GROUP BY 1,2,3,4,5 HAVING count(*) > 1) t) > 3
+  AND EXISTS (SELECT 1 FROM wardah_internal.quality_supersessions_202)
+  AND (SELECT count(DISTINCT e ->> 'authority_status') FROM m, LATERAL jsonb_array_elements(
+        pg_temp.as_user(pg_temp.inspector(), format('SELECT public.rpc_list_quality_inspections(%L::uuid, %L::uuid, 500)', pg_temp.org(), m.id))) e) = 3
+  AND (SELECT count(*) FROM m, LATERAL jsonb_array_elements(
+        pg_temp.as_user(pg_temp.inspector(), format('SELECT public.rpc_list_quality_inspections(%L::uuid, %L::uuid, 500)', pg_temp.org(), m.id))) e
+        WHERE (e ->> 'authority_revision')::int > (e ->> 'partition_revision')::int) >= 2,   -- the documented corrupt links
+  'F dataset covers >640 rows, NULL and 999 sequences, equal-sequence ties, supersessions, all three statuses and corrupt links');
+
+SELECT pg_temp.list_equiv('rpc_list_quality_inspections') AS eq \gset
+SELECT pg_temp.ok((:'eq'::jsonb ->> 'mismatches')::int = 0 AND (:'eq'::jsonb ->> 'combos')::int > 100,
+  format('F the optimized listing equals the frozen listing exactly on %s org/MO/limit combinations (mismatches %s)',
+    :'eq'::jsonb ->> 'combos', :'eq'::jsonb ->> 'mismatches'));
+
+-- Negative controls: wrong-order / wrong-limit variants of the SAME function must be caught by the
+-- comparison (otherwise the comparison proves nothing).
+CREATE FUNCTION pg_temp.make_mutant(p_name text, p_from text, p_to text) RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE d text := pg_get_functiondef('public.rpc_list_quality_inspections(uuid,uuid,integer)'::regprocedure);
+BEGIN
+  IF position(p_from IN d) = 0 THEN RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: mutant % pattern not found in the listing body', p_name; END IF;
+  d := replace(replace(d, 'FUNCTION public.rpc_list_quality_inspections(', 'FUNCTION public.' || p_name || '('), p_from, p_to);
+  EXECUTE d;
+END $fn$;
+CREATE FUNCTION pg_temp.mutant_caught(p_name text, p_label text) RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE r jsonb := pg_temp.list_equiv(p_name);
+BEGIN
+  IF (r ->> 'mismatches')::int = 0 THEN RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: listing mutant not caught: %', p_label; END IF;
+  RAISE NOTICE 'ok  listing mutant caught: % (% of % combinations differ, first %)', p_label, r ->> 'mismatches', r ->> 'combos', r ->> 'first';
+END $fn$;
+SELECT pg_temp.make_mutant('zz_list_m1', 'ORDER BY COALESCE(b.rev, 0) DESC, b.seq DESC NULLS LAST, b.id DESC)',
+                                         'ORDER BY b.seq DESC NULLS LAST, b.id DESC)');
+SELECT pg_temp.mutant_caught('zz_list_m1', 'authority revision removed from the in-partition order (legacy high sequence wins)');
+SELECT pg_temp.make_mutant('zz_list_m2', E'WHERE q.org_id = p_org_id\n            AND (p_mo_id IS NULL OR q.mo_id = p_mo_id)\n        ) b',
+  E'WHERE q.org_id = p_org_id\n            AND (p_mo_id IS NULL OR q.mo_id = p_mo_id)\n          ORDER BY q.inspection_seq DESC NULLS LAST, q.id DESC\n          LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 500)\n        ) b');
+SELECT pg_temp.mutant_caught('zz_list_m2', 'LIMIT applied BEFORE the authority-aware ranking');
+SELECT pg_temp.make_mutant('zz_list_m3', 'ORDER BY pg.head_seq DESC NULLS LAST, pg.head_id DESC, pg.rn)', 'ORDER BY pg.head_seq ASC NULLS FIRST, pg.head_id DESC, pg.rn)');
+SELECT pg_temp.mutant_caught('zz_list_m3', 'partitions listed oldest-head first');
+SELECT pg_temp.make_mutant('zz_list_m4', 'LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 500)', 'LIMIT LEAST(COALESCE(p_limit, 100), 500)');
+SELECT pg_temp.mutant_caught('zz_list_m4', 'lower limit clamp removed (0 returns nothing, negative errors)');
+SELECT pg_temp.make_mutant('zz_list_m5', 'LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 500)', 'LIMIT GREATEST(COALESCE(p_limit, 100), 1)');
+SELECT pg_temp.mutant_caught('zz_list_m5', 'upper limit clamp (500) removed');
+SELECT pg_temp.make_mutant('zz_list_m6', E'            CASE WHEN b.inspection_type = ''FINAL'' THEN b.qc_cycle END,\n', E'');
+SELECT pg_temp.mutant_caught('zz_list_m6', 'QC cycle dropped from the FINAL partition key');
+SELECT pg_temp.make_mutant('zz_list_m7', 'row_number() OVER part AS rn,', 'row_number() OVER (PARTITION BY b.id ORDER BY b.id) AS rn,');
+SELECT pg_temp.mutant_caught('zz_list_m7', 'within-partition rank collapsed (every row is its own partition head)');
+SELECT pg_temp.make_mutant('zz_list_m8', E'ORDER BY r.head_seq DESC NULLS LAST, r.head_id DESC, r.rn\n      LIMIT', E'ORDER BY r.head_seq DESC NULLS LAST, r.head_id DESC\n      LIMIT');
+SELECT pg_temp.mutant_caught('zz_list_m8', 'page cut ignores the in-partition rank (ties at the page boundary become arbitrary)');
+
 -- ===================================================== E. post-201 contract
 SELECT pg_temp.ok((SELECT count(*) FROM (VALUES
     ('public.rpc_set_gl_event_mapping(uuid,text,text,text,text,text,boolean)', '68a55461e73a5829728b45f430d4db59'),

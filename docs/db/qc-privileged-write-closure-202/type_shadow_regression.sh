@@ -15,7 +15,6 @@
 # seeds its own inspector and QC role on top. Callers pass a throwaway copy.
 set -Eeuo pipefail
 DB="$1"
-P="${PGDATABASE:-}"
 psqlc() { psql -X -v ON_ERROR_STOP=1 -d "$DB" "$@"; }
 
 MO_HOLD="ed000000-0000-4000-8000-00000000d001"
