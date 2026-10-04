@@ -1,0 +1,46 @@
+name: 'Stage WIP #278 RED on disposable PG17'
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/db/stage-wip-278/**'
+      - 'docs/db/STAGE_WIP_278_PROTECTION_CONTRACT.md'
+      - 'docs/db/posted-history-193/**'
+      - 'docs/db/manufacturing-inventory-red-20260925/**'
+      - '.github/workflows/stage-wip-278-red.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+      - 'scripts/ci/fresh-db/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove WIP overwrite, re-key and overlap before #278
+        run: bash docs/db/stage-wip-278/run_red.sh

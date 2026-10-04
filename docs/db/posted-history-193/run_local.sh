@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Disposable PostgreSQL 17 only: RED through M192, then M193 GREEN.
+set -Eeuo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"
+if [[ -n "${DATABASE_URL:-}" || -n "${PGSERVICE:-}" || -n "${SUPABASE_DB_URL:-}" ]]; then
+  echo 'REFUSED: remote connection configuration present' >&2; exit 2
+fi
+case "${PGHOST:-}" in ''|localhost|127.0.0.1|/*) ;; *) echo 'REFUSED: nonlocal PGHOST' >&2; exit 2;; esac
+if [[ "$(psql -X -tAc 'SHOW server_version_num' -d postgres)" != 17* ]]; then
+  echo 'REFUSED: requires PostgreSQL 17' >&2; exit 2
+fi
+DB="wardah_192_green_$$"
+ORDER="$(mktemp)"
+FULL_ORDER="$(mktemp)"
+cleanup() { dropdb --if-exists "$DB" >/dev/null 2>&1 || true; rm -f "$ORDER" "$FULL_ORDER"; }
+trap cleanup EXIT
+cd "$ROOT"
+echo "checkout: $(git rev-parse HEAD)"
+echo "server: $(psql -X -tAc 'SHOW server_version' -d postgres)"
+PAIR="$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)"
+pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+BASELINE="$(pair_field BASELINE_PATH)"
+REFERENCE="$(pair_field REFERENCE_PATH)"
+CUTOFF="$(pair_field BASELINE_CUTOFF)"
+echo "baseline: $BASELINE cutoff: $CUTOFF"
+createdb "$DB"
+PSQL=(psql -X -v ON_ERROR_STOP=1 -d "$DB")
+"${PSQL[@]}" -q -f scripts/ci/fresh-db/supabase_shim.sql >/dev/null
+"${PSQL[@]}" -q -f "$BASELINE" >/dev/null 2>&1
+"${PSQL[@]}" -q -f "$REFERENCE" >/dev/null
+python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > "$FULL_ORDER"
+# This acceptance stays valid after later migrations are added: apply exactly
+# the 190..193 chain and never the next migration (M194 has its own acceptance).
+sed -n '1,/^193_posted_material_history_delete_guard.sql$/p' "$FULL_ORDER" > "$ORDER"
+if [[ "$(tail -n 1 "$ORDER")" != '193_posted_material_history_delete_guard.sql' ]]; then
+  echo 'REFUSED: M193 must be the sole final migration' >&2; exit 2
+fi
+sed -i '$d' "$ORDER"
+if [[ "$(wc -l < "$ORDER")" != 3 ]]; then
+  echo 'REFUSED: requires exact 190,191,192 pre-chain' >&2; exit 2
+fi
+REPORT="$(mktemp)"
+trap 'rm -f "$REPORT"; cleanup' EXIT
+PGDATABASE="$DB" bash scripts/ci/fresh-db/run_chain.sh sql/migrations "$ORDER"
+"${PSQL[@]}" -q -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
+"${PSQL[@]}" -f "$HERE/red.sql"
+"${PSQL[@]}" -f sql/migrations/193_posted_material_history_delete_guard.sql >/dev/null
+"${PSQL[@]}" -f "$HERE/acceptance.sql"
+# Preserve the independently reviewed M192 acceptance, including its status
+# matrix and true two-session races, under the newly protected delete grants.
+"${PSQL[@]}" -f docs/db/material-consumption-192/acceptance.sql >/dev/null
+"${PSQL[@]}" -f docs/db/material-consumption-192/acceptance_matrix.sql >/dev/null
+python3 docs/db/material-consumption-192/concurrency.py "$DB"
+echo 'GREEN_273_POSTED_HISTORY_ACCEPTANCE'

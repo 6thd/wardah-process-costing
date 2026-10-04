@@ -8,6 +8,10 @@ import { ComponentType } from 'react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { Lock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  PermissionRevalidationBoundary,
+  usePermissionRecoveryBlock,
+} from './PermissionRevalidationBoundary';
 
 interface WithPermissionOptions {
   module: string;
@@ -26,10 +30,16 @@ export function withPermission<P extends object>(
   const { module, action, fallback: Fallback, showError = true } = options;
 
   return function ProtectedComponent(props: P) {
-    const { hasPermission, loading } = usePermissions();
+    const { hasPermission, loading, error, permissionIdentityKey, refreshPermissions } = usePermissions();
+    const hasAccess = hasPermission(module, action);
+    const recoveryBlocked = usePermissionRecoveryBlock({
+      hasAccess,
+      loading,
+      error,
+      scopeKey: `${permissionIdentityKey ?? 'anonymous'}|${module}|${action}`,
+    });
 
-    // Show loading state
-    if (loading) {
+    if (loading && !recoveryBlocked) {
       return (
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center">
@@ -40,14 +50,11 @@ export function withPermission<P extends object>(
       );
     }
 
-    // Check permission
-    if (!hasPermission(module, action)) {
-      // Use custom fallback if provided
+    if (!hasAccess && !recoveryBlocked) {
       if (Fallback) {
         return <Fallback {...props} />;
       }
 
-      // Default error message
       if (showError) {
         return (
           <div className="flex items-center justify-center min-h-[400px] p-8">
@@ -76,12 +83,14 @@ export function withPermission<P extends object>(
         );
       }
 
-      // Return null if error should not be shown
       return null;
     }
 
-    // User has permission, render component
-    return <Component {...props} />;
+    return (
+      <PermissionRevalidationBoundary blocked={recoveryBlocked} onRetry={refreshPermissions}>
+        <Component {...props} />
+      </PermissionRevalidationBoundary>
+    );
   };
 }
 
@@ -109,9 +118,16 @@ interface PermissionGuardProps {
 }
 
 export function PermissionGuard({ module, action, children, fallback }: PermissionGuardProps) {
-  const { hasPermission, loading } = usePermissions();
+  const { hasPermission, loading, error, permissionIdentityKey, refreshPermissions } = usePermissions();
+  const hasAccess = hasPermission(module, action);
+  const recoveryBlocked = usePermissionRecoveryBlock({
+    hasAccess,
+    loading,
+    error,
+    scopeKey: `${permissionIdentityKey ?? 'anonymous'}|${module}|${action}`,
+  });
 
-  if (loading) {
+  if (loading && !recoveryBlocked) {
     return (
       <div className="flex items-center justify-center p-4">
         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
@@ -119,11 +135,15 @@ export function PermissionGuard({ module, action, children, fallback }: Permissi
     );
   }
 
-  if (!hasPermission(module, action)) {
+  if (!hasAccess && !recoveryBlocked) {
     return fallback || null;
   }
 
-  return <>{children}</>;
+  return (
+    <PermissionRevalidationBoundary blocked={recoveryBlocked} onRetry={refreshPermissions}>
+      {children}
+    </PermissionRevalidationBoundary>
+  );
 }
 
 export default withPermission;

@@ -150,8 +150,13 @@ function isMissingFunctionError(error: { code?: string; message?: string } | nul
 
 /**
  * Create a manufacturing order with optional material reservation.
- * Uses rpc_create_mo_with_reservation (atomic) when Migration 78 is applied,
- * falls back to the legacy two-step approach otherwise.
+ * Uses rpc_create_mo_with_reservation (atomic, M191 products-first lock order).
+ *
+ * The legacy two-step fallback (browser availability check + direct MO insert +
+ * separate reservation) is a DEVELOPMENT-ONLY path for databases without the
+ * canonical RPC. Production builds fail closed instead: a missing RPC, or an RPC
+ * answer that is neither success nor an error, never silently degrades to the
+ * non-atomic path.
  */
 export async function createManufacturingOrder(
   getClient: () => Promise<SupabaseClient>,
@@ -189,14 +194,31 @@ export async function createManufacturingOrder(
       throw new Error(`فشل إنشاء أمر التصنيع: ${rpcError.message}`);
     }
 
-    // Migration 78 غير مطبَّق — نرجع للمسار القديم مع تحذير
+    // الدالة ردّت بلا نجاح وبلا خطأ — استجابة غير متوقعة لا تُعامَل كغياب للدالة
+    if (!rpcError) {
+      throw new Error(
+        'فشل إنشاء أمر التصنيع: استجابة غير متوقعة من rpc_create_mo_with_reservation — ' +
+        'لم يُنشأ أمر ولم تُحجز مواد.'
+      );
+    }
+
+    // الدالة غير مطبَّقة (PGRST202)
+    if (import.meta.env.PROD) {
+      // Fail-closed: لا إنشاء أمر بحجز غير ذرّي (فحص متصفح + إدراج مباشر + حجز منفصل) في الإنتاج
+      throw new Error(
+        'الإنتاج: دالة الإنشاء الذرّي rpc_create_mo_with_reservation غير متاحة — ' +
+        'تعذّر إنشاء أمر التصنيع مع حجز المواد بأمان. لم يُنشأ أمر ولم تُحجز مواد.'
+      );
+    }
+
+    // خارج الإنتاج فقط: السقوط للمسار القديم لقواعد تطوير بلا الدالة الذرّية
     console.warn(
-      '[createManufacturingOrder] rpc_create_mo_with_reservation غير متاح، ' +
-      'جاري استخدام المسار القديم (إنشاء ثم حجز منفصل). طبّق Migration 78 لضمان الذرّية.'
+      '[createManufacturingOrder] rpc_create_mo_with_reservation غير متاح (تطوير فقط)، ' +
+      'جاري استخدام المسار القديم (إنشاء ثم حجز منفصل). هذا المسار غير ذرّي ومرفوض في الإنتاج.'
     );
   }
 
-  // ===== Fallback: المسار القديم (خطوتان — غير ذرّي) =====
+  // ===== Fallback (تطوير فقط): المسار القديم (خطوتان — غير ذرّي) =====
   if (materials && materials.length > 0) {
     try {
       await checkMaterialAvailability(materials);

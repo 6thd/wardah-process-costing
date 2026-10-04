@@ -71,15 +71,39 @@ describe('CalculateProcessCost Use Case', () => {
       expect(result.costBreakdown.totalCost.amount).toBe(0);
     });
 
-    it('should use 1 as default quantity', async () => {
-      vi.mocked(mockRepository.getDirectMaterials).mockResolvedValue([]);
+    // The old behaviour ("0 becomes 1") divided real cost by a fabricated quantity.
+    // An invalid manufacturing quantity now fails closed instead.
+    it.each([
+      ['zero', 0],
+      ['negative', -5],
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['null', null],
+      ['undefined', undefined],
+    ])('fails closed on a %s manufacturing order quantity', async (_label, quantity) => {
+      vi.mocked(mockRepository.getDirectMaterials).mockResolvedValue([
+        { id: '1', itemId: 'I1', itemName: 'A', quantity: 1, unitCost: 500, totalCost: 500 },
+      ]);
       vi.mocked(mockRepository.getDirectLabor).mockResolvedValue([]);
       vi.mocked(mockRepository.getOverheadCosts).mockResolvedValue([]);
-      vi.mocked(mockRepository.getManufacturingOrderQuantity).mockResolvedValue(0);
+      vi.mocked(mockRepository.getManufacturingOrderQuantity).mockResolvedValue(quantity as unknown as number);
+
+      await expect(useCase.execute({ moId: 'MO-001' }))
+        .rejects.toThrow('Invalid manufacturing order quantity for MO-001');
+    });
+
+    it('passes a valid positive quantity through unchanged', async () => {
+      vi.mocked(mockRepository.getDirectMaterials).mockResolvedValue([
+        { id: '1', itemId: 'I1', itemName: 'A', quantity: 1, unitCost: 500, totalCost: 500 },
+      ]);
+      vi.mocked(mockRepository.getDirectLabor).mockResolvedValue([]);
+      vi.mocked(mockRepository.getOverheadCosts).mockResolvedValue([]);
+      vi.mocked(mockRepository.getManufacturingOrderQuantity).mockResolvedValue(0.5);
 
       const result = await useCase.execute({ moId: 'MO-001' });
 
-      expect(result.costBreakdown.quantity.value).toBe(1);
+      expect(result.costBreakdown.quantity.value).toBe(0.5);
+      expect(result.costBreakdown.totalCost.amount).toBe(500);
     });
 
     it('should use custom currency', async () => {

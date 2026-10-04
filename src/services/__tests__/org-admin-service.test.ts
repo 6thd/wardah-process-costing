@@ -229,6 +229,7 @@ describe('Org Admin Service', () => {
           user_profile: profile,
           email: 'test.user@example.com',
           roles: [],
+          roles_status: 'loaded',
         },
       ]);
     });
@@ -260,11 +261,68 @@ describe('Org Admin Service', () => {
             user_profile: undefined,
             email: undefined,
             roles: [],
+            roles_status: 'loaded',
           },
         ]);
       } finally {
         warnSpy.mockRestore();
       }
+    });
+  });
+
+  describe('getOrgUsers — role read failures (F2)', () => {
+    const membership = {
+      id: 'membership-1',
+      user_id: 'user-2',
+      org_id: 'org-1',
+      is_active: true,
+      is_org_admin: false,
+      created_at: '2026-08-11T00:00:00Z',
+    };
+
+    it('marks roles unavailable (not empty) when the user_roles read returns an error', async () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      mockOrder.mockReturnValueOnce({ data: [membership], error: null });
+      mockIn
+        .mockReturnValueOnce({ data: null, error: { message: 'permission denied for table user_roles' } })
+        .mockReturnValueOnce({ data: [], error: null });
+
+      try {
+        const [user] = await getOrgUsers('org-1');
+        expect(user.roles_status).toBe('unavailable');
+        expect(user.roles).toBeUndefined();
+      } finally {
+        errSpy.mockRestore();
+      }
+    });
+
+    it('marks roles unavailable when the user_roles read throws', async () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      mockOrder.mockReturnValueOnce({ data: [membership], error: null });
+      mockIn
+        .mockImplementationOnce(() => {
+          throw new Error('network down');
+        })
+        .mockReturnValueOnce({ data: [], error: null });
+
+      try {
+        const [user] = await getOrgUsers('org-1');
+        expect(user.roles_status).toBe('unavailable');
+        expect(user.roles).toBeUndefined();
+      } finally {
+        errSpy.mockRestore();
+      }
+    });
+
+    it('keeps a successful zero-role read as a loaded empty assignment', async () => {
+      mockOrder.mockReturnValueOnce({ data: [membership], error: null });
+      mockIn
+        .mockReturnValueOnce({ data: [], error: null })
+        .mockReturnValueOnce({ data: [], error: null });
+
+      const [user] = await getOrgUsers('org-1');
+      expect(user.roles_status).toBe('loaded');
+      expect(user.roles).toEqual([]);
     });
   });
 

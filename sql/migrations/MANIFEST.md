@@ -4,14 +4,46 @@
 > عند وجود نسخ متعددة لنفس الرقم، هذا الدليل يحدد **القانونية** منها.
 > النسخ المتجاوزة تبقى في المستودع للتاريخ — لا تُحذف ولا تُطبَّق.
 
+## تخصيص 195–198 — Draft للمراجعة، غير مطبّق (2026-10-02)
+
+قبل هذه الدفعة، أعلى ملف قانوني في `main@94400e1b` هو 194. تقترح هذه
+المراجعة تخصيص 195–198؛ **التوقيع المستقل النهائي وخطة التطبيق ما زالا معلقين**.
+لا يثبت وجود الملفات أو نجاح CI أي تطبيق في Production/Staging، ولا يُرفع
+M192 hold. معلومات التطبيق الحي في الأقسام التاريخية أدناه ليست قراءة جديدة.
+ملف الحزمة والبصمات والقبول: [canonical package](../../docs/db/material-issue-canonical-195-198/README.md).
+
+| Migration / اسم التطبيق | الغرض | الحالة |
+|---|---|---|
+| [195_material_issue_scope](195_material_issue_scope.sql) | حصر كتابات MO/WO/reservations وقراءة خيارات الصرف | Draft canonical allocation؛ final sign-off/application pending |
+| [196_material_issue_maintenance](196_material_issue_maintenance.sql) | عمليات التحضير الذرّية، منح صريحة، وإيصال/سياج المصالحة | Draft canonical allocation؛ final sign-off/application pending |
+| [197_material_issue_stale_version](197_material_issue_stale_version.sql) | رفض تعارض إصدار الأعمال بـP0001 بدل retryable 40001 | Draft canonical allocation؛ final sign-off/application pending |
+| [198_material_issue_parent_version](198_material_issue_parent_version.sql) | إصدار MO المعروض للحجز وWO اليدوي ورفعه مرة واحدة | Draft canonical allocation؛ final sign-off/application pending |
+
+الترتيب الحتمي بعد baseline 189: **190→191→192→193→194→195→196→197→198**.
+الأرقام 195–198 مقترحة في هذا الـPR؛ قبل الدمج يعاد فحص أي تصادم.
+بعد قبول هذه الدفعة يكون الرقم التالي 199؛ عبارة «التالي 121» أدناه تاريخية.
+SQL مطابقة حرفياً للمرشحات المقبولة؛ أسماء التطبيق تساوي stem الملفات أعلاه.
+M198 والعميل السابق غير متوافقين للحجز وWO اليدوي في كلا اتجاهي التبديل؛ يلزم
+زوج متطابق داخل توقف تحقق منه المالك، وفق [cutover](../../docs/db/material-issue-canonical-195-198/README.md#cutover-and-release-gates).
+
+## 199 — ضبط الجودة في التصنيع، غير مطبّق (2026-10-02)
+
+| Migration / اسم التطبيق | الغرض | الحالة |
+|---|---|---|
+| [199_manufacturing_quality_control](199_manufacturing_quality_control.sql) | مفاتيح وقوالب الجودة، إعدادات الجودة لكل مؤسسة (البوابة مطفأة افتراضيًا)، فحوص ثابتة عبر RPC، دورات الفحص، وبوابة الإفراج على الانتقال إلى `done` | مستودع فقط؛ تتطلب 195–198 مطبّقة أولًا |
+
+الترتيب: **…→198→199**. التفاصيل والاستعلامات وترتيب الواجهة:
+[runbook 199](../../docs/db/MANUFACTURING_QUALITY_CONTROL_199_RUNBOOK.md).
+
 ## الجوهر المطبَّق على قاعدة البيانات الحية ✅
 
-> **Repository-only:** Migration **177** (
-> `177_goods_receipt_number_sequence.sql`) تصلح تصادم مولّد أرقام سندات الاستلام
-> الذي كشفه Pilot لـIssue #45. لا تُعد مطبقة حيًا حتى دمج PR قاعدة البيانات ثم
-> تطبيقها والتحقق وفق
-> `docs/db/GOODS_RECEIPT_NUMBER_SEQUENCE_177_RUNBOOK.md`. Migration 176 ما زالت
-> محجوزة لمسار RBAC ولا يشغلها هذا الإصلاح.
+> **Production وRepository عند 188:** Migration **188**
+> (`188_hr_multi_org_rls.sql`) دُمجت عبر PR #223 وطُبقت على Production بالسجل
+> `20260905070642 / 188_hr_multi_org_rls`. تستبدل محددات المؤسسة غير
+> الآمنة/غير الحتمية في 75 سياسة على 19 جدول HR مع الحفاظ على مستويات الوصول
+> الحالية، ولا تطوي FU-6 أو إعادة تصميم RBAC في #156. زوج Baseline cutoff 188
+> نُشر عبر PR #224 عند merge commit `20746954`. التفاصيل في
+> `docs/db/HR_MULTI_ORG_RLS_188_RUNBOOK.md`.
 
 | Migration | الغرض | الحالة |
 |---|---|---|

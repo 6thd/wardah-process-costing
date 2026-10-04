@@ -101,9 +101,55 @@ function watchPage(page: Page) {
   page.on('console', msg => {
     if (msg.type() === 'error') evidence.consoleErrors.push(msg.text());
   });
+
   page.on('requestfailed', req => {
-    evidence.failedRequests.push(`${req.method()} ${req.url()} — ${req.failure()?.errorText ?? ''}`);
+    const url = req.url();
+    const errorText = req.failure()?.errorText ?? '';
+
+    // Playwright reports client-cancelled requests as requestfailed when a
+    // goto/reload replaces the current document. Those are not backend
+    // failures and were the only remaining false-red in run #72.
+    if (errorText === 'net::ERR_ABORTED') return;
+
+    // Preview-only/third-party assets are not part of the RBAC contract. Font
+    // CDN reachability and Vercel feedback plumbing must not decide whether a
+    // permission mutation succeeded.
+    let parsed: URL | undefined;
+    try {
+      parsed = new URL(url);
+    } catch {
+      parsed = undefined;
+    }
+    if (parsed?.hostname === 'fonts.gstatic.com') return;
+    if (parsed?.hostname === 'vercel.live') return;
+    if (parsed?.pathname === '/.well-known/vercel/jwe') return;
+
+    evidence.failedRequests.push(`${req.method()} ${url} — ${errorText}`);
   });
+
+  // HTTP 4xx/5xx responses do not fire requestfailed. Record real Supabase
+  // backend failures explicitly so ignoring client abort noise cannot create a
+  // false-green for the RPC/REST boundary this smoke is intended to prove.
+  page.on('response', response => {
+    if (response.status() < 400) return;
+
+    const url = response.url();
+    let parsed: URL | undefined;
+    try {
+      parsed = new URL(url);
+    } catch {
+      parsed = undefined;
+    }
+
+    const isSupabase = parsed?.hostname.endsWith('.supabase.co') ?? false;
+    const isRpc = parsed?.pathname.includes('/rest/v1/rpc/') ?? false;
+    if (!isSupabase && !isRpc) return;
+
+    evidence.failedRequests.push(
+      `${response.request().method()} ${url} — HTTP ${response.status()}`
+    );
+  });
+
   page.on('request', req => {
     const url = req.url();
     if (url.includes('/rest/v1/rpc/')) {
@@ -233,11 +279,22 @@ async function writeEvidence(): Promise<void> {
 const missingCredentialReason = skipIfMissingEnv(['orgAdmin', 'regularUser']);
 
 test.describe('Migration 174 — sensitive permission smoke', () => {
+  // This test mutates real staging RBAC state. A retry after an attempt-level
+  // timeout can inherit an owned fixture that cleanup had no time to remove,
+  // causing the next attempt to observe permissions granted by its predecessor.
+  // One bounded attempt plus finally cleanup is safer than cross-attempt state.
+  test.describe.configure({ retries: 0 });
+
   // Declare the skip before fixtures are created, so a credential-free CI run
   // does not need to install or launch a browser merely to discover it is safe.
   test.skip(Boolean(missingCredentialReason), missingCredentialReason ?? undefined);
 
   test('full lifecycle: buttons follow the backend, not the client', async ({ page, baseURL }) => {
+    // Seven UI/RPC phases plus ownership-scoped cleanup can exceed the suite's
+    // 30s default on CI. Keep a bounded budget so finally cleanup still has
+    // time to revoke assignments and delete only this run's owned fixtures.
+    test.setTimeout(90_000);
+
     // Fail closed before a single byte is written anywhere. This checks the
     // FRONTEND host only — see the backend check right after login below for
     // why that alone is not enough.

@@ -1,0 +1,5618 @@
+#!/usr/bin/env python3
+"""RED contract tests for Scanner v2 Slice 4 guard-evidence production.
+
+Slice 4 is intentionally evidence-only. The future producer consumes:
+- the original SQL source;
+- accepted Slice 2 binding/runtime evidence;
+- a separate PostgreSQL-backed guard-contract oracle proving that the four
+  recognized authorization helpers still have their reviewed identities and
+  exception semantics.
+
+The producer emits only structurally trustworthy guard evidence for the
+accepted Slice 3 policy engine. It does not query PostgreSQL itself and does not
+replay ACL state.
+"""
+
+from __future__ import annotations
+
+import ast
+import copy
+import hashlib
+import json
+import re
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+PRODUCER = REPO_ROOT / "scripts/ci/security/scanner_v2_guard_evidence.py"
+
+BINDING_SCANNER = "wardah-scanner-v2-discovery-binding"
+CONTRACT_SCANNER = "wardah-scanner-v2-guard-contract-oracle-v1"
+GUARD_SCANNER = "wardah-scanner-v2-guard-evidence-v1"
+
+CATCHING_HANDLERS = {
+    "others": "OTHERS",
+    "raise_exception": "raise_exception",
+    "quoted_raise_exception": '"raise_exception"',
+    "plpgsql_error": "plpgsql_error",
+    "sqlstate_p0001": "SQLSTATE 'P0001'",
+    "sqlstate_p0000": "SQLSTATE 'P0000'",
+}
+
+NONCAPTURING_HANDLERS = {
+    "unique_violation": "unique_violation",
+    "sqlstate_23505": "SQLSTATE '23505'",
+}
+
+RAISING_GUARD_BODY = "PERFORM public.wardah_assert_org_member(p_org);"
+
+BOOLEAN_DENY_GUARD_BODY = (
+    "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+    "  RAISE EXCEPTION 'DENIED';\n"
+    "END IF;"
+)
+
+HELPERS = (
+    ("public.wardah_assert_org_member(uuid)", "RAISING_ASSERTION"),
+    ("public.wardah_assert_org_admin(uuid)", "RAISING_ASSERTION"),
+    ("public.wardah_178_assert_permission(uuid,text)", "RAISING_ASSERTION"),
+    ("public.wardah_is_org_member(uuid)", "BOOLEAN_DENY"),
+)
+
+
+def _binding(
+    *,
+    oid: int,
+    name: str = "review_probe",
+    statement_index: int = 1,
+    kind: str = "FUNCTION",
+    source_arguments: str = "p_org uuid",
+    identity_arguments: str = "uuid",
+) -> dict[str, Any]:
+    prokind = "p" if kind == "PROCEDURE" else "f"
+    return {
+        "statement_index": statement_index,
+        "source_kind": kind,
+        "source_schema": "public",
+        "source_name": name,
+        "source_arguments": source_arguments,
+        "catalog_oid": oid,
+        "catalog_identity": f"public.{name}({identity_arguments})",
+        "catalog_prokind": prokind,
+        "discovery_status": "RESOLVED",
+        "client_callable": True,
+        "runtime_verdict": "OPEN",
+        "runtime_evidence": {
+            "public_execute": True,
+            "anon_role_exists": True,
+            "anon_execute": True,
+            "authenticated_role_exists": True,
+            "authenticated_execute": True,
+            "proacl": None,
+            "proconfig": None,
+        },
+    }
+
+
+def _bindings_doc(bindings: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "scanner": BINDING_SCANNER,
+        "status": "RESOLVED",
+        "candidate_count": len(bindings),
+        "binding_count": len(bindings),
+        "bindings": bindings,
+    }
+
+
+def _guard_contract() -> dict[str, Any]:
+    return {
+        "scanner": CONTRACT_SCANNER,
+        "status": "PROVEN",
+        "helper_count": len(HELPERS),
+        "helpers": [
+            {"identity": identity, "guard_kind": kind}
+            for identity, kind in HELPERS
+        ],
+        "exception_semantics": {
+            "raise_exception_sqlstate": "P0001",
+            "raise_exception_class_sqlstate": "P0000",
+            "unique_violation_catches_raise_exception": False,
+        },
+    }
+
+
+def _routine_source(
+    body: str,
+    *,
+    name: str = "review_probe",
+    kind: str = "FUNCTION",
+    args: str = "p_org uuid",
+    language: str = "plpgsql",
+    tag: str = "$$",
+    raw_plpgsql: bool = False,
+) -> str:
+    kind = kind.upper()
+    if kind == "PROCEDURE":
+        header = (
+            f"CREATE OR REPLACE PROCEDURE public.{name}({args})\n"
+            f"LANGUAGE {language}\nSECURITY DEFINER\nAS {tag}\n"
+        )
+    else:
+        header = (
+            f"CREATE OR REPLACE FUNCTION public.{name}({args})\n"
+            f"RETURNS void\nLANGUAGE {language}\nSECURITY DEFINER\nAS {tag}\n"
+        )
+
+    if language.lower() == "plpgsql":
+        payload = body if raw_plpgsql else f"BEGIN\n{body}\nEND;"
+    else:
+        payload = body
+
+    return f"{header}{payload}\n{tag};\n"
+
+
+def _indent(body: str) -> str:
+    return "\n".join(
+        f"  {line}" if line else line for line in body.splitlines()
+    )
+
+
+def _handler_block(guard: str, *handlers: str) -> str:
+    """Wrap ``guard`` in the routine's own outermost handler block.
+
+    An EXCEPTION section is a *list* of WHEN clauses, so several may be
+    passed; PostgreSQL tries each in order and the first match wins.
+    """
+    whens = "\n".join(f"  WHEN {handler} THEN NULL;" for handler in handlers)
+    return (
+        "BEGIN\n"
+        f"{_indent(guard)}\n"
+        "EXCEPTION\n"
+        f"{whens}\n"
+        "END;"
+    )
+
+
+def _labelled_block(
+    body: str,
+    *,
+    label: str = "auth_block",
+    end_label: str | None = None,
+    declare: str = "",
+    between: str = "",
+) -> str:
+    """A routine body whose OUTER block carries a ``<<label>>``.
+
+    The block grammar is ``[<<label>>] [DECLARE ...] BEGIN ... END
+    [label];`` — the label precedes any declaration section, and PL/pgSQL
+    labels are identifiers, so they may be quoted or non-ASCII.
+    """
+    tail = label if end_label is None else end_label
+    head = f"<<{label}>>\n{between}"
+    if declare:
+        head += f"DECLARE\n{_indent(declare)}\n"
+    tail_text = f" {tail}" if tail else ""
+    return f"{head}BEGIN\n{_indent(body)}\nEND{tail_text};"
+
+
+def _declare_block(declarations: str, body: str) -> str:
+    """A routine body with its own DECLARE section."""
+    return (
+        "DECLARE\n"
+        f"{_indent(declarations)}\n"
+        "BEGIN\n"
+        f"{_indent(body)}\n"
+        "END;"
+    )
+
+
+# PostgreSQL scan.l: dolq_start is [A-Za-z\200-\377_] and dolq_cont adds
+# [0-9], so EVERY non-ASCII byte is legal in a dollar-quote tag. A tag the
+# producer fails to recognize leaves the literal's content exposed as
+# executable text, which is how these became real false-greens.
+NON_ASCII_TAGS = {
+    "emoji": "$\U0001F600$",
+    "roman_numeral": "$\u2168$",
+    "combining_mark": "$a\u0301$",
+    "zero_width_space": "$a\u200b$",
+    "nbsp": "$\u00a0$",
+    "soft_hyphen": "$\u00ad$",
+    "bom": "$a\ufeff$",
+    "private_use": "$\ue000$",
+}
+
+# PostgreSQL clips every identifier to NAMEDATALEN-1 = 63 BYTES, on a
+# character boundary, and downcases UNQUOTED identifiers in ASCII ONLY.
+# A block label and an EXIT target are therefore the same label whenever
+# their canonical forms agree, however differently they are spelled in the
+# source. Slice 4 needs this only for labels; routine, schema and type
+# identity stay on the accepted Slice 2 boundary.
+NAMEDATALEN_LIMIT = 63
+
+# 64 ASCII bytes with the suffix: the suffix is clipped away.
+LONG_ASCII = "a" * NAMEDATALEN_LIMIT
+
+# 32 two-byte Arabic letters are already 64 bytes, so these labels differ
+# only past the limit while being short in CHARACTERS.
+LONG_MULTIBYTE = "\u0645" * 32
+
+# U+212A KELVIN SIGN is 3 UTF-8 bytes; Python's str.lower() turns it into a
+# 1-byte "k", which moves the 63-byte clip and pulls an over-length label
+# back under the limit. PostgreSQL does not fold it at all.
+KELVIN = "\u212a"
+
+# PostgreSQL 17 added \v to scan.l's `space` class, so a vertical tab is
+# ordinary whitespace on either side of a string continuation's newline —
+# but it is never itself a newline, so it cannot supply the one PostgreSQL
+# requires. Spelled out because a literal VT is invisible in source.
+VERTICAL_TAB = "\x0b"
+
+# A user-defined operator is backed by a function, and a cast between
+# custom types can be too, so neither is effectless merely for being
+# spelled without parentheses.
+CUSTOM_OPERATOR = "#"
+CUSTOM_TYPE = "public.org_ref"
+
+# A cast declared AS ASSIGNMENT runs implicitly on assignment, and one
+# declared AS IMPLICIT runs implicitly in an expression. Either can be
+# backed by a VOLATILE function, so a conversion is a call even where no
+# operator and no parentheses appear in the source text.
+SOURCE_TYPE = "public.source_type"
+TARGET_TYPE = "public.target_type"
+FLAG_TYPE = "public.flag_type"
+COERCION_ARGS = f"p_org uuid, p_source {SOURCE_TYPE}"
+COERCION_IDENTITY = f"uuid,{SOURCE_TYPE}"
+
+# A built-in with a real session-level side effect, used to show that an
+# expression is not effectless merely because it is not a DML statement.
+IMPURE_CALL = "pg_catalog.pg_try_advisory_lock(42)"
+
+# U+1D400 MATHEMATICAL BOLD CAPITAL A: 4 UTF-8 bytes, above the BMP.
+ASTRAL = "\U0001D400"
+
+#: Valid PL/pgSQL statements, each executable, each reaching something the
+#: producer cannot see. Grouped by command family on purpose.
+UNPROVEN_STATEMENT_FAMILIES = {
+    # (statement, source_arguments, identity_arguments, declarations)
+    #
+    # Every entry is valid PostgreSQL, verified with libpg_query via pglast
+    # (parse_sql + parse_plpgsql) outside the suite. A fixture that does not
+    # parse proves nothing about a parser, so the cursor FETCH forms carry the
+    # DECLARE section PostgreSQL requires for their INTO target.
+    #
+    # Cursor family: executes the caller's already-bound query.
+    "cursor_fetch": (
+        "FETCH p_cursor INTO v_row;",
+        "p_org uuid, p_cursor refcursor",
+        "uuid,refcursor",
+        "v_row record;",
+    ),
+    "cursor_fetch_directional": (
+        "FETCH NEXT FROM p_cursor INTO v_row;",
+        "p_org uuid, p_cursor refcursor",
+        "uuid,refcursor",
+        "v_row record;",
+    ),
+    "cursor_move": (
+        "MOVE FORWARD 1 FROM p_cursor;",
+        "p_org uuid, p_cursor refcursor",
+        "uuid,refcursor",
+        "",
+    ),
+    "cursor_close": (
+        "CLOSE p_cursor;",
+        "p_org uuid, p_cursor refcursor",
+        "uuid,refcursor",
+        "",
+    ),
+    # Anonymous block: arbitrary PL/pgSQL inside a masked dollar quote.
+    "anonymous_do_block": (
+        "DO $inner$ BEGIN PERFORM public.side_effect(); END $inner$;",
+        "p_org uuid",
+        "uuid",
+        "",
+    ),
+    # Session/config family: search_path rebinding ahead of a guard is a
+    # classic SECURITY DEFINER escalation primitive.
+    "set_local_search_path": (
+        "SET LOCAL search_path TO public;",
+        "p_org uuid",
+        "uuid",
+        "",
+    ),
+    "reset_search_path": ("RESET search_path;", "p_org uuid", "uuid", ""),
+    # Async notification family.
+    "listen": ("LISTEN wardah_chan;", "p_org uuid", "uuid", ""),
+    "notify": ("NOTIFY wardah_chan;", "p_org uuid", "uuid", ""),
+    "unlisten": ("UNLISTEN wardah_chan;", "p_org uuid", "uuid", ""),
+    # Ownership family.
+    "reassign_owned": (
+        "REASSIGN OWNED BY postgres TO postgres;",
+        "p_org uuid",
+        "uuid",
+        "",
+    ),
+    # PL/pgSQL assertion: evaluates an arbitrary boolean expression.
+    "assert_statement": ("ASSERT v_flag;", "p_org uuid", "uuid", ""),
+}
+
+#: Part B holdout. Valid PostgreSQL statement families whose heads appear
+#: nowhere in UNPROVEN_STATEMENT_FAMILIES, so copying every literal keyword
+#: visible in that table into EFFECT_WORDS still leaves these proving.
+#: Each executes and reaches state the producer cannot see: COMMENT and
+#: SECURITY LABEL write catalog rows, ANALYZE reads the table and updates
+#: statistics, CHECKPOINT forces a write of dirty buffers. All four are
+#: verified valid with pglast (parse_sql + parse_plpgsql).
+VALID_UNFAMILIAR_STATEMENTS = {
+    "comment_on_table": "COMMENT ON TABLE public.bins IS 'probe';",
+    "analyze_table": "ANALYZE public.bins;",
+    "checkpoint": "CHECKPOINT;",
+    "security_label": (
+        "SECURITY LABEL FOR dummy ON TABLE public.bins IS 'x';"
+    ),
+}
+
+
+#: Round 3C contract-side classification of every statement head the
+#: producer recognizes. Grouped by the grammar fragment each head owns,
+#: because "which remainder must be validated" is a property of the
+#: family, not of the keyword. Exactly one family per head; the
+#: exhaustiveness guard enforces both halves.
+SAFE_HEAD_FAMILIES = {
+    # An exact no-op: the statement is the word.
+    "no_op": frozenset({"NULL"}),
+    # Discards one expression; its effect is the expression's.
+    "expression_statement": frozenset({"PERFORM"}),
+    # Owns a boolean condition that must itself be proven.
+    "condition_header": frozenset({"IF", "ELSIF", "WHILE", "WHEN"}),
+    # Control transfer; optional label and optional WHEN condition.
+    "transfer": frozenset({"EXIT", "CONTINUE"}),
+    # CASE header plus its arms, each arm owning a condition.
+    "case_grammar": frozenset({"CASE"}),
+    # Iterator headers. No positive support is claimed for these.
+    "iterator_header": frozenset({"FOR", "FOREACH", "REVERSE"}),
+    # Delimiters that introduce sub-statements. Round 3C pins that they
+    # cannot license what they open.
+    "structural_opener": frozenset(
+        {"THEN", "ELSE", "LOOP", "BEGIN", "DECLARE", "EXCEPTION"}
+    ),
+    # Closers own a grammar of their own -- END IF, END CASE, END LOOP,
+    # END, END <label> -- and are split out from the openers so that
+    # classifying END can never be mistaken for testing END's grammar.
+    # Round 3D owns this family.
+    "closer": frozenset({"END"}),
+    # Reachability, owned by the reachability contract, not this one.
+    "terminator": frozenset({"RETURN", "RAISE"}),
+}
+
+
+def _discover_recognized_heads() -> set[str] | None:
+    """The producer's recognized head set, read from its source.
+
+    Structural discovery, not an import and not a hardcoded copy:
+    ``NAME = frozenset({...})`` of plain strings. Returns None when the
+    implementation no longer exposes that shape, which is a legitimate
+    redesign rather than a contract failure.
+    """
+    tree = ast.parse(PRODUCER.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        targets = [
+            target.id
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        ]
+        if "SAFE_STATEMENT_HEADS" not in targets:
+            continue
+        value = node.value
+        if not (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "frozenset"
+            and len(value.args) == 1
+            and isinstance(value.args[0], ast.Set)
+        ):
+            return None
+        members = set()
+        for element in value.args[0].elts:
+            if not isinstance(element, ast.Constant) or not isinstance(
+                element.value, str
+            ):
+                return None
+            members.add(element.value)
+        return members
+    return None
+
+
+#: Round 3E. Valid nested compounds, every one of them valid PostgreSQL
+#: and PROVEN on the frozen base. The contract corrupts one closer at a
+#: time and requires the whole program to fail closed, so the topology
+#: matters: depths 2 and 3, both orders of IF/CASE nesting, a labelled
+#: outer block, a labelled INNER block, and two sibling compounds.
+NESTED_CLOSER_BASELINES = {
+    "if_over_case": (
+        "IF true THEN\n"
+        "  CASE\n"
+        "    WHEN true THEN NULL;\n"
+        "  END CASE;\n"
+        "END IF;"
+    ),
+    "case_over_if": (
+        "CASE\n"
+        "  WHEN true THEN\n"
+        "    IF true THEN\n"
+        "      NULL;\n"
+        "    END IF;\n"
+        "END CASE;"
+    ),
+    "begin_if_case_depth3": (
+        "BEGIN\n"
+        "  IF true THEN\n"
+        "    CASE\n"
+        "      WHEN true THEN NULL;\n"
+        "    END CASE;\n"
+        "  END IF;\n"
+        "END;"
+    ),
+    "labelled_block_depth3": (
+        "<<outer>>\n"
+        "BEGIN\n"
+        "  CASE\n"
+        "    WHEN true THEN\n"
+        "      IF true THEN\n"
+        "        NULL;\n"
+        "      END IF;\n"
+        "  END CASE;\n"
+        "END outer;"
+    ),
+    "sibling_compounds": (
+        "BEGIN\n"
+        "  IF true THEN\n"
+        "    NULL;\n"
+        "  END IF;\n"
+        "  CASE\n"
+        "    WHEN true THEN NULL;\n"
+        "  END CASE;\n"
+        "END;"
+    ),
+    "labelled_inner_block": (
+        "IF true THEN\n"
+        "  <<inner>>\n"
+        "  BEGIN\n"
+        "    NULL;\n"
+        "  END inner;\n"
+        "END IF;"
+    ),
+}
+
+#: Expected closer count per baseline. A baseline edited to contain fewer
+#: closers would silently shrink the matrix, so the count is pinned.
+NESTED_CLOSER_COUNTS = {
+    "if_over_case": 2,
+    "case_over_if": 2,
+    "begin_if_case_depth3": 3,
+    "labelled_block_depth3": 3,
+    "sibling_compounds": 3,
+    "labelled_inner_block": 2,
+}
+
+_CLOSER_RE = re.compile(
+    r"\bEND(?:[ \t]+(?:IF|CASE|LOOP)\b)?"
+    r"(?:[ \t]+[A-Za-z_][A-Za-z_0-9]*\b)?[ \t]*;",
+    re.IGNORECASE,
+)
+
+
+def _closer_spans(source: str) -> list[tuple[int, int]]:
+    """Every closer occurrence, in source order."""
+    return [match.span() for match in _CLOSER_RE.finditer(source)]
+
+
+def _corrupt_closer(source: str, index: int, tail: str) -> str:
+    """Append ``tail`` to the index-th closer, leaving every other intact."""
+    start, end = _closer_spans(source)[index]
+    fragment = source[start:end]
+    return (
+        source[:start]
+        + fragment[:-1].rstrip()
+        + f" {tail};"
+        + source[end:]
+    )
+
+
+#: Round 3F. Two semantic dimensions that rounds 3D and 3E each covered
+#: alone but never crossed: WHICH tail a closer carries, and WHERE that
+#: closer sits. Round 3D proved tail grammar mostly on an outer closer;
+#: round 3E proved every position but always with the generated tail.
+#: An implementation can satisfy both and still accept a reserved-word
+#: tail on a nested closer.
+CLOSER_TAIL_CLASSES = {
+    # Resolved at call time from the producer's bytes; round 3E already
+    # crosses this class with every position.
+    "generated": None,
+    # An ordinary unreserved identifier that resolves to nothing.
+    "identifier": "extra",
+    # A reserved statement keyword, which a tail-class-sensitive
+    # implementation may wrongly treat as part of the closer grammar.
+    "reserved": "FETCH",
+}
+
+#: Minimal covering set, deliberately not a Cartesian product: one entry
+#: per (closer type x position role x tail class) combination that the
+#: earlier rounds leave uncrossed.
+NESTED_COMPOSITION_CASES = (
+    ("if_over_case", 0, "reserved"),
+    ("if_over_case", 0, "identifier"),
+    ("case_over_if", 0, "reserved"),
+    ("case_over_if", 0, "identifier"),
+    ("labelled_inner_block", 0, "reserved"),
+    ("sibling_compounds", 0, "reserved"),
+    ("sibling_compounds", 1, "reserved"),
+)
+
+#: Depths exercised by the parametric generator. Round 3E reached depth 3,
+#: so a fixed-depth implementation unrolled to 3 -- or to 4 -- passes it.
+#: These go past both without simply moving the boundary once.
+DEPTH_CASES = (1, 2, 3, 4, 5, 6)
+
+
+def _depth_baseline(depth: int) -> str:
+    """A valid nested compound of the requested depth.
+
+    Alternating IF and CASE inside a BEGIN block, innermost body NULL.
+    Only constructs the existing positives already support, so every
+    generated baseline must prove unmodified.
+    """
+    body = "NULL;"
+    for level in range(depth - 1, -1, -1):
+        if level % 2 == 0:
+            body = f"IF true THEN\n{body}\nEND IF;"
+        else:
+            body = f"CASE\n  WHEN true THEN\n{body}\nEND CASE;"
+    return f"BEGIN\n{body}\nEND;"
+
+
+#: Round 3G. Rounds 3D-3F modelled an invalid closer remainder by tail
+#: CLASS -- generated identifier, plain identifier, reserved word. That is
+#: still a denylist of bad categories, and an implementation can satisfy
+#: it while trusting any leftover token the statement parser happens to
+#: recognize. The rule is simpler and stronger: the closer's whole token
+#: span must be consumed by one supported production.
+#:
+#:   END IF ;      END CASE ;      END LOOP ;
+#:   END ;         END <resolved-label> ;
+#:
+#: After that, the next significant token must be the semicolon. What the
+#: leftover token means to any other rule is irrelevant.
+
+#: Representative recognized heads, used when the safe-head set cannot be
+#: discovered. These behavioural controls are authoritative on their own.
+FIXED_REMAINDER_CONTROLS = ("NULL", "PERFORM", "IF", "CASE", "LOOP")
+
+#: Closers whose grammar is complete before the label slot, so ANY further
+#: token is unconsumed remainder.
+TERMINAL_CLOSER_PREFIXES = {
+    "end_if": "IF true THEN\n  NULL;\nEND IF",
+    "end_case": "CASE\n  WHEN true THEN NULL;\nEND CASE",
+}
+
+#: Plain block END, whose only optional element is a resolved label.
+PLAIN_CLOSER_PREFIX = "BEGIN\n  NULL;\nEND"
+
+#: Remainder placed at a nested / labelled / sibling closer rather than an
+#: outer one, so complete consumption is crossed with position.
+REMAINDER_POSITION_CASES = (
+    ("if_over_case", 0, "NULL"),
+    ("if_over_case", 0, "PERFORM"),
+    ("case_over_if", 0, "PERFORM"),
+    ("labelled_inner_block", 0, "NULL"),
+    ("labelled_inner_block", 0, "PERFORM"),
+    ("sibling_compounds", 0, "NULL"),
+    ("sibling_compounds", 1, "PERFORM"),
+)
+
+#: Non-word remainders. "No additional non-trivia token" covers literals
+#: and quoted identifiers as squarely as it covers words, so a rule that
+#: only inspects word tokens leaves these open.
+#:
+#: A string-literal remainder is deliberately NOT here. The accepted
+#: lexer masks a literal to blanks INCLUDING its quotes, so
+#: ``END IF 'lit';`` tokenizes to exactly ``END IF ;`` and is
+#: indistinguishable from the valid closer at the token layer. Requiring
+#: it would force the closer recognizer to consult raw source and would
+#: reopen the reviewed masking contract for a remainder that, being
+#: masked, executes nothing. Numbers and quoted identifiers survive
+#: masking and are required below.
+NON_WORD_REMAINDERS = (
+    ("end_if", "1"),
+    ("end_case", "1"),
+    ("end_if", '"x"'),
+    # Plain END, where no closer keyword precedes the remainder. Without
+    # this an implementation can accept a wholly non-word remainder while
+    # still rejecting one that follows IF or CASE.
+    ("plain_end", "1"),
+    ("plain_end", '"x"'),
+)
+
+#: Multi-token remainders. The first token is a legal label or closer
+#: keyword, so an implementation that validates one optional token and
+#: stops accepts the rest.
+MULTI_TOKEN_REMAINDERS = (
+    ("if_over_case", 1, "NULL FETCH"),
+    ("labelled_inner_block", 0, "NULL FETCH"),
+    ("labelled_inner_block", 1, "PERFORM extra"),
+)
+
+
+GUARD_PATHS = {
+    "raising_assertion": (
+        RAISING_GUARD_BODY,
+        "public.wardah_assert_org_member",
+        "raising-assertion-v1",
+    ),
+    "negated_boolean_deny": (
+        BOOLEAN_DENY_GUARD_BODY,
+        "public.wardah_is_org_member",
+        "negated-boolean-deny-v1",
+    ),
+}
+
+
+def _run_producer(
+    source: str,
+    bindings: dict[str, Any],
+    contract: dict[str, Any] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_path = root / "source.sql"
+        bindings_path = root / "bindings.json"
+        contract_path = root / "guard-contract.json"
+        source_path.write_text(source, encoding="utf-8")
+        bindings_path.write_text(json.dumps(bindings), encoding="utf-8")
+        contract_path.write_text(
+            json.dumps(_guard_contract() if contract is None else contract),
+            encoding="utf-8",
+        )
+        return subprocess.run(
+            [
+                sys.executable,
+                str(PRODUCER),
+                "--source",
+                str(source_path),
+                "--bindings",
+                str(bindings_path),
+                "--guard-contract-evidence",
+                str(contract_path),
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=15,
+        )
+
+
+class Slice4GuardEvidenceContract(unittest.TestCase):
+    def _payload(
+        self, completed: subprocess.CompletedProcess[str]
+    ) -> dict[str, Any]:
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(completed.stdout.strip(), completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(set(payload), {"scanner", "guard_records"})
+        self.assertEqual(payload["scanner"], GUARD_SCANNER)
+        self.assertIsInstance(payload["guard_records"], list)
+        return payload
+
+    def _record(
+        self, completed: subprocess.CompletedProcess[str]
+    ) -> dict[str, Any]:
+        payload = self._payload(completed)
+        self.assertEqual(len(payload["guard_records"]), 1)
+        record = payload["guard_records"][0]
+        self.assertEqual(
+            set(record),
+            {
+                "catalog_oid",
+                "catalog_identity",
+                "guard_status",
+                "guard_mechanism",
+                "evidence_location",
+                "proof_class",
+            },
+        )
+        return record
+
+    def _assert_status(
+        self,
+        completed: subprocess.CompletedProcess[str],
+        expected: str,
+        *,
+        mechanism: str | None = None,
+        proof_class: str | None = None,
+    ) -> dict[str, Any]:
+        record = self._record(completed)
+        self.assertEqual(record["guard_status"], expected)
+        if expected == "PROVEN":
+            self.assertEqual(record["guard_mechanism"], mechanism)
+            self.assertEqual(record["proof_class"], proof_class)
+            self.assertIsInstance(record["evidence_location"], str)
+            self.assertTrue(record["evidence_location"].strip())
+            self.assertIn("statement:1", record["evidence_location"])
+        else:
+            self.assertIsNone(record["guard_mechanism"])
+            self.assertIsNone(record["evidence_location"])
+            self.assertIsNone(record["proof_class"])
+        return record
+
+    def _assert_evidence_error(
+        self, completed: subprocess.CompletedProcess[str]
+    ) -> None:
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("SCANNER_V2_GUARD_EVIDENCE_ERROR", completed.stderr)
+        self.assertNotIn(f'"scanner": "{GUARD_SCANNER}"', completed.stdout)
+
+    def test_proven_org_member_assertion_requires_valid_contract(self) -> None:
+        source = _routine_source(
+            "PERFORM public.wardah_assert_org_member(p_org);"
+        )
+        self._assert_status(
+            _run_producer(source, _bindings_doc([_binding(oid=2001)])),
+            "PROVEN",
+            mechanism="public.wardah_assert_org_member",
+            proof_class="raising-assertion-v1",
+        )
+
+    def test_proven_org_admin_assertion(self) -> None:
+        source = _routine_source(
+            "PERFORM public.wardah_assert_org_admin(p_org);"
+        )
+        self._assert_status(
+            _run_producer(source, _bindings_doc([_binding(oid=2002)])),
+            "PROVEN",
+            mechanism="public.wardah_assert_org_admin",
+            proof_class="raising-assertion-v1",
+        )
+
+    def test_proven_permission_assertion(self) -> None:
+        source = _routine_source(
+            "PERFORM public.wardah_178_assert_permission("
+            "p_org, 'inventory.stock.write');"
+        )
+        self._assert_status(
+            _run_producer(source, _bindings_doc([_binding(oid=2003)])),
+            "PROVEN",
+            mechanism="public.wardah_178_assert_permission",
+            proof_class="raising-assertion-v1",
+        )
+
+    def test_raising_assertion_must_be_a_standalone_statement(self) -> None:
+        """The call must be the statement, not merely appear in one.
+
+        Carried over from the accepted predecessor's
+        ``test_standalone_perform_contract``. A ``PERFORM guard(...) WHERE
+        false`` names a real helper with the exact oracle signature and
+        never executes it; a matcher keyed on "PERFORM + helper" proves it
+        anyway.
+        """
+        rejected = {
+            "perform_where_false": (
+                "PERFORM public.wardah_assert_org_member(p_org) WHERE false;"
+            ),
+            "perform_from_table": (
+                "PERFORM public.wardah_assert_org_member(p_org) "
+                "FROM public.bins;"
+            ),
+            "select_context": (
+                "SELECT public.wardah_assert_org_member(p_org);"
+            ),
+            "select_where_false": (
+                "SELECT public.wardah_assert_org_member(p_org) WHERE false;"
+            ),
+            "perform_as_operand": (
+                "PERFORM 1 WHERE public.wardah_assert_org_member(p_org) "
+                "IS NOT NULL;"
+            ),
+        }
+        for label, body in rejected.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2052)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        with self.subTest(label="assignment_context"):
+            block = (
+                "DECLARE\n"
+                "  v_ok boolean;\n"
+                "BEGIN\n"
+                "  v_ok := public.wardah_assert_org_member(p_org);\n"
+                "END;"
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2053)]),
+                ),
+                "UNKNOWN",
+            )
+
+        accepted = {
+            "plain": RAISING_GUARD_BODY,
+            "spaced": (
+                "  PERFORM  public.wardah_assert_org_member ( p_org ) ;"
+            ),
+            "wrapped_across_lines": (
+                "PERFORM public.wardah_assert_org_member(\n"
+                "  p_org\n"
+                ");"
+            ),
+        }
+        for label, body in accepted.items():
+            with self.subTest(accept=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2054)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_assert_org_member",
+                    proof_class="raising-assertion-v1",
+                )
+
+    def test_absent_when_no_guard_candidate_exists(self) -> None:
+        source = _routine_source("PERFORM 1;")
+        self._assert_status(
+            _run_producer(source, _bindings_doc([_binding(oid=2004)])),
+            "ABSENT",
+        )
+
+    def test_textual_mentions_do_not_prove(self) -> None:
+        cases = {
+            "comment": "-- PERFORM public.wardah_assert_org_member(p_org);\nPERFORM 1;",
+            "literal": "PERFORM 'public.wardah_assert_org_member(p_org)';",
+            "nested_dollar_literal": (
+                "PERFORM $x$public.wardah_assert_org_member(p_org)$x$;"
+            ),
+            "quoted_alias": 'PERFORM 1 AS "wardah_assert_org_member";',
+            "bare_identifier": "PERFORM wardah_assert_org_member;",
+            "block_comment": (
+                "/* PERFORM public.wardah_assert_org_member(p_org); */\n"
+                "PERFORM 1;"
+            ),
+            "nested_block_comment": (
+                "/* outer /* inner */\n"
+                "PERFORM public.wardah_assert_org_member(p_org);\n"
+                "*/\n"
+                "PERFORM 1;"
+            ),
+            "escape_string": (
+                "PERFORM E'public.wardah_assert_org_member(p_org)';"
+            ),
+            "escape_string_with_escaped_quote": (
+                "PERFORM E'it\\'s public.wardah_assert_org_member(p_org)';"
+            ),
+            "unicode_string": (
+                "PERFORM U&'public.wardah_assert_org_member(p_org)';"
+            ),
+            "doubled_quote_literal": (
+                "PERFORM 'it''s public.wardah_assert_org_member(p_org)';"
+            ),
+            "continued_literal": (
+                "PERFORM 'public.wardah_assert_org_member('\n"
+                "'p_org)';"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                source = _routine_source(body)
+                self._assert_status(
+                    _run_producer(
+                        source, _bindings_doc([_binding(oid=2010)])
+                    ),
+                    "ABSENT",
+                )
+
+        tagged = _routine_source(
+            "PERFORM 1;",
+            tag="$wardah_assert_org_member$",
+        )
+        self._assert_status(
+            _run_producer(tagged, _bindings_doc([_binding(oid=2011)])),
+            "ABSENT",
+        )
+
+    def test_literal_and_comment_boundaries_do_not_hide_real_guards(
+        self,
+    ) -> None:
+        """Masking must end exactly where PostgreSQL ends a literal/comment.
+
+        The mirror of ``test_textual_mentions_do_not_prove``: a masker that
+        mis-locates a closing boundary silently swallows the executable guard
+        that follows it and reports a false ABSENT/UNKNOWN.
+        """
+        cases = {
+            "after_escape_string_with_escaped_quote": (
+                "PERFORM E'it\\'s not a guard';\n"
+                + RAISING_GUARD_BODY
+            ),
+            "after_doubled_quote_literal": (
+                "PERFORM 'it''s not a guard';\n" + RAISING_GUARD_BODY
+            ),
+            "after_unicode_string": (
+                "PERFORM U&'not a guard';\n" + RAISING_GUARD_BODY
+            ),
+            "after_continued_literal": (
+                "PERFORM 'not '\n'a guard';\n" + RAISING_GUARD_BODY
+            ),
+            "after_nested_block_comment": (
+                "/* outer /* inner */ still comment */\n" + RAISING_GUARD_BODY
+            ),
+            "after_dollar_literal": (
+                "PERFORM $x$not a guard$x$;\n" + RAISING_GUARD_BODY
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2032)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_assert_org_member",
+                    proof_class="raising-assertion-v1",
+                )
+
+    def test_textual_boolean_deny_mentions_do_not_prove(self) -> None:
+        """The boolean-deny idiom is masked by the same lexical rules.
+
+        ``negated-boolean-deny-v1`` carries its own proof class, so a producer
+        may well reach it through a separate matcher. That matcher must sit
+        behind the same literal/comment masking as the raising path.
+        """
+        cases = {
+            "ordinary_literal": (
+                "PERFORM 'IF NOT public.wardah_is_org_member(p_org) "
+                "THEN RAISE EXCEPTION ''DENIED''; END IF;';"
+            ),
+            "escape_string": (
+                "PERFORM E'IF NOT public.wardah_is_org_member(p_org) "
+                "THEN RAISE EXCEPTION \\'DENIED\\'; END IF;';"
+            ),
+            "unicode_string": (
+                "PERFORM U&'IF NOT public.wardah_is_org_member(p_org) "
+                "THEN RAISE EXCEPTION ''DENIED''; END IF;';"
+            ),
+            "dollar_literal": (
+                "PERFORM $x$IF NOT public.wardah_is_org_member(p_org) "
+                "THEN RAISE EXCEPTION 'DENIED'; END IF;$x$;"
+            ),
+            "line_comment": (
+                "-- IF NOT public.wardah_is_org_member(p_org) "
+                "THEN RAISE EXCEPTION 'DENIED'; END IF;\n"
+                "PERFORM 1;"
+            ),
+            "block_comment": (
+                "/* IF NOT public.wardah_is_org_member(p_org)\n"
+                "   THEN RAISE EXCEPTION 'DENIED'; END IF; */\n"
+                "PERFORM 1;"
+            ),
+            "nested_block_comment": (
+                "/* outer /* inner */\n"
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;\n"
+                "*/\n"
+                "PERFORM 1;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2045)]),
+                    ),
+                    "ABSENT",
+                )
+
+    def test_boundaries_do_not_hide_real_boolean_deny_guards(self) -> None:
+        """Over-consumption mirror for the boolean-deny path."""
+        cases = {
+            "after_escape_string_with_escaped_quote": (
+                "PERFORM E'it\\'s not a guard';\n" + BOOLEAN_DENY_GUARD_BODY
+            ),
+            "after_doubled_quote_literal": (
+                "PERFORM 'it''s not a guard';\n" + BOOLEAN_DENY_GUARD_BODY
+            ),
+            "after_nested_block_comment": (
+                "/* outer /* inner */ still comment */\n"
+                + BOOLEAN_DENY_GUARD_BODY
+            ),
+            "after_dollar_literal": (
+                "PERFORM $x$not a guard$x$;\n" + BOOLEAN_DENY_GUARD_BODY
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2046)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_is_org_member",
+                    proof_class="negated-boolean-deny-v1",
+                )
+
+    def test_non_ascii_dollar_tags_are_recognized(self) -> None:
+        """Tag recognition decides where executable text even begins.
+
+        Carried over from the predecessor's
+        ``test_dollar_tag_recognition_uses_postgresqls_byte_range``. A tag the
+        producer does not recognize leaves the literal's content exposed, so
+        the guard text inside it reads as code.
+        """
+        for label, tag in NON_ASCII_TAGS.items():
+            with self.subTest(reject=label):
+                body = f"PERFORM {tag} {RAISING_GUARD_BODY} {tag};"
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2071)]),
+                    ),
+                    "ABSENT",
+                )
+            with self.subTest(reject_boolean=label):
+                inline = " ".join(BOOLEAN_DENY_GUARD_BODY.split("\n"))
+                body = f"PERFORM {tag} {inline} {tag};"
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2072)]),
+                    ),
+                    "ABSENT",
+                )
+
+    def test_non_ascii_dollar_tags_do_not_hide_real_guards(self) -> None:
+        """Widen tag recognition, do not swallow real guards.
+
+        Both halves matter: the tag may delimit a literal *beside* the guard,
+        or the routine body itself — and an unrecognized body delimiter means
+        no body to analyse at all.
+        """
+        for label, tag in NON_ASCII_TAGS.items():
+            with self.subTest(beside=label):
+                body = f"PERFORM {tag}note{tag};\n{RAISING_GUARD_BODY}"
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2073)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_assert_org_member",
+                    proof_class="raising-assertion-v1",
+                )
+            with self.subTest(delimits_body=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(RAISING_GUARD_BODY, tag=tag),
+                        _bindings_doc([_binding(oid=2074)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_assert_org_member",
+                    proof_class="raising-assertion-v1",
+                )
+            with self.subTest(delimits_body_boolean=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(BOOLEAN_DENY_GUARD_BODY, tag=tag),
+                        _bindings_doc([_binding(oid=2075)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_is_org_member",
+                    proof_class="negated-boolean-deny-v1",
+                )
+
+    def test_vertical_tab_continuations_are_masked(self) -> None:
+        """A VT is continuation whitespace, so the literal runs on.
+
+        Carried over from the predecessor's
+        ``VERTICAL_TAB_CONTINUATION_MUST_REJECT``. A reader that treats the
+        vertical tab as a terminator ends the literal early, and the guard
+        text that really sits inside it — after an escaped quote, under the
+        chain's inherited escape mode — surfaces as executable code.
+        """
+        vt = VERTICAL_TAB
+        inline_boolean = " ".join(BOOLEAN_DENY_GUARD_BODY.split("\n"))
+        # The boolean body carries its own 'DENIED' message, so embedding it
+        # in an E-string needs those apostrophes escaped for the literal to
+        # close where the fixture intends. Unescaped, the chain ends at the
+        # message's opening quote and the statement is unbalanced -- text
+        # PostgreSQL would refuse, which is not what this corpus tests.
+        escaped_boolean = inline_boolean.replace("'", "\\'")
+        cases = {
+            "guard_hidden_after_escaped_quote_vt_then_newline": (
+                f"PERFORM E'a'{vt}\n'b\\' {RAISING_GUARD_BODY} \\'c';"
+            ),
+            "guard_hidden_after_escaped_quote_newline_then_vt": (
+                f"PERFORM E'a'\n{vt}'b\\' {RAISING_GUARD_BODY} \\'c';"
+            ),
+            "boolean_guard_hidden_in_a_vt_continued_estring": (
+                f"PERFORM E'a'{vt}\n'b\\' {escaped_boolean} \\'c';"
+            ),
+            "guard_hidden_in_a_vt_run_around_the_newline": (
+                f"PERFORM E'a'{vt}{vt}\n{vt}'b\\' "
+                f"{RAISING_GUARD_BODY} \\'c';"
+            ),
+            "guard_hidden_in_a_plain_vt_continued_literal": (
+                f"PERFORM 'a'{vt}\n'b {RAISING_GUARD_BODY} c';"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2092)]),
+                    ),
+                    "ABSENT",
+                )
+
+    def test_vertical_tab_continuations_do_not_hide_real_guards(self) -> None:
+        """The over-consumption mirror for the vertical-tab boundary."""
+        vt = VERTICAL_TAB
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            cases = {
+                "after_a_vt_continued_estring": (
+                    f"PERFORM E'a'{vt}\n'b\\'c';\n{guard}"
+                ),
+                "after_a_vt_continued_plain_literal": (
+                    f"PERFORM 'a'{vt}\n'b';\n{guard}"
+                ),
+                "after_a_vt_run_around_the_newline": (
+                    f"PERFORM 'a'{vt}{vt}\n{vt}'b';\n{guard}"
+                ),
+            }
+            for label, body in cases.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(body),
+                            _bindings_doc([_binding(oid=2093)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_vertical_tab_sqlstate_continuations_are_followed(self) -> None:
+        """The same boundary inside a handler condition.
+
+        The escape-bearing chains here are already undecodable by the rule
+        frozen for round 7, but the plain VT-continued chain carries no
+        backslash: only following the continuation across the vertical tab
+        shows that it spells P0001.
+        """
+        vt = VERTICAL_TAB
+        blocking = {
+            "plain_vt_continuation_spells_p0001": (
+                f"SQLSTATE 'P00'{vt}\n    '01'"
+            ),
+            "plain_vt_continuation_spells_the_class": (
+                f"SQLSTATE 'P00'{vt}\n    '00'"
+            ),
+            "vt_after_the_newline": f"SQLSTATE 'P00'\n{vt}    '01'",
+            "vt_run_around_the_newline": (
+                f"SQLSTATE 'P0'{vt}{vt}\n{vt}    '001'"
+            ),
+            "vt_continuation_inside_an_or_list": (
+                f"unique_violation OR SQLSTATE 'P00'{vt}\n    '01'"
+            ),
+            "escape_bearing_vt_continuation": (
+                f"SQLSTATE E'P00'{vt}\n    '0\\x31'"
+            ),
+        }
+        allowing = {
+            "vt_continuation_unrelated_code": (
+                f"SQLSTATE '235'{vt}\n    '05'"
+            ),
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, handler in blocking.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2094)]),
+                        ),
+                        "UNKNOWN",
+                    )
+            for label, handler in allowing.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2095)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_helper_name_must_match_at_identifier_boundaries(self) -> None:
+        """A longer identifier merely containing the helper name is not it.
+
+        Carried over from the predecessor's
+        ``guard_name_is_identifier_suffix``. Both matchers are frozen, since
+        the raising and boolean paths may well be reached by separate
+        recognizers.
+
+        These are ABSENT rather than UNKNOWN: no recognized helper is named at
+        all, which is a different fact from the wrong schema or arity of a
+        helper that IS named — those stay UNKNOWN.
+        """
+        cases = {
+            "raising_prefix": (
+                "PERFORM public.fake_wardah_assert_org_member(p_org);"
+            ),
+            "raising_suffix": (
+                "PERFORM public.wardah_assert_org_member_fake(p_org);"
+            ),
+            "raising_infix": (
+                "PERFORM public.wardah_assert_org_member2(p_org);"
+            ),
+            "admin_prefix": (
+                "PERFORM public.fake_wardah_assert_org_admin(p_org);"
+            ),
+            "permission_suffix": (
+                "PERFORM public.wardah_178_assert_permission_fake("
+                "p_org, 'inventory.stock.write');"
+            ),
+            "boolean_prefix": (
+                "IF NOT public.fake_wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "boolean_suffix": (
+                "IF NOT public.wardah_is_org_member_fake(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2104)]),
+                    ),
+                    "ABSENT",
+                )
+
+    def test_routine_body_is_the_definition_after_as(self) -> None:
+        """A dollar-quoted option value is not the routine's body.
+
+        ``CREATE FUNCTION`` takes its options in any order and an option
+        value may itself be a string constant, so a dollar-quoted literal can
+        legally precede ``AS``. A producer that takes the first dollar body
+        after the parameter list reads that decoy as the routine and proves a
+        guard the real body never runs -- a false PROVEN inside a single
+        statement, which the cross-routine attribution test cannot reach.
+        """
+        decoy = (
+            "$meta$BEGIN "
+            "PERFORM public.wardah_assert_org_member(p_org); "
+            "END;$meta$"
+        )
+
+        def _with_option(body: str, definition: str | None = None) -> str:
+            tail = (
+                f"AS $body$\nBEGIN\n{body}\nEND;\n$body$;\n"
+                if definition is None
+                else f"AS {definition};\n"
+            )
+            return (
+                "CREATE OR REPLACE FUNCTION public.review_probe(p_org uuid)\n"
+                "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+                f"SET application_name =\n  {decoy}\n{tail}"
+            )
+
+        with self.subTest(label="decoy_option_does_not_prove"):
+            self._assert_status(
+                _run_producer(
+                    _with_option("PERFORM 1;"),
+                    _bindings_doc([_binding(oid=2106)]),
+                ),
+                "ABSENT",
+            )
+        with self.subTest(label="decoy_option_does_not_hide_a_real_guard"):
+            self._assert_status(
+                _run_producer(
+                    _with_option(RAISING_GUARD_BODY),
+                    _bindings_doc([_binding(oid=2107)]),
+                ),
+                "PROVEN",
+                mechanism="public.wardah_assert_org_member",
+                proof_class="raising-assertion-v1",
+            )
+        with self.subTest(label="decoy_option_with_a_boolean_guard"):
+            self._assert_status(
+                _run_producer(
+                    _with_option(BOOLEAN_DENY_GUARD_BODY),
+                    _bindings_doc([_binding(oid=2108)]),
+                ),
+                "PROVEN",
+                mechanism="public.wardah_is_org_member",
+                proof_class="negated-boolean-deny-v1",
+            )
+        with self.subTest(label="definition_is_not_dollar_quoted"):
+            self._assert_status(
+                _run_producer(
+                    _with_option("", definition="'BEGIN PERFORM 1; END;'"),
+                    _bindings_doc([_binding(oid=2109)]),
+                ),
+                "UNKNOWN",
+            )
+
+    def test_impure_guard_argument_is_unknown(self) -> None:
+        """The argument is evaluated before the helper is entered.
+
+        The ordering rule covers what precedes the guard STATEMENT; this is
+        the expression evaluated as part of the guard call itself, which
+        still runs on the wrong side of the authorization boundary. Both
+        shapes below resolve to ``uuid``, so the overload identity is intact
+        and only the effect distinguishes them.
+        """
+        impure_uuid = (
+            "CASE\n"
+            f"  WHEN {IMPURE_CALL} THEN p_org\n"
+            "  ELSE p_org\n"
+            "END"
+        )
+        cases = {
+            "raising_assertion_argument": (
+                "PERFORM public.wardah_assert_org_member(\n"
+                f"{_indent(impure_uuid)}\n"
+                ");"
+            ),
+            "permission_assertion_argument": (
+                "PERFORM public.wardah_178_assert_permission(\n"
+                f"{_indent(impure_uuid)},\n"
+                "  'inventory.stock.write'\n"
+                ");"
+            ),
+            "boolean_predicate_argument": (
+                "IF NOT public.wardah_is_org_member(\n"
+                f"{_indent(impure_uuid)}\n"
+                ") THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2105)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_impure_guard_argument_typed_by_a_cast_is_unknown(self) -> None:
+        """The ordering rule, isolated from the overload rule.
+
+        ``test_impure_guard_argument_is_unknown`` does not discriminate the
+        two: its ``CASE`` argument also fails type inference, so an
+        implementation that dropped the effect check entirely would still
+        withhold proof. Casting the same expression to the expected type
+        leaves the pre-boundary effect as the only reason to say UNKNOWN.
+        """
+        impure_uuid = (
+            "(\n"
+            "  CASE\n"
+            f"    WHEN {IMPURE_CALL} THEN p_org\n"
+            "    ELSE p_org\n"
+            "  END\n"
+            ")::uuid"
+        )
+        cases = {
+            "raising_assertion_argument": (
+                "PERFORM public.wardah_assert_org_member(\n"
+                f"{_indent(impure_uuid)}\n"
+                ");"
+            ),
+            "admin_assertion_argument": (
+                "PERFORM public.wardah_assert_org_admin(\n"
+                f"{_indent(impure_uuid)}\n"
+                ");"
+            ),
+            "permission_assertion_argument": (
+                "PERFORM public.wardah_178_assert_permission(\n"
+                f"{_indent(impure_uuid)},\n"
+                "  'inventory.stock.write'\n"
+                ");"
+            ),
+            "boolean_predicate_argument": (
+                "IF NOT public.wardah_is_org_member(\n"
+                f"{_indent(impure_uuid)}\n"
+                ") THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2110)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_operator_and_cast_expressions_are_not_effectless(self) -> None:
+        """Effectlessness is not the absence of ``name(...)``.
+
+        Every operator is backed by a function and a cast between custom
+        types can be too, so an expression is not proven effectless merely
+        because no call is spelled with parentheses. A VOLATILE function
+        behind ``#`` or behind ``p_org::uuid`` runs before the authorization
+        boundary exactly as ``PERFORM writer(p_org)`` would.
+
+        Conservative by construction: only the few forms this contract shows
+        to be effectless prove, and everything else is UNKNOWN. No purity
+        analysis is required.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="operator_before_guard"):
+                block = _declare_block(
+                    "v_a text;\nv_b text;\nv_c text;",
+                    f"v_c := v_a {CUSTOM_OPERATOR} v_b;\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2111)]),
+                    ),
+                    "UNKNOWN",
+                )
+            with self.subTest(
+                path=path_label, label="operator_in_a_perform_expression"
+            ):
+                # No assignment and no condition, so nothing but the operator
+                # itself can withhold proof here.
+                block = _declare_block(
+                    "v_a text;\nv_b text;",
+                    f"PERFORM v_a {CUSTOM_OPERATOR} v_b;\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2123)]),
+                    ),
+                    "UNKNOWN",
+                )
+            with self.subTest(path=path_label, label="cast_before_guard"):
+                block = _declare_block(
+                    "v_u uuid;",
+                    f"v_u := p_org::uuid;\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2112)]),
+                    ),
+                    "UNKNOWN",
+                )
+            with self.subTest(
+                path=path_label, label="operator_in_declaration"
+            ):
+                block = _declare_block(
+                    f"v_a text;\nv_b text;\nv_c text := v_a "
+                    f"{CUSTOM_OPERATOR} v_b;",
+                    guard,
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2113)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        with self.subTest(label="cast_in_a_guard_argument"):
+            self._assert_status(
+                _run_producer(
+                    _routine_source(
+                        "PERFORM public.wardah_assert_org_member("
+                        "p_org::uuid);",
+                        args=f"p_org {CUSTOM_TYPE}",
+                    ),
+                    _bindings_doc(
+                        [
+                            _binding(
+                                oid=2114,
+                                source_arguments=f"p_org {CUSTOM_TYPE}",
+                                identity_arguments=CUSTOM_TYPE,
+                            )
+                        ]
+                    ),
+                ),
+                "UNKNOWN",
+            )
+        with self.subTest(label="operator_in_a_guard_argument"):
+            self._assert_status(
+                _run_producer(
+                    _routine_source(
+                        "PERFORM public.wardah_assert_org_member("
+                        f"p_org {CUSTOM_OPERATOR} p_org);",
+                        args=f"p_org {CUSTOM_TYPE}",
+                    ),
+                    _bindings_doc(
+                        [
+                            _binding(
+                                oid=2115,
+                                source_arguments=f"p_org {CUSTOM_TYPE}",
+                                identity_arguments=CUSTOM_TYPE,
+                            )
+                        ]
+                    ),
+                ),
+                "UNKNOWN",
+            )
+        with self.subTest(label="operator_inside_a_boolean_deny_term"):
+            # Every name here is declared, so the term's TYPE resolves to
+            # boolean; only the operator itself withholds proof.
+            block = _declare_block(
+                "v_a boolean;\nv_b text;\nv_c text;",
+                f"IF v_a AND v_b {CUSTOM_OPERATOR} v_c\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2124)]),
+                ),
+                "UNKNOWN",
+            )
+        with self.subTest(label="operator_in_the_deny_condition"):
+            block = _declare_block(
+                "v_a text;\nv_b text;",
+                f"IF v_a {CUSTOM_OPERATOR} v_b\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2116)]),
+                ),
+                "UNKNOWN",
+            )
+
+    def test_implicit_coercion_before_the_boundary_is_unknown(self) -> None:
+        """A conversion is a call even with no operator in the text.
+
+        PostgreSQL applies an assignment cast when a value is assigned to a
+        differently typed target, and an implicit cast when an expression is
+        used where another type is expected. Either cast may be declared
+        WITH FUNCTION, and that function may be VOLATILE, so it runs before
+        the authorization boundary exactly as a written call would -- while
+        the statement reads as nothing but two identifiers and ``:=``.
+
+        No catalog lookup is needed to withhold proof: the source already
+        carries both declared types, and a conversion that cannot be shown to
+        be absent is not proven effectless.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="cross_type_assignment"):
+                block = _declare_block(
+                    f"v_target {TARGET_TYPE};",
+                    f"v_target := p_source;\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            block, args=COERCION_ARGS, raw_plpgsql=True
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=2117,
+                                    source_arguments=COERCION_ARGS,
+                                    identity_arguments=COERCION_IDENTITY,
+                                )
+                            ]
+                        ),
+                    ),
+                    "UNKNOWN",
+                )
+            with self.subTest(path=path_label, label="cross_type_initializer"):
+                block = _declare_block(
+                    f"v_target {TARGET_TYPE} := p_source;",
+                    guard,
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            block, args=COERCION_ARGS, raw_plpgsql=True
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=2118,
+                                    source_arguments=COERCION_ARGS,
+                                    identity_arguments=COERCION_IDENTITY,
+                                )
+                            ]
+                        ),
+                    ),
+                    "UNKNOWN",
+                )
+
+        with self.subTest(label="non_boolean_term_in_the_deny_condition"):
+            block = _declare_block(
+                f"v_flag {FLAG_TYPE};",
+                "IF v_flag\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2119)]),
+                ),
+                "UNKNOWN",
+            )
+        with self.subTest(label="non_boolean_condition_before_the_guard"):
+            block = _declare_block(
+                f"v_flag {FLAG_TYPE};",
+                f"IF v_flag THEN\n  NULL;\nEND IF;\n{RAISING_GUARD_BODY}",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2120)]),
+                ),
+                "UNKNOWN",
+            )
+
+    def test_conversion_free_assignments_before_guard_still_prove(
+        self,
+    ) -> None:
+        """The rule is the conversion, not the assignment.
+
+        Counterweight to the coercion cases: where both sides carry the same
+        declared type there is no cast to invoke, so the guard behind them is
+        still an authorization boundary.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            cases = {
+                "same_type_assignment": _declare_block(
+                    f"v_same {SOURCE_TYPE};",
+                    f"v_same := p_source;\n{guard}",
+                ),
+                "same_type_initializer": _declare_block(
+                    f"v_same {SOURCE_TYPE} := p_source;",
+                    guard,
+                ),
+                "parameter_copy": _declare_block(
+                    "v_org uuid;",
+                    f"v_org := p_org;\n{guard}",
+                ),
+            }
+            for label, block in cases.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                block, args=COERCION_ARGS, raw_plpgsql=True
+                            ),
+                            _bindings_doc(
+                                [
+                                    _binding(
+                                        oid=2121,
+                                        source_arguments=COERCION_ARGS,
+                                        identity_arguments=COERCION_IDENTITY,
+                                    )
+                                ]
+                            ),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+        with self.subTest(label="boolean_term_in_the_deny_condition"):
+            block = _declare_block(
+                "v_flag boolean := true;",
+                "IF v_flag\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2122)]),
+                ),
+                "PROVEN",
+                mechanism="public.wardah_is_org_member",
+                proof_class="negated-boolean-deny-v1",
+            )
+
+    def test_coercion_variants_before_the_boundary_are_unknown(self) -> None:
+        """The conversion rule has to hold in every spelling it can take.
+
+        Three siblings of the coercion family that the first round's rule
+        does not reach: DEFAULT introduces an initializer exactly as ``:=``
+        does, a compound boolean is only boolean when its operands are, and
+        an untyped literal is not conversion-free just because its own type
+        is unnamed -- reaching a custom target it can still pass through that
+        type's own input and coercion machinery before the boundary.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="default_cross_type"):
+                block = _declare_block(
+                    f"v_target {TARGET_TYPE} DEFAULT p_source;", guard
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            block, args=COERCION_ARGS, raw_plpgsql=True
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=2125,
+                                    source_arguments=COERCION_ARGS,
+                                    identity_arguments=COERCION_IDENTITY,
+                                )
+                            ]
+                        ),
+                    ),
+                    "UNKNOWN",
+                )
+            literals = {
+                "untyped_literal_assignment": (
+                    f"v_target {TARGET_TYPE} := 'abc';"
+                ),
+                "untyped_literal_default": (
+                    f"v_target {TARGET_TYPE} DEFAULT 'abc';"
+                ),
+            }
+            for label, declaration in literals.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _declare_block(declaration, guard),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2126)]),
+                        ),
+                        "UNKNOWN",
+                    )
+            predicates = {
+                # IS NULL applies to any type; IS TRUE and IS DISTINCT FROM
+                # want a boolean or a comparable operand, so either can reach
+                # a cast to evaluate a custom one.
+                "is_true_on_a_custom_operand": "v_custom IS TRUE",
+                "is_distinct_from_on_custom_operands": (
+                    "v_custom IS DISTINCT FROM v_other"
+                ),
+            }
+            for label, predicate in predicates.items():
+                with self.subTest(path=path_label, label=label):
+                    block = _declare_block(
+                        f"v_custom {FLAG_TYPE};\nv_other {FLAG_TYPE};",
+                        f"IF {predicate} THEN\n  NULL;\nEND IF;\n{guard}",
+                    )
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(block, raw_plpgsql=True),
+                            _bindings_doc([_binding(oid=2133)]),
+                        ),
+                        "UNKNOWN",
+                    )
+            with self.subTest(
+                path=path_label, label="compound_boolean_operand"
+            ):
+                block = _declare_block(
+                    f"v_custom {FLAG_TYPE};\nv_ok boolean := true;",
+                    "IF v_custom AND v_ok THEN\n  NULL;\nEND IF;\n"
+                    f"{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2127)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        with self.subTest(label="compound_boolean_operand_in_a_deny_term"):
+            block = _declare_block(
+                f"v_custom {FLAG_TYPE};\nv_ok boolean := true;",
+                "IF v_custom AND v_ok\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2128)]),
+                ),
+                "UNKNOWN",
+            )
+        with self.subTest(label="operator_under_a_boolean_typed_term"):
+            # `IS NOT NULL` is boolean whatever its operand's type, so the
+            # term resolves to boolean and only the operator withholds proof.
+            # This is what keeps the type rule and the operator rule from
+            # collapsing into one.
+            block = _declare_block(
+                "v_ok boolean := true;\nv_b text;\nv_c text;",
+                f"IF v_ok AND (v_b {CUSTOM_OPERATOR} v_c) IS NOT NULL\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2129)]),
+                ),
+                "UNKNOWN",
+            )
+
+    def test_conversion_free_coercion_variants_still_prove(self) -> None:
+        """The counterweight for each of the three siblings."""
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="default_same_type"):
+                block = _declare_block(
+                    f"v_same {SOURCE_TYPE} DEFAULT p_source;", guard
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            block, args=COERCION_ARGS, raw_plpgsql=True
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=2130,
+                                    source_arguments=COERCION_ARGS,
+                                    identity_arguments=COERCION_IDENTITY,
+                                )
+                            ]
+                        ),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+            with self.subTest(
+                path=path_label, label="compound_boolean_operands"
+            ):
+                block = _declare_block(
+                    "v_ok boolean := true;\nv_more boolean := false;",
+                    "IF v_ok AND v_more THEN\n  NULL;\nEND IF;\n"
+                    f"{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2131)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+
+        with self.subTest(label="compound_boolean_deny_term"):
+            block = _declare_block(
+                "v_ok boolean := true;\nv_more boolean := false;",
+                "IF v_ok AND v_more\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;",
+            )
+            self._assert_status(
+                _run_producer(
+                    _routine_source(block, raw_plpgsql=True),
+                    _bindings_doc([_binding(oid=2132)]),
+                ),
+                "PROVEN",
+                mechanism="public.wardah_is_org_member",
+                proof_class="negated-boolean-deny-v1",
+            )
+
+    def test_unqualified_recognized_guard_is_ambiguous(self) -> None:
+        source = _routine_source(
+            "PERFORM wardah_assert_org_member(p_org);"
+        )
+        self._assert_status(
+            _run_producer(source, _bindings_doc([_binding(oid=2012)])),
+            "AMBIGUOUS",
+        )
+
+    def test_wrong_schema_or_arity_is_unknown(self) -> None:
+        cases = {
+            "wrong_schema": (
+                "PERFORM attacker.wardah_assert_org_member(p_org);"
+            ),
+            "member_wrong_arity": (
+                "PERFORM public.wardah_assert_org_member(p_org, p_org);"
+            ),
+            "admin_wrong_arity": (
+                "PERFORM public.wardah_assert_org_admin();"
+            ),
+            "permission_wrong_arity": (
+                "PERFORM public.wardah_178_assert_permission(p_org);"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2013)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_wrong_argument_type_is_not_proven(self) -> None:
+        """The call must resolve to the exact oracle overload identity.
+
+        ``public.wardah_assert_org_member`` alone is a name, not an identity;
+        only ``public.wardah_assert_org_member(uuid)`` is in the oracle. A call
+        that provably resolves elsewhere, or whose resolution is not statically
+        determinable, must fail closed.
+        """
+        uuid_arg_cases = {
+            "explicit_cast_to_text": (
+                "PERFORM public.wardah_assert_org_member(p_org::text);"
+            ),
+            "typed_non_uuid_literal": (
+                "PERFORM public.wardah_assert_org_member('abc'::text);"
+            ),
+            "untyped_literal": (
+                "PERFORM public.wardah_assert_org_member('abc');"
+            ),
+            "integer_literal": (
+                "PERFORM public.wardah_assert_org_member(1);"
+            ),
+            "permission_first_arg_cast": (
+                "PERFORM public.wardah_178_assert_permission("
+                "p_org::text, 'inventory.stock.write');"
+            ),
+        }
+        for label, body in uuid_arg_cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2033)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        with self.subTest(label="declared_text_parameter"):
+            self._assert_status(
+                _run_producer(
+                    _routine_source(
+                        RAISING_GUARD_BODY,
+                        args="p_org text",
+                    ),
+                    _bindings_doc(
+                        [
+                            _binding(
+                                oid=2034,
+                                source_arguments="p_org text",
+                                identity_arguments="text",
+                            )
+                        ]
+                    ),
+                ),
+                "UNKNOWN",
+            )
+
+    def test_every_signature_family_rejects_type_mismatch(self) -> None:
+        """Each helper family is frozen on its own complete signature.
+
+        Closing the mismatch only for ``wardah_assert_org_member(uuid)`` and
+        for the permission helper's *first* argument leaves the remaining
+        families provable from name plus arity alone.
+        """
+        assertion_cases = {
+            "admin_cast_to_text": (
+                "PERFORM public.wardah_assert_org_admin(p_org::text);"
+            ),
+            "admin_typed_non_uuid_literal": (
+                "PERFORM public.wardah_assert_org_admin('abc'::text);"
+            ),
+            "admin_untyped_literal": (
+                "PERFORM public.wardah_assert_org_admin('abc');"
+            ),
+            "admin_integer_literal": (
+                "PERFORM public.wardah_assert_org_admin(1);"
+            ),
+            "permission_second_arg_is_uuid": (
+                "PERFORM public.wardah_178_assert_permission(p_org, p_org);"
+            ),
+            "permission_second_arg_cast_to_uuid": (
+                "PERFORM public.wardah_178_assert_permission("
+                "p_org, 'inventory.stock.write'::uuid);"
+            ),
+            "permission_second_arg_integer": (
+                "PERFORM public.wardah_178_assert_permission(p_org, 1);"
+            ),
+        }
+        for label, body in assertion_cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2043)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        boolean_cases = {
+            "member_predicate_cast_to_text": (
+                "IF NOT public.wardah_is_org_member(p_org::text) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "member_predicate_typed_non_uuid_literal": (
+                "IF NOT public.wardah_is_org_member('abc'::text) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "member_predicate_untyped_literal": (
+                "IF NOT public.wardah_is_org_member('abc') THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "member_predicate_wrong_arity": (
+                "IF NOT public.wardah_is_org_member(p_org, p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "member_predicate_wrong_schema": (
+                "IF NOT attacker.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in boolean_cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2044)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_competing_same_arity_overload_is_not_proven(self) -> None:
+        """A same-name/same-arity neighbour must not borrow the identity."""
+        competing = _routine_source(
+            "RAISE NOTICE 'not a guard';",
+            name="wardah_assert_org_member",
+            args="p_org text",
+        )
+        cases = {
+            "resolves_to_competing_overload": (
+                _routine_source(RAISING_GUARD_BODY, args="p_org text"),
+                _binding(
+                    oid=2035,
+                    statement_index=2,
+                    source_arguments="p_org text",
+                    identity_arguments="text",
+                ),
+            ),
+            "ambiguous_untyped_literal": (
+                _routine_source(
+                    "PERFORM public.wardah_assert_org_member('abc');"
+                ),
+                _binding(oid=2036, statement_index=2),
+            ),
+        }
+        for label, (target, binding) in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        competing + "\n" + target,
+                        _bindings_doc([binding]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_discarded_boolean_predicate_is_unknown(self) -> None:
+        source = _routine_source(
+            "PERFORM public.wardah_is_org_member(p_org);"
+        )
+        self._assert_status(
+            _run_producer(source, _bindings_doc([_binding(oid=2014)])),
+            "UNKNOWN",
+        )
+
+    def test_negated_boolean_deny_is_proven(self) -> None:
+        cases = {
+            "sole_term": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "top_level_or_term": (
+                "IF p_org IS NULL OR NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2015)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_is_org_member",
+                    proof_class="negated-boolean-deny-v1",
+                )
+
+    def test_deny_branch_structure_mutants_are_unknown(self) -> None:
+        """A nearby RAISE is not a denial; the deny branch must abort.
+
+        Carried over from the accepted predecessor's
+        ``NEGATED_RAISE_MUTANTS_MUST_REJECT``. Each shape names the real
+        predicate with the exact oracle signature and contains a real
+        ``RAISE``, yet a non-member walks through every one of them.
+        """
+        cases = {
+            "predicate_not_negated": (
+                "IF public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "raise_only_in_else_branch": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  NULL;\n"
+                "ELSE\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "raise_only_in_elsif_branch": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  NULL;\n"
+                "ELSIF p_org IS NULL THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "raise_only_in_nested_if_false": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  IF false THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "END IF;"
+            ),
+            "raise_only_in_nested_if_true": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  IF true THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "END IF;"
+            ),
+            "raise_only_in_nested_loop": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  WHILE false LOOP\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END LOOP;\n"
+                "END IF;"
+            ),
+            "raise_after_end_if": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  NULL;\n"
+                "END IF;\n"
+                "RAISE NOTICE 'later';"
+            ),
+            "predicate_in_body_not_condition": (
+                "IF true THEN\n"
+                "  PERFORM public.wardah_is_org_member(p_org);\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "quoted_identifier_named_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                '  PERFORM 1 AS "RAISE";\n'
+                "END IF;"
+            ),
+            "quoted_identifier_raise_exception": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                '  PERFORM 1 AS "RAISE EXCEPTION";\n'
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2063)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_non_membership_must_be_a_sole_top_level_term(self) -> None:
+        """Non-membership alone must guarantee entry into the deny branch.
+
+        Carried over from the predecessor's ``SUPPRESSED_DENY_MUST_REJECT``
+        and ``test_top_level_term_analysis``. The predicate IS negated and the
+        branch DOES abort, but a conjunction means a non-member never reaches
+        it. Rejecting only a trailing ``AND false`` leaves the rest open.
+        """
+        rejected = {
+            "negated_predicate_and_false": (
+                "IF NOT public.wardah_is_org_member(p_org) AND false THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "false_and_negated_predicate": (
+                "IF false AND NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "negated_predicate_and_other_condition": (
+                "IF NOT public.wardah_is_org_member(p_org) AND v_flag THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "other_condition_and_negated_predicate": (
+                "IF v_flag AND NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "negated_predicate_inside_parenthesised_and": (
+                "IF (NOT public.wardah_is_org_member(p_org) AND v_flag) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "or_term_is_itself_a_conjunction": (
+                "IF p_org IS NULL\n"
+                "   OR (NOT public.wardah_is_org_member(p_org) AND v_flag)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in rejected.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _declare_block("v_flag boolean := true;", body),
+                            raw_plpgsql=True,
+                        ),
+                        _bindings_doc([_binding(oid=2064)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        accepted = {
+            "parenthesised_sole_term": (
+                "IF (NOT public.wardah_is_org_member(p_org)) THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "spaced_sole_term": (
+                "IF   NOT  public.wardah_is_org_member ( p_org )   THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "parenthesised_or_term": (
+                "IF p_org IS NULL\n"
+                "   OR (NOT public.wardah_is_org_member(p_org))\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "or_term_is_last_disjunct": (
+                "IF p_org IS NULL OR v_flag\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in accepted.items():
+            with self.subTest(accept=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _declare_block("v_flag boolean := true;", body),
+                            raw_plpgsql=True,
+                        ),
+                        _bindings_doc([_binding(oid=2065)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_is_org_member",
+                    proof_class="negated-boolean-deny-v1",
+                )
+
+    def test_conditional_return_inside_the_deny_branch_is_unknown(
+        self,
+    ) -> None:
+        """The denial must be reached on EVERY path through the branch.
+
+        Carried over from the predecessor's
+        ``boolean_deny_conditional_return_before_raise``. The contract already
+        rejects a bare ``RETURN`` ahead of the ``RAISE`` and a conditional
+        ``RETURN`` ahead of the whole guard; this is the third shape, where
+        the escape hatch sits inside the deny branch itself and lets a
+        non-member leave without a denial.
+        """
+        body = (
+            "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            "  IF v_soft THEN\n    RETURN;\n  END IF;\n"
+            "  RAISE EXCEPTION 'DENIED';\n"
+            "END IF;"
+        )
+        self._assert_status(
+            _run_producer(
+                _routine_source(
+                    _declare_block("v_soft boolean := false;", body),
+                    raw_plpgsql=True,
+                ),
+                _bindings_doc([_binding(oid=2101)]),
+            ),
+            "UNKNOWN",
+        )
+
+    def test_impure_call_inside_the_deny_branch_is_unknown(self) -> None:
+        """A session-level effect is not authorization-neutral.
+
+        An advisory lock taken between the membership test and the denial has
+        already happened for a non-member by the time the RAISE aborts, so
+        the deny branch is not effectless either.
+        """
+        body = (
+            "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+            f"  PERFORM {IMPURE_CALL};\n"
+            "  RAISE EXCEPTION 'DENIED';\n"
+            "END IF;"
+        )
+        self._assert_status(
+            _run_producer(
+                _routine_source(body),
+                _bindings_doc([_binding(oid=2102)]),
+            ),
+            "UNKNOWN",
+        )
+
+    def test_boolean_deny_non_guaranteeing_shapes_are_unknown(self) -> None:
+        cases = {
+            "and_false": (
+                "IF NOT public.wardah_is_org_member(p_org) AND false THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "no_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  PERFORM 1;\n"
+                "END IF;"
+            ),
+            "return_before_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  RETURN;\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "non_aborting_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  RAISE NOTICE 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2016)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_nested_assertion_is_unknown(self) -> None:
+        cases = {
+            "if": (
+                "IF true THEN\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "END IF;"
+            ),
+            "loop": (
+                "LOOP\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "  EXIT;\n"
+                "END LOOP;"
+            ),
+            "case": (
+                "CASE WHEN true THEN\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "END CASE;"
+            ),
+            "nested_begin": (
+                "BEGIN\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "END;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2017)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_unreachable_assertion_after_terminator_is_unknown(self) -> None:
+        cases = {
+            "return": (
+                "BEGIN\n"
+                "  RETURN;\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "END;"
+            ),
+            "raise": (
+                "BEGIN\n"
+                "  RAISE EXCEPTION 'STOP';\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "END;"
+            ),
+            "labelled_exit": (
+                "<<outer>>\n"
+                "BEGIN\n"
+                "  EXIT outer;\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                "END outer;"
+            ),
+        }
+        for label, block in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2018)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_labelled_exit_reads_quoted_and_non_ascii_labels(self) -> None:
+        """A block label is an identifier, not a bare ASCII word.
+
+        Carried over from the predecessor's labelled-EXIT corpus. The jump
+        lands past the guard, so the routine returns having authorized
+        nothing; a producer that can only read ``EXIT outer`` sees no jump and
+        calls the guard reachable.
+        """
+        work = "UPDATE public.bins SET reserved_qty = 0 WHERE org_id = p_org;"
+        declare = "v_seen boolean := false;"
+        arabic = "\u062d\u0627\u0631\u0633"  # حارس
+        cases = {
+            "quoted_label": _labelled_block(
+                f'{work}\nEXIT "auth_block";\n{RAISING_GUARD_BODY}',
+                label='"auth_block"',
+                end_label='"auth_block"',
+            ),
+            "quoted_label_with_a_declare_section": _labelled_block(
+                f'{work}\nEXIT "auth_block";\n{RAISING_GUARD_BODY}',
+                label='"auth_block"',
+                end_label='"auth_block"',
+                declare=declare,
+            ),
+            "non_ascii_unquoted_label": _labelled_block(
+                f"{work}\nEXIT {arabic};\n{RAISING_GUARD_BODY}",
+                label=arabic,
+                end_label=arabic,
+            ),
+            "non_ascii_label_with_a_declare_section": _labelled_block(
+                f"{work}\nEXIT {arabic};\n{RAISING_GUARD_BODY}",
+                label=arabic,
+                end_label=arabic,
+                declare=declare,
+            ),
+            "ascii_label_with_a_declare_section": _labelled_block(
+                f"{work}\nEXIT auth_block;\n{RAISING_GUARD_BODY}",
+                declare=declare,
+            ),
+            "conditional_labelled_exit": _labelled_block(
+                f"{work}\nEXIT auth_block WHEN p_org IS NULL;\n"
+                f"{RAISING_GUARD_BODY}",
+            ),
+            "inner_block_exits_the_labelled_outer_block": _labelled_block(
+                "BEGIN\n  EXIT auth_block;\nEND;\n"
+                f"{RAISING_GUARD_BODY}\n{work}",
+            ),
+            "comment_between_label_and_begin": _labelled_block(
+                f"{work}\nEXIT auth_block;\n{RAISING_GUARD_BODY}",
+                between="/* " + ("x" * 400) + " */\n",
+            ),
+            "labelled_exit_before_boolean_guard": _labelled_block(
+                f"EXIT auth_block;\n{BOOLEAN_DENY_GUARD_BODY}\n{work}",
+            ),
+        }
+        for label, block in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2076)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_a_block_that_exits_itself_leaves_a_later_guard_intact(
+        self,
+    ) -> None:
+        """Label identity, not the mere presence of an EXIT."""
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            cases = {
+                "inner_block_exits_itself": _labelled_block(
+                    "<<inner>>\nBEGIN\n  EXIT inner;\nEND inner;\n"
+                    f"{guard}",
+                ),
+                "loop_exits_itself": _labelled_block(
+                    f"LOOP\n  EXIT;\nEND LOOP;\n{guard}",
+                ),
+                "labelled_loop_exits_itself": _labelled_block(
+                    "<<scan>>\nLOOP\n  EXIT scan;\nEND LOOP;\n"
+                    f"{guard}",
+                ),
+            }
+            for label, block in cases.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(block, raw_plpgsql=True),
+                            _bindings_doc([_binding(oid=2077)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_label_identity_is_clipped_to_namedatalen(self) -> None:
+        """Labels agreeing within 63 BYTES are one label to PL/pgSQL.
+
+        Carried over from the predecessor's labelled-EXIT truncation corpus and
+        confirmed there on PostgreSQL 17: the routine is created with a
+        truncation notice and the assertion never executes. Comparing the raw
+        source spelling sees two names where the database sees one, records no
+        jump, and calls the guard reachable.
+        """
+        self.assertGreater(
+            len((LONG_ASCII + "X").encode("utf-8")), NAMEDATALEN_LIMIT
+        )
+        self.assertGreater(
+            len((LONG_MULTIBYTE + "a").encode("utf-8")), NAMEDATALEN_LIMIT
+        )
+        self.assertGreater(
+            len((KELVIN + "a" * 60 + "X").encode("utf-8")), NAMEDATALEN_LIMIT
+        )
+
+        declare = "v_seen boolean := false;"
+        cases = {
+            "ascii_labels_differing_only_after_byte_63": _labelled_block(
+                f"EXIT {LONG_ASCII}Y;\n{RAISING_GUARD_BODY}",
+                label=f"{LONG_ASCII}X",
+                end_label="",
+            ),
+            "truncation_collision_with_a_declare_section": _labelled_block(
+                f"EXIT {LONG_ASCII}Y;\n{RAISING_GUARD_BODY}",
+                label=f"{LONG_ASCII}X",
+                end_label="",
+                declare=declare,
+            ),
+            "multibyte_labels_differing_after_the_byte_limit": (
+                _labelled_block(
+                    f"EXIT {LONG_MULTIBYTE}b;\n{RAISING_GUARD_BODY}",
+                    label=f"{LONG_MULTIBYTE}a",
+                    end_label="",
+                )
+            ),
+            "quoted_labels_colliding_after_byte_63": _labelled_block(
+                f'EXIT "{LONG_ASCII}Y";\n{RAISING_GUARD_BODY}',
+                label=f'"{LONG_ASCII}X"',
+                end_label="",
+            ),
+            "quoted_label_unquoted_over_long_exit": _labelled_block(
+                f"EXIT {LONG_ASCII}Y;\n{RAISING_GUARD_BODY}",
+                label=f'"{LONG_ASCII}X"',
+                end_label="",
+            ),
+            "conditional_exit_with_a_truncation_collision": _labelled_block(
+                f"EXIT {LONG_ASCII}Y WHEN p_org IS NULL;\n"
+                f"{RAISING_GUARD_BODY}",
+                label=f"{LONG_ASCII}X",
+                end_label="",
+            ),
+            "boolean_deny_guard_behind_a_colliding_exit": _labelled_block(
+                f"EXIT {LONG_ASCII}Y;\n{BOOLEAN_DENY_GUARD_BODY}",
+                label=f"{LONG_ASCII}X",
+                end_label="",
+            ),
+            "kelvin_fold_moves_the_namedatalen_clip": _labelled_block(
+                f"EXIT {KELVIN}{'a' * 60}Y;\n{RAISING_GUARD_BODY}",
+                label=f"{KELVIN}{'a' * 60}X",
+                end_label="",
+            ),
+        }
+        for label, block in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2080)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_label_identity_follows_postgresql_folding(self) -> None:
+        """One identifier, spelled several legal ways, is one label.
+
+        An unquoted label folds, in ASCII only, and a quoted one keeps
+        its case. Both spellings name the same block in either direction, so
+        the jump is real and the guard behind it is not an authorization
+        boundary.
+        """
+        declare = "v_seen boolean := false;"
+        cases = {
+            "unquoted_label_quoted_exit": _labelled_block(
+                f'EXIT "auth_block";\n{RAISING_GUARD_BODY}',
+            ),
+            "quoted_label_unquoted_exit": _labelled_block(
+                f"EXIT auth_block;\n{RAISING_GUARD_BODY}",
+                label='"auth_block"',
+                end_label='"auth_block"',
+            ),
+            "unquoted_case_differs_on_both_sides": _labelled_block(
+                f"EXIT AUTH_BLOCK;\n{RAISING_GUARD_BODY}",
+                label="Auth_Block",
+                end_label="Auth_Block",
+            ),
+            "mixed_spelling_across_a_declare_section": _labelled_block(
+                f'EXIT "auth_block";\n{RAISING_GUARD_BODY}',
+                declare=declare,
+            ),
+            "mixed_spelling_before_a_boolean_guard": _labelled_block(
+                f'EXIT "auth_block";\n{BOOLEAN_DENY_GUARD_BODY}',
+            ),
+        }
+        for label, block in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2081)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_label_identity_reads_astral_plane_identifiers(self) -> None:
+        """An identifier above U+FFFF is still one identifier.
+
+        The readable ASCII prefix must not be parsed out as the label: a
+        reader that stops at the first byte it cannot classify sees ``auth``
+        on one side and ``auth`` on the other for different reasons, or fails
+        to record the label at all and never reaches its fail-closed path.
+        """
+        cases = {
+            "astral_label_and_matching_exit": (f"auth{ASTRAL}", ""),
+            "astral_suffix_after_an_ascii_prefix": (
+                "auth\U0001F600",
+                "",
+            ),
+            "astral_first_character": (f"{ASTRAL}auth", ""),
+        }
+        declare = "v_seen boolean := false;"
+        for label, (name, _) in cases.items():
+            for variant, section in (("plain", ""), ("declare", declare)):
+                with self.subTest(label=label, variant=variant):
+                    block = _labelled_block(
+                        f"EXIT {name};\n{RAISING_GUARD_BODY}",
+                        label=name,
+                        end_label=name,
+                        declare=section,
+                    )
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(block, raw_plpgsql=True),
+                            _bindings_doc([_binding(oid=2082)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_distinct_labels_leave_a_later_guard_provable(self) -> None:
+        """Canonical identity must discriminate, not reject every EXIT.
+
+        The counterweight to the three tests above. Each block here is a
+        routine PostgreSQL will actually create: the inner block carries its
+        own label and the EXIT names that inner label, so the jump never
+        leaves the outer block and the guard after it still runs.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            cases = {
+                # Quoted keeps its case, so these are two different labels and
+                # the EXIT resolves to the inner one. A whole-Unicode fold
+                # merges them and loses the guard.
+                "quoted_outer_case_differs_from_inner": _labelled_block(
+                    "<<auth_block>>\nBEGIN\n  EXIT auth_block;\n"
+                    f"END auth_block;\n{guard}",
+                    label='"Auth_Block"',
+                    end_label='"Auth_Block"',
+                ),
+                # Distinct inside the first 63 bytes: two real labels.
+                "distinct_within_the_byte_limit": _labelled_block(
+                    "<<beta_block>>\nBEGIN\n  EXIT beta_block;\n"
+                    f"END beta_block;\n{guard}",
+                    label="alpha_block",
+                    end_label="alpha_block",
+                ),
+                # Over-length, identical, and the inner block exits itself.
+                # An over-length outer label must not swallow the block: the
+                # inner label is distinct well inside the limit and the EXIT
+                # names it, so the jump never leaves the outer block.
+                "inner_block_under_an_over_long_outer_label": (
+                    _labelled_block(
+                        "<<inner_scan>>\nBEGIN\n  EXIT inner_scan;\n"
+                        f"END inner_scan;\n{guard}",
+                        label=f"{LONG_ASCII}Y",
+                        end_label="",
+                    )
+                ),
+                # The guard runs before the colliding jump is issued.
+                "guard_precedes_a_colliding_exit": _labelled_block(
+                    f"{guard}\nEXIT {LONG_ASCII}Y;",
+                    label=f"{LONG_ASCII}X",
+                    end_label="",
+                ),
+            }
+            for label, block in cases.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(block, raw_plpgsql=True),
+                            _bindings_doc([_binding(oid=2083)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_conditional_early_return_before_guard_is_unknown(self) -> None:
+        """An early exit on some input path skips the guard for those inputs.
+
+        Carried over from the predecessor's
+        ``conditional_early_return_before_guard``. The contract rejects a bare
+        outer-level ``RETURN`` before the guard, but a ``RETURN`` inside a
+        conditional leaves the guard textually reachable while some callers
+        still reach the routine's end without it. Reachability is an all-path
+        question, not a first-path one.
+
+        The deliberate near-twin is
+        ``test_conditional_raise_before_guard_is_not_a_terminator``: identical
+        shape, ``RAISE`` instead of ``RETURN``, and that one must still prove.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="parameter_condition"):
+                body = (
+                    "IF p_org IS NULL THEN\n  RETURN;\nEND IF;\n"
+                    f"{guard}"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2088)]),
+                    ),
+                    "UNKNOWN",
+                )
+            with self.subTest(path=path_label, label="declared_flag"):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _declare_block(
+                                "v_skip boolean := false;",
+                                f"IF v_skip THEN\n  RETURN;\nEND IF;\n"
+                                f"{guard}",
+                            ),
+                            raw_plpgsql=True,
+                        ),
+                        _bindings_doc([_binding(oid=2089)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_guard_inside_an_exception_handler_is_unknown(self) -> None:
+        """A handler body is not the routine's outer statement level.
+
+        A guard reached only when some earlier statement raised is not an
+        unconditional authorization boundary: on the ordinary path nothing
+        authorizes anything. A producer that models nesting but forgets that
+        the region after ``EXCEPTION`` is not outer level credits it.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for handler in ("unique_violation", "OTHERS"):
+                with self.subTest(path=path_label, handler=handler):
+                    block = (
+                        "BEGIN\n"
+                        "  PERFORM 1;\n"
+                        "EXCEPTION\n"
+                        f"  WHEN {handler} THEN\n"
+                        f"{_indent(_indent(guard))}\n"
+                        "END;"
+                    )
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(block, raw_plpgsql=True),
+                            _bindings_doc([_binding(oid=2090)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_exit_between_predicate_and_denial_is_unknown(self) -> None:
+        """The denial must be reached, not merely present in the branch.
+
+        Carried over from the predecessor's ``BOOLEAN_DENY_EXIT_MUST_REJECT``.
+        The predicate is correct and the ``RAISE`` is textually inside the
+        THEN branch, but a non-member leaves the block before reaching it.
+
+        No write precedes the jump in these fixtures, so the ordering rule
+        cannot make them UNKNOWN for the wrong reason.
+        """
+        cases = {
+            "exit_between_then_and_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  EXIT auth_block;\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "conditional_exit_between_then_and_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "  EXIT auth_block WHEN true;\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "quoted_exit_between_then_and_raise": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                '  EXIT "auth_block";\n'
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _labelled_block(body), raw_plpgsql=True
+                        ),
+                        _bindings_doc([_binding(oid=2091)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_outer_raise_using_before_assertion_is_unknown(self) -> None:
+        """Parity: an outer-level RAISE terminates in every spelling.
+
+        The boolean path already freezes ``RAISE ... USING ERRCODE`` as a
+        terminator; the raising path only had the bare form, so a producer
+        that recognizes a terminator only as ``RAISE EXCEPTION '<msg>';``
+        proves an assertion sitting in dead code after one.
+        """
+        cases = {
+            "using_errcode": (
+                "RAISE EXCEPTION 'STOP' USING ERRCODE = '22023';"
+            ),
+            "using_message_and_errcode": (
+                "RAISE EXCEPTION USING MESSAGE = 'STOP', ERRCODE = '22023';"
+            ),
+            "condition_name_raise": "RAISE unique_violation;",
+            "sqlstate_raise": "RAISE SQLSTATE '22023';",
+        }
+        for label, terminator in cases.items():
+            with self.subTest(label=label):
+                block = f"BEGIN\n  {terminator}\n  {RAISING_GUARD_BODY}\nEND;"
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2103)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_catching_exception_handlers_block_proof(self) -> None:
+        for label, handler in CATCHING_HANDLERS.items():
+            with self.subTest(label=label):
+                block = (
+                    "BEGIN\n"
+                    "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                    "EXCEPTION\n"
+                    f"  WHEN {handler} THEN NULL;\n"
+                    "END;"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2019)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_noncapturing_exception_handler_allows_proof(self) -> None:
+        for label, handler in NONCAPTURING_HANDLERS.items():
+            with self.subTest(label=label):
+                block = (
+                    "BEGIN\n"
+                    "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                    "EXCEPTION\n"
+                    f"  WHEN {handler} THEN NULL;\n"
+                    "END;"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2020)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_assert_org_member",
+                    proof_class="raising-assertion-v1",
+                )
+
+    def test_catching_exception_handlers_block_boolean_deny_proof(
+        self,
+    ) -> None:
+        """Swallow analysis must cover the boolean-deny proof path too.
+
+        The denial here is an ordinary ``RAISE EXCEPTION`` inside the negated
+        predicate, so an enclosing handler that can catch P0001/P0000 lets
+        execution continue past the authorization boundary exactly as it does
+        for the raising assertions.
+        """
+        for label, handler in CATCHING_HANDLERS.items():
+            with self.subTest(label=label):
+                block = (
+                    "BEGIN\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    RAISE EXCEPTION 'DENIED';\n"
+                    "  END IF;\n"
+                    "EXCEPTION\n"
+                    f"  WHEN {handler} THEN NULL;\n"
+                    "END;"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2037)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_noncapturing_exception_handler_allows_boolean_deny_proof(
+        self,
+    ) -> None:
+        for label, handler in NONCAPTURING_HANDLERS.items():
+            with self.subTest(label=label):
+                block = (
+                    "BEGIN\n"
+                    "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "    RAISE EXCEPTION 'DENIED';\n"
+                    "  END IF;\n"
+                    "EXCEPTION\n"
+                    f"  WHEN {handler} THEN NULL;\n"
+                    "END;"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2038)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_is_org_member",
+                    proof_class="negated-boolean-deny-v1",
+                )
+
+    def test_inner_handler_around_denial_blocks_boolean_deny_proof(
+        self,
+    ) -> None:
+        """The denial itself must abort, not just the block enclosing the IF.
+
+        Here the predicate is outer-level and correctly shaped, but the
+        ``RAISE EXCEPTION`` sits in its own block with a handler, so execution
+        continues past the authorization boundary. An implementation that only
+        inspects handlers *enclosing* the IF cannot see this.
+
+        No interpreter is required: any denial wrapped in its own exception
+        block is conservatively ``UNKNOWN``, capturing or not.
+        """
+        handlers = dict(CATCHING_HANDLERS)
+        handlers.update(NONCAPTURING_HANDLERS)
+        for label, handler in handlers.items():
+            with self.subTest(label=label):
+                body = (
+                    "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                    "  BEGIN\n"
+                    "    RAISE EXCEPTION 'DENIED';\n"
+                    "  EXCEPTION\n"
+                    f"    WHEN {handler} THEN NULL;\n"
+                    "  END;\n"
+                    "END IF;"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2047)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_later_when_clause_still_catches_the_denial(self) -> None:
+        """An EXCEPTION section is a list; the first WHEN is not the section.
+
+        P0001 does not match ``unique_violation``, so PostgreSQL moves to the
+        next WHEN clause. A parser that inspects only the first one sees an
+        unrelated handler and proves a guard whose denial is swallowed.
+        """
+        blocking = {
+            "second_clause_named": ("unique_violation", "raise_exception"),
+            "second_clause_others": ("unique_violation", "OTHERS"),
+            "second_clause_sqlstate": (
+                "unique_violation",
+                "SQLSTATE 'P0001'",
+            ),
+            "third_clause_class_sqlstate": (
+                "unique_violation",
+                "foreign_key_violation",
+                "SQLSTATE 'P0000'",
+            ),
+            "third_clause_compound": (
+                "unique_violation",
+                "SQLSTATE '23503'",
+                "check_violation OR plpgsql_error",
+            ),
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, handlers in blocking.items():
+                with self.subTest(path=path_label, handlers=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, *handlers),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2066)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+        allowing = {
+            "two_unrelated_clauses": (
+                "unique_violation",
+                "foreign_key_violation",
+            ),
+            "three_unrelated_clauses": (
+                "unique_violation",
+                "SQLSTATE '23503'",
+                "check_violation OR division_by_zero",
+            ),
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, handlers in allowing.items():
+                with self.subTest(path=path_label, handlers=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, *handlers),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2067)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_compound_exception_handler_conditions(self) -> None:
+        """A ``WHEN a OR b`` handler catches the union of its conditions."""
+        blocking = {
+            "unique_violation_or_raise_exception": (
+                "unique_violation OR raise_exception"
+            ),
+            "sqlstate_23505_or_others": "SQLSTATE '23505' OR OTHERS",
+            "foreign_key_or_plpgsql_error": (
+                "foreign_key_violation OR plpgsql_error"
+            ),
+            "unique_violation_or_sqlstate_p0001": (
+                "unique_violation OR SQLSTATE 'P0001'"
+            ),
+        }
+        allowing = {
+            "unique_violation_or_foreign_key": (
+                "unique_violation OR foreign_key_violation"
+            ),
+        }
+
+        for guard_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, handler in blocking.items():
+                with self.subTest(guard=guard_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True
+                            ),
+                            _bindings_doc([_binding(oid=2039)]),
+                        ),
+                        "UNKNOWN",
+                    )
+            for label, handler in allowing.items():
+                with self.subTest(guard=guard_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True
+                            ),
+                            _bindings_doc([_binding(oid=2040)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_sqlstate_handler_literal_forms_are_all_decoded(self) -> None:
+        """A catching SQLSTATE is a value, not a fixed piece of text.
+
+        Every one of these handlers catches P0001 or its class, so every one
+        swallows the denial. The accepted predecessor carries the same corpus
+        after these forms produced real false-greens.
+        """
+        handlers = {
+            "escape_string": "SQLSTATE E'P0001'",
+            "dollar_quoted": "SQLSTATE $x$P0001$x$",
+            "continued_literal": "SQLSTATE 'P00'\n    '01'",
+            "comment_between_keyword_and_literal": (
+                "SQLSTATE /* documented reason */ 'P0001'"
+            ),
+            "class_code_dollar_quoted": "SQLSTATE $x$P0000$x$",
+            "second_or_term": "SQLSTATE 'P0002' OR SQLSTATE 'P0001'",
+            "third_or_term": (
+                "SQLSTATE 'P0002' OR SQLSTATE 'P0003' OR SQLSTATE 'P0000'"
+            ),
+            "after_a_named_condition": (
+                "unique_violation OR SQLSTATE 'P0002' OR SQLSTATE 'P0001'"
+            ),
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, handler in handlers.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2055)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_undecodable_sqlstate_handler_fails_closed(self) -> None:
+        """An unreadable SQLSTATE is not an unrelated SQLSTATE.
+
+        ``U&'...'`` and escape sequences need decoding the producer does not
+        do. The unrelated-looking values below are the point: fail closed on
+        the form, never on the value it appears to carry.
+        """
+        handlers = {
+            "unicode_string_p0001": "SQLSTATE U&'P0001'",
+            "unicode_string_unrelated": "SQLSTATE U&'P0002'",
+            "unicode_escape_spells_p0001": (
+                "SQLSTATE U&'\\0050\\0030\\0030\\0030\\0031'"
+            ),
+            "escape_sequence": "SQLSTATE E'P000\\x31'",
+            "unicode_in_or_list": (
+                "unique_violation OR SQLSTATE U&'P0002'"
+            ),
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, handler in handlers.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2056)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_quoted_condition_names_resolve_to_their_condition(self) -> None:
+        """``WHEN "raise_exception"`` catches what ``WHEN raise_exception``
+        catches.
+
+        Carried over from the predecessor's
+        ``test_quoted_condition_names_are_resolved_to_their_condition``. A
+        masker that blanks quoted-identifier content — as this contract
+        already requires it to, for ``PERFORM 1 AS "RAISE"`` — then reads an
+        empty handler condition and calls it unrelated.
+        """
+        blocking = {
+            "quoted_others": '"others"',
+            "quoted_plpgsql_error": '"plpgsql_error"',
+            "quoted_name_as_later_or_term": (
+                'unique_violation OR "raise_exception"'
+            ),
+            "quoted_name_as_later_or_term_category": (
+                'foreign_key_violation OR "plpgsql_error"'
+            ),
+            # PostgreSQL keeps a quoted identifier's case, so this resolves to
+            # no condition at all and cannot compile. Fail closed rather than
+            # inventing a third folding rule to prove it harmless.
+            "quoted_name_in_another_case": '"RAISE_EXCEPTION"',
+            "quoted_others_in_another_case": '"OTHERS"',
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, handler in blocking.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2084)]),
+                        ),
+                        "UNKNOWN",
+                    )
+            with self.subTest(path=path_label, handler="quoted_later_clause"):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _handler_block(
+                                guard, "unique_violation", '"others"'
+                            ),
+                            raw_plpgsql=True,
+                        ),
+                        _bindings_doc([_binding(oid=2085)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+        allowing = {
+            "quoted_unique_violation": '"unique_violation"',
+            "quoted_foreign_key_violation": '"foreign_key_violation"',
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, handler in allowing.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2086)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_escape_bearing_sqlstate_chains_fail_closed(self) -> None:
+        """An escape mode spans the whole literal chain, and \\ooo is a BYTE.
+
+        Two historical false-greens the single-segment cases do not reach. A
+        continuation segment carries no prefix of its own but inherits the
+        chain's escape mode, so ``E'P00'`` then ``'0\\x31'`` is P0001. And
+        ``\\ooo`` in an E-string is a byte escape, not a code point: octal 461
+        wraps to 0x31, so ``E'P000\\461'`` is P0001 too.
+
+        The contract does not require the producer to decode any of this. It
+        requires the whole family to fail closed: a backslash anywhere in a
+        SQLSTATE literal chain, or an E/U& prefix on any segment of one, is
+        not a decodable value on either proof path.
+        """
+        handlers = {
+            "octal_escape_wraps_to_p0001": "SQLSTATE E'P000\\461'",
+            "escape_then_ordinary_hex_resolves_to_p0001": (
+                "SQLSTATE E'P00'\n    '0\\x31'"
+            ),
+            "triple_chain_inherits_the_mode": (
+                "SQLSTATE E'P0'\n    '00'\n    '\\x31'"
+            ),
+            # Fail closed on the FORM: an escape-bearing chain is undecodable
+            # whatever value it appears to carry.
+            "escape_then_ordinary_unrelated_code": (
+                "SQLSTATE E'235'\n    '0\\x35'"
+            ),
+            # No leading E, so PostgreSQL keeps the backslash literal — but a
+            # producer that decodes it anyway reads P0001. Conservative rather
+            # than exact: the chain carries a backslash, so it is undecodable.
+            "ordinary_chain_with_a_backslash": (
+                "SQLSTATE 'P00'\n    '0\\x31'"
+            ),
+            # A continuation segment can never carry its own E prefix;
+            # PostgreSQL rejects both orderings outright, so the text cannot be
+            # attributed to a compilable statement.
+            "ordinary_then_escape_prefixed_continuation": (
+                "SQLSTATE 'P0'\n    E'01'"
+            ),
+            "escape_then_escape_prefixed_continuation": (
+                "SQLSTATE E'P0'\n    E'01'"
+            ),
+            "unicode_prefixed_continuation": (
+                "SQLSTATE 'P0'\n    U&'01'"
+            ),
+            "octal_escape_in_a_later_or_term": (
+                "unique_violation OR SQLSTATE E'P000\\461'"
+            ),
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, handler in handlers.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2087)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_unrelated_sqlstate_literal_forms_still_prove(self) -> None:
+        """Decoding must stay exact: an unrelated code is not a catch."""
+        handlers = {
+            "dollar_quoted": "SQLSTATE $x$23505$x$",
+            "escape_string": "SQLSTATE E'23505'",
+            "comment_between_keyword_and_literal": (
+                "SQLSTATE /* documented reason */ '23505'"
+            ),
+            "or_list": "SQLSTATE '23505' OR SQLSTATE '23503'",
+            "plain_continuation": "SQLSTATE '235'\n    '05'",
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, handler in handlers.items():
+                with self.subTest(path=path_label, handler=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _handler_block(guard, handler),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2057)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_nested_boolean_deny_is_unknown(self) -> None:
+        """Nesting parity: the boolean path has its own matcher too."""
+        cases = {
+            "if_false": (
+                "IF false THEN\n"
+                "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "END IF;"
+            ),
+            "if_true": (
+                "IF true THEN\n"
+                "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "END IF;"
+            ),
+            "never_entered_loop": (
+                "WHILE false LOOP\n"
+                "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "END LOOP;"
+            ),
+            "case_branch": (
+                "CASE WHEN false THEN\n"
+                "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "ELSE NULL;\n"
+                "END CASE;"
+            ),
+            "nested_begin": (
+                "BEGIN\n"
+                "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "END;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2058)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_unreachable_boolean_deny_after_terminator_is_unknown(
+        self,
+    ) -> None:
+        """Reachability parity for the boolean path."""
+        indented = _indent(BOOLEAN_DENY_GUARD_BODY)
+        cases = {
+            "return": f"BEGIN\n  RETURN;\n{indented}\nEND;",
+            "raise": (
+                f"BEGIN\n  RAISE EXCEPTION 'STOP';\n{indented}\nEND;"
+            ),
+            "raise_using_errcode": (
+                "BEGIN\n"
+                "  RAISE EXCEPTION 'STOP' USING ERRCODE = '22023';\n"
+                f"{indented}\nEND;"
+            ),
+            "labelled_exit": (
+                "<<outer>>\n"
+                f"BEGIN\n  EXIT outer;\n{indented}\nEND outer;"
+            ),
+        }
+        for label, block in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2059)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_conditional_raise_before_guard_is_not_a_terminator(self) -> None:
+        """A RAISE inside a conditional must not cost a real guard its proof.
+
+        The counterweight to the reachability rules above: only an
+        *outer-level* abort makes what follows dead code.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            with self.subTest(path=path_label):
+                body = (
+                    "IF p_org IS NULL THEN\n"
+                    "  RAISE EXCEPTION 'ORG_REQUIRED';\n"
+                    "END IF;\n"
+                    f"{guard}"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2060)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+
+    def test_boolean_denial_raise_form_is_frozen(self) -> None:
+        """The denial's SQLSTATE is part of the proof, not an assumption.
+
+        ``RAISE EXCEPTION 'DENIED'`` is P0001 only in its bare form. With
+        ``USING ERRCODE`` the denial can be re-coded into exactly what an
+        enclosing handler catches, and the contract's own non-capturing
+        controls then become capturing.
+
+        The contract is deliberately blunt so no producer must parse the
+        option list: only a bare ``RAISE EXCEPTION '<message>';`` proves a
+        denial. Every other raise form is UNKNOWN, with or without a handler.
+        """
+        denials = {
+            "using_errcode_unique_violation": (
+                "RAISE EXCEPTION 'DENIED' USING ERRCODE = '23505';"
+            ),
+            "using_errcode_condition_name": (
+                "RAISE EXCEPTION 'DENIED' "
+                "USING ERRCODE = 'unique_violation';"
+            ),
+            "using_errcode_p0001": (
+                "RAISE EXCEPTION 'DENIED' USING ERRCODE = 'P0001';"
+            ),
+            "using_message_and_errcode": (
+                "RAISE EXCEPTION USING MESSAGE = 'DENIED', "
+                "ERRCODE = '23505';"
+            ),
+            "using_hint_only": (
+                "RAISE EXCEPTION 'DENIED' USING HINT = 'join the org';"
+            ),
+            "condition_name_raise": "RAISE unique_violation;",
+            "sqlstate_raise": "RAISE SQLSTATE '23505';",
+        }
+        for label, denial in denials.items():
+            body = (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                f"  {denial}\n"
+                "END IF;"
+            )
+            with self.subTest(label=label, handler="none"):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2061)]),
+                    ),
+                    "UNKNOWN",
+                )
+            with self.subTest(label=label, handler="unique_violation"):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(
+                            _handler_block(body, "unique_violation"),
+                            raw_plpgsql=True,
+                        ),
+                        _bindings_doc([_binding(oid=2062)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_effect_before_authorization_boundary_is_not_proven(self) -> None:
+        """A reachable guard is not a boundary if an effect already ran.
+
+        No PL/pgSQL interpreter is required: a conservative UNKNOWN is the
+        contract whenever an effectful outer-level statement precedes the
+        recognized guard.
+        """
+        prefixes = {
+            "update": (
+                "UPDATE public.bins SET reserved_qty = 0 "
+                "WHERE org_id = p_org;"
+            ),
+            "insert": (
+                "INSERT INTO public.bins (org_id) VALUES (p_org);"
+            ),
+            "delete": "DELETE FROM public.bins WHERE org_id = p_org;",
+            "dynamic_execute": (
+                "EXECUTE 'UPDATE public.bins SET reserved_qty = 0';"
+            ),
+            "call": "CALL public.unrelated_writer(p_org);",
+            "perform_unrelated_function": (
+                "PERFORM public.unrelated_writer(p_org);"
+            ),
+            "perform_unknown_function": (
+                "PERFORM public.unknown_function(p_org);"
+            ),
+            "perform_unqualified_function": (
+                "PERFORM unrelated_writer(p_org);"
+            ),
+            "select_into_from_function": (
+                "SELECT public.charge_customer(p_org) INTO STRICT p_org;"
+            ),
+        }
+        guards = {
+            "raising_assertion": RAISING_GUARD_BODY,
+            "negated_boolean_deny": BOOLEAN_DENY_GUARD_BODY,
+        }
+        for guard_label, guard in guards.items():
+            for label, prefix in prefixes.items():
+                with self.subTest(guard=guard_label, prefix=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2041)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_effectful_compound_statement_before_guard_is_unknown(
+        self,
+    ) -> None:
+        """A compound statement is not harmless because it is compound.
+
+        The mirror of ``test_conditional_raise_before_guard_is_not_a_...``:
+        that control allows a conditional RAISE, so an implementation may
+        treat every outer-level IF/LOOP/CASE/BEGIN before the guard as
+        harmless. Each of these performs the privileged write first.
+        """
+        prefixes = {
+            "if_true": (
+                "IF true THEN\n"
+                "  UPDATE public.bins SET reserved_qty = 0 "
+                "WHERE org_id = p_org;\n"
+                "END IF;"
+            ),
+            "if_conditional": (
+                "IF p_org IS NOT NULL THEN\n"
+                "  UPDATE public.bins SET reserved_qty = 0 "
+                "WHERE org_id = p_org;\n"
+                "END IF;"
+            ),
+            "else_branch": (
+                "IF p_org IS NULL THEN\n"
+                "  NULL;\n"
+                "ELSE\n"
+                "  DELETE FROM public.bins WHERE org_id = p_org;\n"
+                "END IF;"
+            ),
+            "loop": (
+                "FOR i IN 1..1 LOOP\n"
+                "  INSERT INTO public.bins (org_id) VALUES (p_org);\n"
+                "END LOOP;"
+            ),
+            "case_branch": (
+                "CASE WHEN true THEN\n"
+                "  UPDATE public.bins SET reserved_qty = 0 "
+                "WHERE org_id = p_org;\n"
+                "ELSE NULL;\n"
+                "END CASE;"
+            ),
+            "nested_begin": (
+                "BEGIN\n"
+                "  UPDATE public.bins SET reserved_qty = 0 "
+                "WHERE org_id = p_org;\n"
+                "END;"
+            ),
+            "nested_begin_with_handler": (
+                "BEGIN\n"
+                "  PERFORM public.unrelated_writer(p_org);\n"
+                "EXCEPTION\n"
+                "  WHEN unique_violation THEN NULL;\n"
+                "END;"
+            ),
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, prefix in prefixes.items():
+                with self.subTest(path=path_label, prefix=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2068)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_declaration_initializer_before_guard_is_classified(self) -> None:
+        """A DECLARE initializer runs before the block's first statement.
+
+        It is therefore on the wrong side of the authorization boundary even
+        though no statement precedes the guard. A call in an initializer has
+        unknown effects; a parameter or constant does not.
+        """
+        rejected = {
+            "unrelated_writer": (
+                "v_x uuid := public.unrelated_writer(p_org);"
+            ),
+            "unknown_function": (
+                "v_x uuid := public.unknown_function(p_org);"
+            ),
+            "unqualified_call": "v_x uuid := unrelated_writer(p_org);",
+            "default_keyword_call": (
+                "v_x uuid DEFAULT public.unrelated_writer(p_org);"
+            ),
+            "second_declaration_calls": (
+                "v_a uuid := p_org;\n"
+                "v_b uuid := public.unrelated_writer(p_org);"
+            ),
+        }
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, declarations in rejected.items():
+                with self.subTest(path=path_label, declaration=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _declare_block(declarations, guard),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2069)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+        accepted = {
+            "uninitialised": "v_x uuid;",
+            "parameter_copy": "v_x uuid := p_org;",
+            "constant": "v_n integer := 1;",
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, declarations in accepted.items():
+                with self.subTest(path=path_label, declaration=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(
+                                _declare_block(declarations, guard),
+                                raw_plpgsql=True,
+                            ),
+                            _bindings_doc([_binding(oid=2070)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_impure_expression_before_boundary_is_unknown(self) -> None:
+        """An expression is not effectless for not being a DML statement.
+
+        The ordering rule so far names statement forms — DML, CALL, a
+        function-valued PERFORM, SELECT INTO, compound bodies, DECLARE
+        initializers — so a denylist-shaped producer passes all of them and
+        still treats a call evaluated inside an assignment or a condition as
+        harmless. ``pg_try_advisory_lock`` is a built-in returning boolean
+        with a real session-level effect, so nothing here depends on an
+        invented function.
+
+        The rule needs no purity analysis: any pre-boundary expression
+        containing a call other than the recognized guard helper itself is not
+        proven effectless, and is therefore UNKNOWN.
+        """
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="assignment"):
+                block = _declare_block(
+                    "v_locked boolean;",
+                    f"v_locked := {IMPURE_CALL};\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2096)]),
+                    ),
+                    "UNKNOWN",
+                )
+            prefixes = {
+                "if_condition": (
+                    f"IF {IMPURE_CALL} THEN\n  NULL;\nEND IF;"
+                ),
+                "elsif_condition": (
+                    "IF false THEN\n  NULL;\n"
+                    f"ELSIF {IMPURE_CALL} THEN\n  NULL;\nEND IF;"
+                ),
+                "case_condition": (
+                    f"CASE WHEN {IMPURE_CALL} THEN\n  NULL;\n"
+                    "ELSE NULL;\nEND CASE;"
+                ),
+                "while_condition": (
+                    f"WHILE {IMPURE_CALL} LOOP\n  EXIT;\nEND LOOP;"
+                ),
+                "exit_when_condition": (
+                    f"LOOP\n  EXIT WHEN {IMPURE_CALL};\nEND LOOP;"
+                ),
+            }
+            for label, prefix in prefixes.items():
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2097)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+    def test_impure_term_in_the_deny_condition_is_unknown(self) -> None:
+        """A sole top-level term is not the whole condition's story.
+
+        Non-membership is still a complete top-level OR disjunct here, so the
+        round-4 term analysis is satisfied — but another term of the same
+        condition is evaluated around the membership boundary. SQL does not
+        guarantee which operand of an OR runs first, so both orderings are
+        UNKNOWN.
+        """
+        cases = {
+            "impure_term_first": (
+                f"IF {IMPURE_CALL}\n"
+                "   OR NOT public.wardah_is_org_member(p_org)\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "impure_term_second": (
+                "IF NOT public.wardah_is_org_member(p_org)\n"
+                f"   OR {IMPURE_CALL}\n"
+                "THEN\n"
+                "  RAISE EXCEPTION 'DENIED';\n"
+                "END IF;"
+            ),
+            "impure_term_in_the_denial_branch_condition": (
+                "IF NOT public.wardah_is_org_member(p_org) THEN\n"
+                f"  IF {IMPURE_CALL} THEN\n"
+                "    RAISE EXCEPTION 'DENIED';\n"
+                "  END IF;\n"
+                "END IF;"
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2098)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_callless_expressions_before_guard_still_prove(self) -> None:
+        """Ordering discriminates on the call, not on the expression."""
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="assignment"):
+                block = _declare_block(
+                    "v_flag boolean;",
+                    f"v_flag := (p_org IS NOT NULL);\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2099)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+            with self.subTest(path=path_label, label="if_condition"):
+                body = (
+                    "IF p_org IS NULL THEN\n  NULL;\nEND IF;\n"
+                    f"{guard}"
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2100)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+
+    def test_effectless_statements_before_guard_still_prove(self) -> None:
+        """Ordering must discriminate on effect, not on mere position.
+
+        The contract is not a keyword denylist: any executable outer-level
+        statement that cannot be *proven* effectless blocks proof. Only
+        constant-expression and no-op statements qualify here — notably not
+        ``PERFORM <any function>``, which is covered as UNKNOWN above.
+        """
+        prefixes = {
+            "perform_constant": "PERFORM 1;",
+            "null_statement": "NULL;",
+            "line_comment": "-- prepare",
+            "block_comment": "/* prepare */",
+        }
+        for label, prefix in prefixes.items():
+            with self.subTest(label=label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(f"{prefix}\n{RAISING_GUARD_BODY}"),
+                        _bindings_doc([_binding(oid=2042)]),
+                    ),
+                    "PROVEN",
+                    mechanism="public.wardah_assert_org_member",
+                    proof_class="raising-assertion-v1",
+                )
+
+    def test_multiple_proven_guards_are_deterministic(self) -> None:
+        source = _routine_source(
+            "PERFORM public.wardah_assert_org_member(p_org);\n"
+            "PERFORM public.wardah_assert_org_admin(p_org);"
+        )
+        record = self._assert_status(
+            _run_producer(source, _bindings_doc([_binding(oid=2021)])),
+            "PROVEN",
+            mechanism="public.wardah_assert_org_member",
+            proof_class="raising-assertion-v1",
+        )
+        self.assertIn("statement:1", record["evidence_location"])
+
+    def test_multi_binding_emits_exactly_one_record_per_binding(self) -> None:
+        source = (
+            _routine_source(
+                "PERFORM public.wardah_assert_org_member(p_org);",
+                name="guarded_probe",
+            )
+            + "\n"
+            + _routine_source(
+                "PERFORM 1;",
+                name="unguarded_probe",
+            )
+        )
+        bindings = _bindings_doc(
+            [
+                _binding(
+                    oid=2022,
+                    name="guarded_probe",
+                    statement_index=1,
+                ),
+                _binding(
+                    oid=2023,
+                    name="unguarded_probe",
+                    statement_index=2,
+                ),
+            ]
+        )
+        payload = self._payload(_run_producer(source, bindings))
+        self.assertEqual(len(payload["guard_records"]), 2)
+        by_oid = {
+            record["catalog_oid"]: record
+            for record in payload["guard_records"]
+        }
+        self.assertEqual(set(by_oid), {2022, 2023})
+        self.assertEqual(by_oid[2022]["guard_status"], "PROVEN")
+        self.assertEqual(by_oid[2023]["guard_status"], "ABSENT")
+
+    def test_orphan_source_routine_is_not_emitted(self) -> None:
+        source = (
+            _routine_source(
+                "PERFORM public.wardah_assert_org_member(p_org);",
+                name="bound_probe",
+            )
+            + "\n"
+            + _routine_source(
+                "PERFORM public.wardah_assert_org_admin(p_org);",
+                name="source_only_probe",
+            )
+        )
+        payload = self._payload(
+            _run_producer(
+                source,
+                _bindings_doc(
+                    [_binding(oid=2024, name="bound_probe", statement_index=1)]
+                ),
+            )
+        )
+        self.assertEqual(len(payload["guard_records"]), 1)
+        self.assertEqual(payload["guard_records"][0]["catalog_oid"], 2024)
+
+    def test_a_routine_cannot_borrow_the_next_routines_body(self) -> None:
+        """No readable body of its own means no guard — never a borrowed one.
+
+        Carried over from the predecessor's
+        ``test_a_definition_cannot_borrow_the_next_functions_body``. An
+        extractor that scans forward for the first dollar-quoted body hands
+        the guarded routine's proof to the unreadable one in front of it.
+        Each case asserts both halves: the first binding must not borrow, and
+        the second must still earn its own proof.
+        """
+        guarded = _routine_source(RAISING_GUARD_BODY, name="guarded_probe")
+        unreadable = {
+            "internal_language_body": (
+                "CREATE OR REPLACE FUNCTION public.opaque_probe(p_org uuid)\n"
+                "RETURNS void\nLANGUAGE internal\nSECURITY DEFINER\n"
+                "AS 'boolin';\n"
+            ),
+            "sql_standard_atomic_body": (
+                "CREATE OR REPLACE FUNCTION public.opaque_probe(p_org uuid)\n"
+                "RETURNS void\nLANGUAGE sql\nSECURITY DEFINER\n"
+                "BEGIN ATOMIC\n"
+                "  SELECT 1;\n"
+                "END;\n"
+            ),
+            "c_language_body": (
+                "CREATE OR REPLACE FUNCTION public.opaque_probe(p_org uuid)\n"
+                "RETURNS void\nLANGUAGE c\nSECURITY DEFINER\n"
+                "AS 'MODULE_PATHNAME', 'opaque_probe';\n"
+            ),
+        }
+        for label, head in unreadable.items():
+            with self.subTest(label=label):
+                payload = self._payload(
+                    _run_producer(
+                        head + "\n" + guarded,
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=2078,
+                                    name="opaque_probe",
+                                    statement_index=1,
+                                ),
+                                _binding(
+                                    oid=2079,
+                                    name="guarded_probe",
+                                    statement_index=2,
+                                ),
+                            ]
+                        ),
+                    )
+                )
+                self.assertEqual(len(payload["guard_records"]), 2)
+                by_oid = {
+                    record["catalog_oid"]: record
+                    for record in payload["guard_records"]
+                }
+                self.assertEqual(set(by_oid), {2078, 2079})
+                self.assertEqual(by_oid[2078]["guard_status"], "UNKNOWN")
+                self.assertIsNone(by_oid[2078]["guard_mechanism"])
+                self.assertIsNone(by_oid[2078]["evidence_location"])
+                self.assertIsNone(by_oid[2078]["proof_class"])
+                self.assertEqual(by_oid[2079]["guard_status"], "PROVEN")
+                self.assertEqual(
+                    by_oid[2079]["guard_mechanism"],
+                    "public.wardah_assert_org_member",
+                )
+
+    def test_statement_binding_identity_mismatch_fails_hard(self) -> None:
+        source = _routine_source(
+            "PERFORM public.wardah_assert_org_member(p_org);",
+            name="actual_probe",
+        )
+        binding = _binding(oid=2025, name="other_probe")
+        self._assert_evidence_error(
+            _run_producer(source, _bindings_doc([binding]))
+        )
+
+    def test_binding_signature_and_kind_mismatch_fail_hard(self) -> None:
+        """Binding integrity is the whole identity, not the routine name.
+
+        Matching a binding to a source statement on ``statement_index`` plus
+        bare name lets the producer analyse one overload's body and attribute
+        the proof to another overload's OID — a direct bypass of the Slice 2
+        exact-identity boundary.
+        """
+        text_overload = _routine_source(RAISING_GUARD_BODY, args="p_org text")
+        procedure_source = _routine_source(
+            RAISING_GUARD_BODY, name="review_proc", kind="PROCEDURE"
+        )
+        function_source = _routine_source(
+            RAISING_GUARD_BODY, name="review_proc"
+        )
+        other_schema_source = text_overload.replace(
+            "public.review_probe", "analytics.review_probe"
+        )
+
+        signature_mismatch = _binding(oid=2048)
+
+        schema_mismatch = _binding(oid=2049)
+        schema_mismatch["source_arguments"] = "p_org text"
+        schema_mismatch["catalog_identity"] = "public.review_probe(text)"
+
+        procedure_as_function = _binding(oid=2050, name="review_proc")
+
+        function_as_procedure = _binding(
+            oid=2051, name="review_proc", kind="PROCEDURE"
+        )
+
+        cases = {
+            "argument_signature_mismatch": (
+                text_overload,
+                signature_mismatch,
+            ),
+            "schema_mismatch": (
+                other_schema_source,
+                schema_mismatch,
+            ),
+            "procedure_source_bound_as_function": (
+                procedure_source,
+                procedure_as_function,
+            ),
+            "function_source_bound_as_procedure": (
+                function_source,
+                function_as_procedure,
+            ),
+        }
+        for label, (source, binding) in cases.items():
+            with self.subTest(label=label):
+                self._assert_evidence_error(
+                    _run_producer(source, _bindings_doc([binding]))
+                )
+
+    def test_duplicate_binding_oid_fails_hard(self) -> None:
+        source = (
+            _routine_source("PERFORM 1;", name="first_probe")
+            + "\n"
+            + _routine_source("PERFORM 1;", name="second_probe")
+        )
+        bindings = _bindings_doc(
+            [
+                _binding(oid=2026, name="first_probe", statement_index=1),
+                _binding(oid=2026, name="second_probe", statement_index=2),
+            ]
+        )
+        self._assert_evidence_error(_run_producer(source, bindings))
+
+    def test_binding_document_contract_is_strict(self) -> None:
+        baseline = _bindings_doc([_binding(oid=2027)])
+        mutations = {
+            "wrong_scanner": {"scanner": "wrong-binding-producer"},
+            "wrong_status": {"status": "UNKNOWN"},
+            "wrong_candidate_count": {"candidate_count": 2},
+            "wrong_binding_count": {"binding_count": 2},
+            "extra_top_level_key": {"override_guard": "PROVEN"},
+        }
+        for label, mutation in mutations.items():
+            with self.subTest(label=label):
+                evidence = copy.deepcopy(baseline)
+                evidence.update(mutation)
+                self._assert_evidence_error(
+                    _run_producer(
+                        _routine_source("PERFORM 1;"),
+                        evidence,
+                    )
+                )
+
+    def test_guard_contract_evidence_is_mandatory_and_exact(self) -> None:
+        source = _routine_source(
+            "PERFORM public.wardah_assert_org_member(p_org);"
+        )
+        bindings = _bindings_doc([_binding(oid=2028)])
+        baseline = _guard_contract()
+
+        cases: dict[str, dict[str, Any]] = {}
+
+        wrong_scanner = copy.deepcopy(baseline)
+        wrong_scanner["scanner"] = "wrong-guard-contract"
+        cases["wrong_scanner"] = wrong_scanner
+
+        wrong_status = copy.deepcopy(baseline)
+        wrong_status["status"] = "UNKNOWN"
+        cases["wrong_status"] = wrong_status
+
+        wrong_count = copy.deepcopy(baseline)
+        wrong_count["helper_count"] = 3
+        cases["wrong_count"] = wrong_count
+
+        missing_helper = copy.deepcopy(baseline)
+        missing_helper["helpers"] = missing_helper["helpers"][:-1]
+        missing_helper["helper_count"] = len(missing_helper["helpers"])
+        cases["missing_helper"] = missing_helper
+
+        duplicate_helper = copy.deepcopy(baseline)
+        duplicate_helper["helpers"][-1] = copy.deepcopy(
+            duplicate_helper["helpers"][0]
+        )
+        cases["duplicate_helper"] = duplicate_helper
+
+        extra_helper = copy.deepcopy(baseline)
+        extra_helper["helpers"].append(
+            {
+                "identity": "public.always_allow(uuid)",
+                "guard_kind": "RAISING_ASSERTION",
+            }
+        )
+        extra_helper["helper_count"] = len(extra_helper["helpers"])
+        cases["oracle_superset"] = extra_helper
+
+        extra_contract_key = copy.deepcopy(baseline)
+        extra_contract_key["recognized_helpers"] = [
+            "public.always_allow(uuid)"
+        ]
+        cases["extra_top_level_key"] = extra_contract_key
+
+        renamed_helper = copy.deepcopy(baseline)
+        renamed_helper["helpers"][0]["identity"] = "public.always_allow(uuid)"
+        cases["renamed_helper"] = renamed_helper
+
+        wrong_kind = copy.deepcopy(baseline)
+        wrong_kind["helpers"][0]["guard_kind"] = "BOOLEAN_DENY"
+        cases["wrong_helper_kind"] = wrong_kind
+
+        wrong_raise_code = copy.deepcopy(baseline)
+        wrong_raise_code["exception_semantics"][
+            "raise_exception_sqlstate"
+        ] = "XX000"
+        cases["wrong_raise_sqlstate"] = wrong_raise_code
+
+        wrong_class_code = copy.deepcopy(baseline)
+        wrong_class_code["exception_semantics"][
+            "raise_exception_class_sqlstate"
+        ] = "XX000"
+        cases["wrong_raise_class_sqlstate"] = wrong_class_code
+
+        wrong_unique = copy.deepcopy(baseline)
+        wrong_unique["exception_semantics"][
+            "unique_violation_catches_raise_exception"
+        ] = True
+        cases["unique_violation_semantics_drift"] = wrong_unique
+
+        for label, contract in cases.items():
+            with self.subTest(label=label):
+                self._assert_evidence_error(
+                    _run_producer(source, bindings, contract)
+                )
+
+    def test_sql_language_target_is_unknown(self) -> None:
+        source = _routine_source(
+            "SELECT public.wardah_assert_org_member(p_org);",
+            language="sql",
+        )
+        self._assert_status(
+            _run_producer(source, _bindings_doc([_binding(oid=2029)])),
+            "UNKNOWN",
+        )
+
+    def test_procedure_target_can_be_proven(self) -> None:
+        source = _routine_source(
+            "PERFORM public.wardah_assert_org_member(p_org);",
+            name="review_proc",
+            kind="PROCEDURE",
+        )
+        binding = _binding(
+            oid=2030,
+            name="review_proc",
+            kind="PROCEDURE",
+        )
+        self._assert_status(
+            _run_producer(source, _bindings_doc([binding])),
+            "PROVEN",
+            mechanism="public.wardah_assert_org_member",
+            proof_class="raising-assertion-v1",
+        )
+
+    def test_non_proven_records_have_null_proof_fields(self) -> None:
+        cases = {
+            "ABSENT": "PERFORM 1;",
+            "UNKNOWN": "PERFORM public.wardah_is_org_member(p_org);",
+            "AMBIGUOUS": "PERFORM wardah_assert_org_member(p_org);",
+        }
+        for expected, body in cases.items():
+            with self.subTest(expected=expected):
+                record = self._assert_status(
+                    _run_producer(
+                        _routine_source(body),
+                        _bindings_doc([_binding(oid=2031)]),
+                    ),
+                    expected,
+                )
+                self.assertIsNone(record["guard_mechanism"])
+                self.assertIsNone(record["evidence_location"])
+                self.assertIsNone(record["proof_class"])
+
+
+    # ------------------------------------------------------------------
+    # P1 remediation contract: effectlessness must be PROVEN, not
+    # "absent from a keyword denylist".
+    #
+    # Frozen failed-acceptance baseline: 51fd7b4065b26a36fb007232c1ba16221086fc5c
+    #
+    # On that head ``is_effectless`` accepts any bare-word token stream whose
+    # head is missing from EFFECT_WORDS and which is not syntactically a
+    # ``name(...)`` call. That is a denylist wearing an allowlist's docstring,
+    # and it produced a real false PROVEN end-to-end: a client-callable,
+    # runtime-OPEN SECURITY DEFINER routine that runs FETCH on a caller
+    # supplied refcursor before its guard was reported PROVEN by this
+    # producer and PASS_GUARDED by the accepted Slice 3 policy.
+    #
+    # These fixtures deliberately span disjoint PostgreSQL command families so
+    # that no keyword-list extension can satisfy them. The guarantee under
+    # test is structural: an outer-level statement whose shape the producer
+    # cannot positively prove harmless must not yield PROVEN.
+    # ------------------------------------------------------------------
+
+    def _unproven_source(
+        self, statement: str, args: str, declarations: str, guard: str
+    ) -> str:
+        """Build the routine, adding DECLARE only when the fixture needs it.
+
+        A cursor FETCH needs its INTO target declared or the body is not
+        valid PL/pgSQL at all: PostgreSQL rejects it with "v_row is not a
+        known variable" long before any guard analysis runs.
+        """
+        if declarations:
+            return _routine_source(
+                _declare_block(declarations, f"{statement}\n{guard}"),
+                args=args,
+                raw_plpgsql=True,
+            )
+        return _routine_source(f"{statement}\n{guard}", args=args)
+
+    def _assert_prefix_unproven(self, label: str, oid: int) -> None:
+        statement, args, identity_args, declarations = (
+            UNPROVEN_STATEMENT_FAMILIES[label]
+        )
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, prefix=label):
+                self._assert_status(
+                    _run_producer(
+                        self._unproven_source(
+                            statement, args, declarations, guard
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=oid,
+                                    source_arguments=args,
+                                    identity_arguments=identity_args,
+                                )
+                            ]
+                        ),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_unproven_outer_level_statement_head_fails_closed(self) -> None:
+        """Every unprovable outer-level statement must block proof.
+
+        The contract is not "this keyword is dangerous"; it is "this shape is
+        proven harmless". Anything else is UNKNOWN.
+        """
+        for index, label in enumerate(UNPROVEN_STATEMENT_FAMILIES):
+            self._assert_prefix_unproven(label, oid=2200 + index)
+
+    def test_cursor_fetch_before_guard_is_not_proven(self) -> None:
+        """The confirmed false PROVEN, named and pinned on its own.
+
+        FETCH on a caller-supplied refcursor executes a query the caller
+        bound, before the authorization boundary. Reproduced end-to-end on
+        the frozen baseline through the real CLIs: guard PROVEN, policy
+        PASS_GUARDED, overall PASS, exit code 0.
+        """
+        self._assert_prefix_unproven("cursor_fetch", oid=2220)
+
+    def test_masked_anonymous_block_before_guard_is_not_proven(self) -> None:
+        """A DO block is arbitrary code the masker deliberately hides.
+
+        The dollar-quoted body is masked offset-for-offset, so the statement
+        reduces to the single word ``DO``. A denylist cannot see what it
+        executes, which is exactly why proof must be positive.
+        """
+        self._assert_prefix_unproven("anonymous_do_block", oid=2221)
+
+    def test_search_path_rebinding_before_guard_is_not_proven(self) -> None:
+        """SET search_path before a guard in a SECURITY DEFINER routine.
+
+        The guard helper is schema-qualified, but anything it reaches that is
+        not need not be. Proof must not survive a resolution change.
+        """
+        self._assert_prefix_unproven("set_local_search_path", oid=2222)
+
+    def test_denylist_extension_alone_cannot_satisfy_the_contract(
+        self,
+    ) -> None:
+        """A discriminator against the obvious wrong fix.
+
+        Adding FETCH -- or the whole cursor family, or any one enumeration of
+        today's known misses -- to EFFECT_WORDS leaves every other family
+        below still proving. Each key here is a different PostgreSQL command
+        family, so only a structural fail-closed rule passes all of them at
+        once.
+        """
+        disjoint_families = (
+            "cursor_fetch",
+            "anonymous_do_block",
+            "set_local_search_path",
+            "listen",
+            "reassign_owned",
+            "assert_statement",
+        )
+        for index, label in enumerate(disjoint_families):
+            self._assert_prefix_unproven(label, oid=2230 + index)
+
+    def test_absence_of_a_call_is_not_sufficient_for_proof(self) -> None:
+        """Kills "contains no name(...)" and "only words and numbers".
+
+        Every statement here is free of calls, free of operators beyond plain
+        punctuation, and free of anything but words and numbers -- and every
+        one of them executes. Token shape is not a proof of effectlessness.
+        """
+        for index, label in enumerate(
+            ("cursor_close", "cursor_move", "unlisten", "reset_search_path")
+        ):
+            statement = UNPROVEN_STATEMENT_FAMILIES[label][0]
+            self.assertNotIn("(", statement)
+            self._assert_prefix_unproven(label, oid=2240 + index)
+
+
+    # ------------------------------------------------------------------
+    # Positive controls. These pass on the frozen baseline and must keep
+    # passing: they are the guard against an over-broad remediation that
+    # simply declares every bare identifier effectful. ``is_effectless`` is
+    # reached from declarations and from boolean condition terms as well as
+    # from earlier outer-level statements, and only the statement context is
+    # being tightened here.
+    # ------------------------------------------------------------------
+
+    def test_effectless_statement_positive_controls_are_preserved(
+        self,
+    ) -> None:
+        """No-ops and constant expressions must still prove."""
+        prefixes = {
+            "null_statement": "NULL;",
+            "perform_constant": "PERFORM 1;",
+            "line_comment": "-- prepare",
+            "block_comment": "/* prepare */",
+            "if_condition": "IF p_org IS NULL THEN\n  NULL;\nEND IF;",
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, prefix in prefixes.items():
+                with self.subTest(path=path_label, prefix=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2250)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_declaration_and_condition_identifiers_stay_effectless(
+        self,
+    ) -> None:
+        """Context separation: tightening statements must not break these.
+
+        A bare identifier inside a DECLARE initializer or inside a boolean
+        condition is an expression term, not an outer-level statement. A
+        remediation that makes every unrecognized word effectful regardless
+        of context would fail here.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="declare_initializer"):
+                block = _declare_block(
+                    "v_flag boolean := (p_org IS NOT NULL);",
+                    guard,
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2251)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+            with self.subTest(path=path_label, label="callless_assignment"):
+                block = _declare_block(
+                    "v_flag boolean;",
+                    f"v_flag := (p_org IS NOT NULL);\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2252)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+
+
+    # ------------------------------------------------------------------
+    # Round 2 amendment. Independent review proved the Round 1 contract
+    # could be satisfied by a pure denylist extension containing every
+    # literal head in UNPROVEN_STATEMENT_FAMILIES -- 90 tests, OK, with the
+    # denylist architecture that caused the P1 fully intact. Six disjoint
+    # families raise the cost of enumeration; they do not change its nature.
+    #
+    # The two tests below cannot be satisfied by enumeration:
+    #   * the head of the first is derived from the producer's own bytes at
+    #     run time, so it appears nowhere in this file to be copied; and
+    #   * the second uses valid PostgreSQL families whose heads appear
+    #     nowhere in the static fixture table.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _generated_unknown_head() -> str:
+        """A statement head derived from the producer's current bytes.
+
+        Deterministic (a digest, never randomness), a legal identifier
+        spelling, and different for any implementation that changes the
+        producer -- so it can never be added to a keyword list in advance.
+        The literal value is deliberately absent from this file.
+        """
+        digest = hashlib.sha256(PRODUCER.read_bytes()).hexdigest()
+        return f"wardah_holdout_{digest[:24]}"
+
+    def test_generated_unknown_statement_head_fails_closed(self) -> None:
+        """An unrecognized outer-level statement must never prove.
+
+        This is the discriminator that makes the contract structural. The
+        producer is a static analyser, not PostgreSQL: text whose shape it
+        cannot prove harmless is exactly the case that must fail closed,
+        and a keyword denylist cannot enumerate a head it has never seen.
+        """
+        head = self._generated_unknown_head()
+        # The generated head must not be a literal in the test source, or it
+        # would be copyable into a denylist like any other fixture keyword.
+        self.assertNotIn(head, Path(__file__).read_text(encoding="utf-8"))
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label):
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(f"{head} v_probe;\n{guard}"),
+                        _bindings_doc([_binding(oid=2260)]),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_valid_unfamiliar_statement_families_fail_closed(self) -> None:
+        """Valid PostgreSQL the static fixture table never names.
+
+        Unknown-head fail-closed alone could be dismissed as "reject what
+        does not parse". These four parse, execute, and reach state the
+        producer cannot see, and none of their heads appears in
+        UNPROVEN_STATEMENT_FAMILIES -- so enumerating that table leaves
+        every one of them still proving.
+        """
+        table_text = repr(UNPROVEN_STATEMENT_FAMILIES)
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            for label, statement in VALID_UNFAMILIAR_STATEMENTS.items():
+                with self.subTest(path=path_label, statement=label):
+                    head = statement.split()[0]
+                    self.assertNotIn(head, table_text)
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{statement}\n{guard}"),
+                            _bindings_doc([_binding(oid=2261)]),
+                        ),
+                        "UNKNOWN",
+                    )
+
+
+    # ------------------------------------------------------------------
+    # Round 3. Independent review of the round 2 GREEN found two ways a
+    # statement can still reach PROVEN without its shape being proven.
+    #
+    # Frozen failed-GREEN base: 0106e2bba7509d05086c0ec2a366c09402f70ac8
+    #
+    # P1-1 safe-prefix smuggling. _is_accepted_statement_shape recognizes
+    # the first head and then stops asking: "NULL <anything>;" and
+    # "PERFORM 1 <anything>;" are accepted whole, so a recognized head
+    # carries arbitrary trailing syntax past the boundary.
+    #
+    # P1-2 assignment imprecision. _opens_assignment accepts any statement
+    # in which ":=" appears later, so "FETCH integer := 1;" is treated as
+    # an assignment because of a token that is not its operator.
+    #
+    # These fixtures are deliberately malformed PL/pgSQL, and that is the
+    # point: a static analyser must fail closed on a statement whose shape
+    # it cannot prove, and it cannot prove one it cannot even parse. That
+    # is a different obligation from the round 2 valid-family holdouts,
+    # which parse and execute. Both are required.
+    # ------------------------------------------------------------------
+
+    def _assert_shape_unproven(
+        self,
+        statement: str,
+        oid: int,
+        *,
+        args: str = "p_org uuid",
+        identity_args: str = "uuid",
+        declarations: str = "",
+    ) -> None:
+        for path_label, (guard, _, _) in GUARD_PATHS.items():
+            with self.subTest(path=path_label):
+                self._assert_status(
+                    _run_producer(
+                        self._unproven_source(
+                            statement, args, declarations, guard
+                        ),
+                        _bindings_doc(
+                            [
+                                _binding(
+                                    oid=oid,
+                                    source_arguments=args,
+                                    identity_arguments=identity_args,
+                                )
+                            ]
+                        ),
+                    ),
+                    "UNKNOWN",
+                )
+
+    def test_safe_head_cannot_smuggle_trailing_syntax(self) -> None:
+        """Recognizing a head is not recognizing the statement.
+
+        Every case here opens with a head the contract accepts and then
+        carries something the contract does not. Proving the prefix proves
+        nothing about what follows it on the same statement.
+        """
+        head = self._generated_unknown_head()
+        cursor_args = "p_org uuid, p_cursor refcursor"
+        cases = {
+            "null_then_generated_head": (f"NULL {head};", "", ""),
+            "null_then_cursor_fetch": (
+                "NULL FETCH p_cursor INTO v_row;",
+                cursor_args,
+                "v_row record;",
+            ),
+            "perform_then_generated_head": (f"PERFORM 1 {head};", "", ""),
+            "perform_then_cursor_fetch": (
+                "PERFORM 1 FETCH p_cursor INTO v_row;",
+                cursor_args,
+                "v_row record;",
+            ),
+            "null_then_async_family": (
+                "NULL UNLISTEN wardah_chan;",
+                "",
+                "",
+            ),
+            "perform_then_valid_family": (
+                "PERFORM 1 ANALYZE public.bins;",
+                "",
+                "",
+            ),
+        }
+        for index, (label, (statement, args, decls)) in enumerate(
+            cases.items()
+        ):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(
+                    statement,
+                    oid=2270 + index,
+                    args=args or "p_org uuid",
+                    identity_args=(
+                        "uuid,refcursor" if args else "uuid"
+                    ),
+                    declarations=decls,
+                )
+
+    def test_safe_head_smuggling_inside_a_branch_is_not_proven(self) -> None:
+        """The same smuggling one level in.
+
+        A compound statement is still one statement, so a recognized head
+        inside an IF branch must not license its trailing syntax either.
+        """
+        head = self._generated_unknown_head()
+        cursor_args = "p_org uuid, p_cursor refcursor"
+        cases = {
+            "branch_null_then_generated_head": (
+                f"IF true THEN\n  NULL {head};\nEND IF;",
+                "",
+                "",
+            ),
+            "branch_null_then_valid_family": (
+                (
+                    "IF true THEN\n"
+                    "  NULL COMMENT ON TABLE public.bins IS 'x';\n"
+                    "END IF;"
+                ),
+                "",
+                "",
+            ),
+            "branch_perform_then_cursor_fetch": (
+                (
+                    "IF true THEN\n"
+                    "  PERFORM 1 FETCH p_cursor INTO v_row;\n"
+                    "END IF;"
+                ),
+                cursor_args,
+                "v_row record;",
+            ),
+        }
+        for index, (label, (statement, args, decls)) in enumerate(
+            cases.items()
+        ):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(
+                    statement,
+                    oid=2280 + index,
+                    args=args or "p_org uuid",
+                    identity_args=(
+                        "uuid,refcursor" if args else "uuid"
+                    ),
+                    declarations=decls,
+                )
+
+    def test_assignment_recognition_is_structural_not_a_token_search(
+        self,
+    ) -> None:
+        """":=" somewhere later never makes a statement an assignment.
+
+        An assignment is a supported target, the assignment operator, and
+        an expression -- in that order, as the statement's own shape. A
+        command head followed by words that happen to precede ":=" is not
+        one, and must not inherit an assignment's proof.
+        """
+        head = self._generated_unknown_head()
+        cases = {
+            "generated_head_pseudo_target": f"{head} integer := 1;",
+            "cursor_head_pseudo_target": "FETCH integer := 1;",
+            "safe_prefix_trailing_assignment": "NULL integer := 1;",
+            # Already UNKNOWN on the frozen base, for an unrelated reason
+            # (the conversion check). Pinned so a structural fix cannot
+            # regress it into an accepted assignment.
+            "multi_word_pseudo_target": f"{head} foo bar := 1;",
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2290 + index)
+
+    def test_assignment_and_trailing_token_positives_are_preserved(
+        self,
+    ) -> None:
+        """The two over-corrections this round must not invite.
+
+        Rejecting every statement containing ":=" would close P1-2 and
+        break real assignments. Rejecting every recognized head that has
+        tokens after it would close P1-1 and break PERFORM 1 and every
+        control-flow statement. Both are pinned here.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            with self.subTest(path=path_label, label="declared_assignment"):
+                block = _declare_block(
+                    "v_flag boolean;",
+                    f"v_flag := (p_org IS NOT NULL);\n{guard}",
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2295)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+            with self.subTest(
+                path=path_label, label="declaration_initializer"
+            ):
+                block = _declare_block(
+                    "v_flag boolean := (p_org IS NOT NULL);", guard
+                )
+                self._assert_status(
+                    _run_producer(
+                        _routine_source(block, raw_plpgsql=True),
+                        _bindings_doc([_binding(oid=2296)]),
+                    ),
+                    "PROVEN",
+                    mechanism=mechanism,
+                    proof_class=proof_class,
+                )
+            for label, prefix in (
+                ("perform_with_operand", "PERFORM 1;"),
+                (
+                    "control_flow_with_operands",
+                    "IF p_org IS NULL THEN\n  NULL;\nEND IF;",
+                ),
+            ):
+                with self.subTest(path=path_label, label=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2297)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+
+    # ------------------------------------------------------------------
+    # Round 3B. Round 3 closed NULL and PERFORM, the IF branch, and
+    # assignment adjacency -- but it closed them one head at a time. A
+    # selective GREEN can satisfy all of Round 3 and still accept any
+    # other recognized head on its first token alone.
+    #
+    # Frozen base: 6cb03ccdfae16f5a7add087c24d325f0ab0ec2f1
+    #
+    # Confirmed PROVEN there: CASE with an unvalidated header expression,
+    # and EXIT / CONTINUE carrying an unsupported tail. The invariant is
+    # general, not per-keyword: a recognized head must validate the
+    # grammar fragment belonging to that head.
+    #
+    # Design note. ``CASE <operand> WHEN ...`` and ``CASE p_org WHEN ...``
+    # are the same shape -- a bare identifier operand -- and telling them
+    # apart needs scope, not grammar. This contract therefore does not
+    # require a simple CASE operand to prove; only the searched form below
+    # is pinned as a positive. Rejecting every operand CASE is an
+    # acceptable minimal GREEN, and so is resolving the operand in scope.
+    # ------------------------------------------------------------------
+
+    def test_case_header_must_be_validated_not_merely_recognized(
+        self,
+    ) -> None:
+        """CASE is recognized; its header expression is not checked.
+
+        The first case is valid PostgreSQL -- a simple CASE whose operand
+        happens to be an identifier nothing declares -- so this is not only
+        about malformed input.
+        """
+        head = self._generated_unknown_head()
+        cases = {
+            "case_generated_unknown_head": (
+                f"CASE {head}\nWHEN true THEN\n  NULL;\nEND CASE;"
+            ),
+            "case_cursor_head": (
+                "CASE FETCH\nWHEN true THEN\n  NULL;\nEND CASE;"
+            ),
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2300 + index)
+
+    def test_exit_and_continue_cannot_license_trailing_syntax(self) -> None:
+        """A control transfer's tail is a label or WHEN, not anything.
+
+        The loop wrapper is the smallest surrounding context that makes
+        EXIT and CONTINUE meaningful, so the fixture differs from the
+        accepted form only in the tail under test. The tails themselves
+        are unsupported by construction -- that is the point: a head the
+        producer recognizes must not carry syntax it cannot prove.
+        """
+        head = self._generated_unknown_head()
+        cases = {
+            "loop_exit_generated_head": (
+                f"LOOP\n  EXIT {head};\nEND LOOP;"
+            ),
+            "loop_continue_generated_head": (
+                f"LOOP\n  CONTINUE {head};\n  EXIT;\nEND LOOP;"
+            ),
+            "loop_exit_cursor_head": "LOOP\n  EXIT FETCH;\nEND LOOP;",
+            "bare_exit_generated_head": f"EXIT {head};",
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2310 + index)
+
+    def test_case_and_loop_control_positives_are_preserved(self) -> None:
+        """The over-broad fixes this round must not invite.
+
+        Rejecting CASE outright, or EXIT and CONTINUE outright, would
+        close the two gaps above by removing accepted control flow. Each
+        form here is valid PostgreSQL, proves on the frozen base, and
+        leaves the guard reachable -- the loops exit themselves, not the
+        block the guard sits in.
+        """
+        prefixes = {
+            "searched_case": "CASE\n  WHEN true THEN NULL;\nEND CASE;",
+            "loop_exit": "LOOP\n  EXIT;\nEND LOOP;",
+            "loop_exit_when": "LOOP\n  EXIT WHEN true;\nEND LOOP;",
+            "loop_continue_when": (
+                "LOOP\n  CONTINUE WHEN false;\n  EXIT;\nEND LOOP;"
+            ),
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, prefix in prefixes.items():
+                with self.subTest(path=path_label, prefix=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2320)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+
+    # ==================================================================
+    # Round 3C. Rounds 3 and 3B closed heads one at a time, and a
+    # selective GREEN passed all 138 tests while FOR, FOREACH, REVERSE
+    # and the searched-CASE condition stayed prefix-only. Naming four
+    # more heads would only move the frontier again.
+    #
+    # Frozen base: 1d59aa02471896d7a50d228599407166daf9a198
+    #
+    # This round states the invariant once and binds it to the whole
+    # recognized head universe:
+    #
+    #   recognized head + validated grammar fragment  -> may prove
+    #   recognized head + unvalidated remainder       -> never proves
+    #
+    # Three mechanisms carry it: an exhaustiveness guard over every head
+    # the producer recognizes, a metamorphic condition check that holds
+    # one unresolved expression constant across every head that owns a
+    # condition, and structural pins for the delimiters.
+    # ==================================================================
+
+    def test_every_recognized_safe_head_has_a_contract_family(self) -> None:
+        """No head may be recognized without a classification here.
+
+        Read from the producer's source rather than imported, so this
+        cannot execute it, and discovered structurally rather than
+        assumed: if the implementation is redesigned and the set is no
+        longer discoverable this guard stands down and the behavioural
+        tests below remain authoritative. What it must never allow is a
+        head silently joining the recognized set with no contract.
+        """
+        heads = _discover_recognized_heads()
+        if heads is None:
+            # Redesigned away. Behaviour, not this constant, is the
+            # contract; the family tests below still bind every shape.
+            return
+        classified: dict[str, str] = {}
+        for family, members in SAFE_HEAD_FAMILIES.items():
+            for member in members:
+                self.assertNotIn(
+                    member,
+                    classified,
+                    msg=f"{member} classified twice",
+                )
+                classified[member] = family
+        self.assertEqual(
+            heads,
+            set(classified),
+            msg=(
+                "every recognized head needs exactly one contract family; "
+                f"unclassified={sorted(heads - set(classified))} "
+                f"stale={sorted(set(classified) - heads)}"
+            ),
+        )
+
+    def test_iterator_headers_must_validate_their_remainder(self) -> None:
+        """FOR / FOREACH / REVERSE recognized, remainder unchecked.
+
+        All four are malformed PL/pgSQL, which is the honest
+        classification and also the obligation: an iterator head must not
+        carry a statement the producer cannot prove. No positive is
+        required here -- a grammar-valid FOR header is already UNKNOWN on
+        the frozen base, so conservatively rejecting the whole family
+        remains an acceptable GREEN.
+        """
+        head = self._generated_unknown_head()
+        cursor_args = "p_org uuid, p_cursor refcursor"
+        cases = {
+            "for_cursor_fetch": (
+                "FOR FETCH p_cursor INTO v_row;",
+                cursor_args,
+                "v_row record;",
+            ),
+            "foreach_cursor_fetch": (
+                "FOREACH FETCH p_cursor INTO v_row;",
+                cursor_args,
+                "v_row record;",
+            ),
+            "reverse_cursor_fetch": (
+                "REVERSE FETCH p_cursor INTO v_row;",
+                cursor_args,
+                "v_row record;",
+            ),
+            "for_generated_head": (f"FOR {head};", "", ""),
+        }
+        for index, (label, (statement, args, decls)) in enumerate(
+            cases.items()
+        ):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(
+                    statement,
+                    oid=2330 + index,
+                    args=args or "p_org uuid",
+                    identity_args="uuid,refcursor" if args else "uuid",
+                    declarations=decls,
+                )
+
+    def test_searched_case_arms_must_prove_their_conditions(self) -> None:
+        """WHEN is recognized; the condition it owns is not checked.
+
+        The first two are valid PostgreSQL -- a searched CASE whose arm
+        tests an identifier nothing declares -- so the gap is not about
+        malformed input. The second pins a later arm specifically: proving
+        the first arm proves nothing about the rest.
+        """
+        head = self._generated_unknown_head()
+        cases = {
+            "case_when_generated_condition": (
+                f"CASE\n  WHEN {head} THEN\n    NULL;\nEND CASE;"
+            ),
+            "case_second_arm_generated_condition": (
+                "CASE\n"
+                "  WHEN true THEN NULL;\n"
+                f"  WHEN {head} THEN NULL;\n"
+                "END CASE;"
+            ),
+            "case_when_cursor_head": (
+                "CASE WHEN FETCH THEN NULL; END CASE;"
+            ),
+            "bare_when_cursor_head": "WHEN FETCH THEN NULL;",
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2340 + index)
+
+    def test_one_unproven_condition_fails_every_condition_owner(
+        self,
+    ) -> None:
+        """The metamorphic core of this round.
+
+        One unresolved expression, held constant, placed in the condition
+        slot of every head that owns one. IF and WHILE already refuse it;
+        ELSIF, searched-CASE WHEN, EXIT WHEN and CONTINUE WHEN accept it
+        on the frozen base. The principle is the same in all six, so a
+        GREEN that routes conditions through one check passes all six and
+        a GREEN that patches them one at a time cannot.
+        """
+        head = self._generated_unknown_head()
+        owners = {
+            "if": f"IF {head} THEN\n  NULL;\nEND IF;",
+            "while": f"WHILE {head} LOOP\n  EXIT;\nEND LOOP;",
+            "elsif": (
+                "IF false THEN\n"
+                "  NULL;\n"
+                f"ELSIF {head} THEN\n"
+                "  NULL;\n"
+                "END IF;"
+            ),
+            "searched_case_when": (
+                f"CASE\n  WHEN {head} THEN NULL;\nEND CASE;"
+            ),
+            "exit_when": f"LOOP\n  EXIT WHEN {head};\nEND LOOP;",
+            "continue_when": (
+                f"LOOP\n  CONTINUE WHEN {head};\n  EXIT;\nEND LOOP;"
+            ),
+        }
+        for index, (label, statement) in enumerate(owners.items()):
+            with self.subTest(owner=label):
+                self._assert_shape_unproven(statement, oid=2350 + index)
+
+    def test_structural_heads_cannot_open_an_unprovable_statement(
+        self,
+    ) -> None:
+        """Delimiters carry sub-statements, never a licence for them.
+
+        These pass on the frozen base -- the sub-statement walk already
+        re-enters at each opener -- and are pinned so a remainder-
+        validating GREEN cannot regress the property while rearranging
+        how heads are recognized. Every fixture is valid PL/pgSQL.
+        """
+        cursor_args = "p_org uuid, p_cursor refcursor"
+        fetch = "FETCH p_cursor INTO v_row;"
+        openers = {
+            "then": f"IF true THEN\n  {fetch}\nEND IF;",
+            "else": (
+                f"IF false THEN\n  NULL;\nELSE\n  {fetch}\nEND IF;"
+            ),
+            "loop": f"LOOP\n  {fetch}\n  EXIT;\nEND LOOP;",
+            "begin": f"BEGIN\n  {fetch}\nEND;",
+            "declare": (
+                f"DECLARE\n  v_x integer;\nBEGIN\n  {fetch}\nEND;"
+            ),
+            "exception": (
+                "BEGIN\n"
+                "  NULL;\n"
+                "EXCEPTION WHEN others THEN\n"
+                f"  {fetch}\n"
+                "END;"
+            ),
+        }
+        for index, (label, statement) in enumerate(openers.items()):
+            with self.subTest(opener=label):
+                self._assert_shape_unproven(
+                    statement,
+                    oid=2360 + index,
+                    args=cursor_args,
+                    identity_args="uuid,refcursor",
+                    declarations="v_row record;",
+                )
+
+
+    # ==================================================================
+    # Round 3D. Round 3C bound every statement head to its grammar
+    # fragment, and a selective GREEN passed all 143 tests while the tail
+    # after a compound CLOSER stayed unchecked.
+    #
+    # Frozen base: 7f41ae3b685eb08ad3a587531e5e260f5833bf1f
+    #
+    # A compound construct is not proven because its opener and body are
+    # valid. Its closing fragment is grammar too:
+    #
+    #   END IF;  END CASE;  END LOOP;  END;  END <resolved-label>;
+    #
+    # Anything after the supported closer is unvalidated remainder and
+    # must fail closed, exactly as it must after an opener.
+    # ==================================================================
+
+    def test_compound_closers_must_match_a_supported_shape(self) -> None:
+        """A recognized END does not license what follows it.
+
+        Every fixture is a valid compound statement up to its closer and
+        malformed only in the tail under test, which is the whole point:
+        the prefix proves nothing about the close.
+        """
+        head = self._generated_unknown_head()
+        cases = {
+            "end_if_generated_tail": (
+                f"IF true THEN\n  NULL;\nEND IF {head};"
+            ),
+            "end_if_concrete_tail": "IF true THEN\n  NULL;\nEND IF extra;",
+            "end_if_cursor_tail": "IF true THEN\n  NULL;\nEND IF FETCH;",
+            "end_case_generated_tail": (
+                f"CASE\n  WHEN true THEN NULL;\nEND CASE {head};"
+            ),
+            "end_case_cursor_tail": (
+                "CASE\n  WHEN true THEN NULL;\nEND CASE FETCH;"
+            ),
+            # A plain END whose tail is an identifier nothing labels. Like
+            # EXIT's label, telling this from a real one needs the block
+            # labels, not the keyword.
+            "plain_end_generated_tail": (
+                f"BEGIN\n  NULL;\nEND {head};"
+            ),
+            # Label resolves, but the closer does not end there. Kills a
+            # fix that validates only the first token after END.
+            "labelled_end_extra_tail": (
+                f"<<blk>>\nBEGIN\n  NULL;\nEND blk {head};"
+            ),
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2370 + index)
+
+    def test_end_loop_tail_remains_closed(self) -> None:
+        """Regression pin, not a new gap.
+
+        ``END LOOP <unknown>;`` is already UNKNOWN on the frozen base --
+        LOOP is a sub-statement opener, so the walk re-enters after it and
+        the tail lands in statement position. That is incidental, so it is
+        pinned here: a closer-validating GREEN must not lose it while
+        rearranging how closers are recognized.
+        """
+        head = self._generated_unknown_head()
+        self._assert_shape_unproven(
+            f"LOOP\n  EXIT;\nEND LOOP {head};", oid=2380
+        )
+
+    def test_compound_closer_positives_are_preserved(self) -> None:
+        """Every supported closer shape, valid PostgreSQL, still proving.
+
+        The over-correction this round invites is rejecting END-based
+        compound statements wholesale. These five forbid it.
+        """
+        prefixes = {
+            "end_if": "IF true THEN\n  NULL;\nEND IF;",
+            "end_case": "CASE\n  WHEN true THEN NULL;\nEND CASE;",
+            "end_loop": "LOOP\n  EXIT;\nEND LOOP;",
+            "plain_end": "BEGIN\n  NULL;\nEND;",
+            "labelled_end": "<<blk>>\nBEGIN\n  NULL;\nEND blk;",
+        }
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, prefix in prefixes.items():
+                with self.subTest(path=path_label, prefix=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{prefix}\n{guard}"),
+                            _bindings_doc([_binding(oid=2390)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+
+    # ==================================================================
+    # Round 3E. Round 3D validated the closer of a single compound. A
+    # selective GREEN passed all 146 tests while an INVALID INNER closer
+    # hid behind a valid outer one.
+    #
+    # Frozen base: 60190247a859fae5ab46459d7cb88f5d5ecb6e27
+    #
+    # The property is positional, not per-closer-type: every closer
+    # occurrence, at every nesting level, must be proven locally before
+    # any enclosing compound may prove. The matrix below is generated by
+    # enumerating closers, so there is no privileged final END and no
+    # fixture to special-case.
+    # ==================================================================
+
+    def test_nested_closer_baselines_are_proven(self) -> None:
+        """The unmodified nested programs must still prove.
+
+        Kills the over-corrections this round invites: rejecting nested
+        compounds, rejecting depth > 1, rejecting CASE inside IF or IF
+        inside CASE, and rejecting labelled blocks. Only a corrupt closer
+        may force UNKNOWN.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for label, baseline in NESTED_CLOSER_BASELINES.items():
+                with self.subTest(path=path_label, baseline=label):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{baseline}\n{guard}"),
+                            _bindings_doc([_binding(oid=2400)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_every_closer_occurrence_must_be_validated(self) -> None:
+        """One corrupt closer anywhere fails the whole program.
+
+        Enumerated, not enumerated-by-hand: for each baseline the test
+        walks every closer occurrence and corrupts exactly that one,
+        leaving the rest valid. A valid enclosing construct must never
+        hide an invalid nested closer, so outermost-only, innermost-only,
+        first-only, last-only and depth-limited implementations all die
+        here rather than at a fixture.
+        """
+        tail = self._generated_unknown_head()
+        checked = 0
+        for label, baseline in NESTED_CLOSER_BASELINES.items():
+            spans = _closer_spans(baseline)
+            self.assertEqual(
+                len(spans),
+                NESTED_CLOSER_COUNTS[label],
+                msg=f"{label} closer enumeration changed",
+            )
+            for index, (start, end) in enumerate(spans):
+                corrupted = _corrupt_closer(baseline, index, tail)
+                self.assertNotEqual(corrupted, baseline)
+                with self.subTest(
+                    baseline=label,
+                    position=index,
+                    closer=" ".join(baseline[start:end].split()),
+                ):
+                    self._assert_shape_unproven(
+                        corrupted, oid=2410 + checked
+                    )
+                checked += 1
+        # Depth >= 3 and sibling topologies must be in the matrix, not
+        # just depth 2; a shrunken baseline set cannot pass quietly.
+        self.assertGreaterEqual(checked, 15)
+        self.assertGreaterEqual(len(NESTED_CLOSER_BASELINES), 6)
+
+
+    # ==================================================================
+    # Round 3F. Composition, and depth that is generated rather than
+    # handwritten.
+    #
+    # Frozen base: 3d7848bf0f592186d13f6722915e13cf77995603
+    #
+    # Verified on that base: implementations that apply complete closer
+    # grammar only at the outer closer, and a weaker tail-class rule when
+    # nested, pass all 148 tests. So does one that applies complete
+    # grammar only through depth 3. Both keep concrete false PROVEN.
+    #
+    # The invariant: validate_closer depends on the closer's own grammar
+    # and local context -- never on its depth, its position among
+    # siblings, or which class its tail belongs to.
+    # ==================================================================
+
+    def _tail_for(self, tail_class: str) -> str:
+        value = CLOSER_TAIL_CLASSES[tail_class]
+        return self._generated_unknown_head() if value is None else value
+
+    def test_closer_tail_classes_compose_with_position(self) -> None:
+        """Tail class crossed with nested position.
+
+        Round 3E corrupts every position with the generated tail; round 3D
+        proves the tail classes at an outer closer. Neither forces the
+        complete grammar onto a NESTED closer carrying a reserved word or
+        a plain identifier, which is what these cases do.
+        """
+        for index, (baseline, position, tail_class) in enumerate(
+            NESTED_COMPOSITION_CASES
+        ):
+            source = NESTED_CLOSER_BASELINES[baseline]
+            spans = _closer_spans(source)
+            self.assertLess(position, len(spans))
+            corrupted = _corrupt_closer(
+                source, position, self._tail_for(tail_class)
+            )
+            with self.subTest(
+                baseline=baseline, position=position, tail=tail_class
+            ):
+                self._assert_shape_unproven(corrupted, oid=2440 + index)
+
+    def test_generated_depth_baselines_are_proven(self) -> None:
+        """Every generated depth must prove unmodified.
+
+        Forbids closing the depth gap by rejecting deep nesting.
+        """
+        for path_label, (
+            guard,
+            mechanism,
+            proof_class,
+        ) in GUARD_PATHS.items():
+            for depth in DEPTH_CASES:
+                baseline = _depth_baseline(depth)
+                with self.subTest(path=path_label, depth=depth):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{baseline}\n{guard}"),
+                            _bindings_doc([_binding(oid=2450)]),
+                        ),
+                        "PROVEN",
+                        mechanism=mechanism,
+                        proof_class=proof_class,
+                    )
+
+    def test_closer_grammar_applies_at_every_depth(self) -> None:
+        """Generated depth crossed with every closer position and tail.
+
+        For each depth the test enumerates every closer and corrupts one
+        at a time with the generated tail, then repeats the deepest
+        closer with a reserved-word tail so depth and tail class are
+        crossed too. A fixed-depth unrolling dies on the first depth past
+        its limit rather than at a handwritten fixture.
+        """
+        generated = self._generated_unknown_head()
+        reserved = CLOSER_TAIL_CLASSES["reserved"]
+        checked = 0
+        deepest_seen = 0
+        for depth in DEPTH_CASES:
+            baseline = _depth_baseline(depth)
+            spans = _closer_spans(baseline)
+            self.assertEqual(len(spans), depth + 1)
+            for position in range(len(spans)):
+                corrupted = _corrupt_closer(baseline, position, generated)
+                self.assertNotEqual(corrupted, baseline)
+                with self.subTest(
+                    depth=depth, position=position, tail="generated"
+                ):
+                    self._assert_shape_unproven(
+                        corrupted, oid=2460 + checked
+                    )
+                checked += 1
+            # Deepest closer is position 0: the innermost compound closes
+            # first in source order.
+            with self.subTest(depth=depth, position=0, tail="reserved"):
+                self._assert_shape_unproven(
+                    _corrupt_closer(baseline, 0, reserved),
+                    oid=2460 + checked,
+                )
+            checked += 1
+            deepest_seen = max(deepest_seen, depth)
+        # Past the depth-3 maximum the earlier rounds reached, and past 4,
+        # so a boundary moved by one does not pass.
+        self.assertGreaterEqual(deepest_seen, 6)
+        self.assertGreaterEqual(checked, 33)
+
+
+    # ==================================================================
+    # Round 3G. Complete closer-remainder consumption.
+    #
+    # Frozen base: 14fde063e0f9e7b71aa02c6310ad378450231fe5
+    #
+    # Verified there: 17 of the 21 recognized heads pass as an END IF or
+    # END CASE remainder, and the same holds nested, after a resolved
+    # label, in either sibling, and for multi-token tails. An
+    # implementation that rejects the round 3D-3F tail classes but trusts
+    # a leftover token because the statement parser knows it passes all
+    # 151 earlier tests.
+    #
+    # The contract below is stated positively: after the supported closer
+    # production, the next significant token is the semicolon.
+    # ==================================================================
+
+    def _remainder_heads(self) -> tuple[list[str], bool]:
+        """The recognized head set, or fixed controls if undiscoverable."""
+        heads = _discover_recognized_heads()
+        if heads is None:
+            return list(FIXED_REMAINDER_CONTROLS), False
+        return sorted(heads), True
+
+    def test_closer_remainder_must_be_fully_consumed(self) -> None:
+        """No recognized head may survive as closer remainder.
+
+        Data-driven over the producer's own head set, so a head added
+        later is covered without editing this test. Runs one guard path:
+        the path dimension is crossed exhaustively by the fixed controls
+        below and by every earlier round, and running both here would
+        double a 40-token sweep for no new discrimination.
+        """
+        heads, discovered = self._remainder_heads()
+        self.assertGreaterEqual(len(heads), len(FIXED_REMAINDER_CONTROLS))
+        guard, _, _ = GUARD_PATHS["raising_assertion"]
+        checked = 0
+        for label, prefix in TERMINAL_CLOSER_PREFIXES.items():
+            for head in heads:
+                statement = f"{prefix} {head};"
+                with self.subTest(
+                    closer=label, remainder=head, discovered=discovered
+                ):
+                    self._assert_status(
+                        _run_producer(
+                            _routine_source(f"{statement}\n{guard}"),
+                            _bindings_doc([_binding(oid=2480)]),
+                        ),
+                        "UNKNOWN",
+                    )
+                checked += 1
+        self.assertGreaterEqual(checked, 2 * len(heads))
+
+    def test_fixed_recognized_head_remainders_fail_closed(self) -> None:
+        """The same rule, pinned on both guard paths and independent of
+        discovery.
+
+        If the safe-head set is ever redesigned out of reach, these stay
+        authoritative: NULL and PERFORM as an END IF or END CASE
+        remainder must fail closed whatever the scanner knows about them.
+        """
+        for index, (closer, remainder) in enumerate(
+            (
+                ("end_if", "NULL"),
+                ("end_if", "PERFORM"),
+                ("end_case", "NULL"),
+                ("end_case", "PERFORM"),
+            )
+        ):
+            statement = f"{TERMINAL_CLOSER_PREFIXES[closer]} {remainder};"
+            with self.subTest(closer=closer, remainder=remainder):
+                self._assert_shape_unproven(statement, oid=2490 + index)
+
+    def test_recognized_head_remainder_fails_at_every_position(
+        self,
+    ) -> None:
+        """Complete consumption crossed with nested, labelled and sibling
+        closers, so this is not an outer-depth-only rule."""
+        for index, (baseline, position, remainder) in enumerate(
+            REMAINDER_POSITION_CASES
+        ):
+            source = NESTED_CLOSER_BASELINES[baseline]
+            self.assertLess(position, len(_closer_spans(source)))
+            with self.subTest(
+                baseline=baseline, position=position, remainder=remainder
+            ):
+                self._assert_shape_unproven(
+                    _corrupt_closer(source, position, remainder),
+                    oid=2500 + index,
+                )
+
+    def test_non_word_closer_remainders_fail_closed(self) -> None:
+        """Literals and quoted identifiers are remainder too.
+
+        The rule is "no additional non-trivia token", not "no additional
+        word". An implementation inspecting only word tokens accepts
+        these, and a labelled closer carrying a quoted identifier is the
+        same escape one level in.
+        """
+        for index, (closer, remainder) in enumerate(NON_WORD_REMAINDERS):
+            prefix = (
+                PLAIN_CLOSER_PREFIX
+                if closer == "plain_end"
+                else TERMINAL_CLOSER_PREFIXES[closer]
+            )
+            statement = f"{prefix} {remainder};"
+            with self.subTest(closer=closer, remainder=remainder):
+                self._assert_shape_unproven(statement, oid=2520 + index)
+        nested = _corrupt_closer(
+            NESTED_CLOSER_BASELINES["labelled_inner_block"], 0, '"x"'
+        )
+        with self.subTest(case="labelled_inner_quoted_remainder"):
+            self._assert_shape_unproven(nested, oid=2529)
+
+    def test_closer_remainder_consumption_is_not_first_token_only(
+        self,
+    ) -> None:
+        """A legal first token does not license the tokens after it.
+
+        Each remainder here begins with something a closer may legally
+        carry -- a label, or a recognized word -- and then continues.
+        Validating one optional token and stopping accepts these.
+        """
+        for index, (baseline, position, remainder) in enumerate(
+            MULTI_TOKEN_REMAINDERS
+        ):
+            source = NESTED_CLOSER_BASELINES[baseline]
+            self.assertLess(position, len(_closer_spans(source)))
+            self.assertIn(" ", remainder)
+            with self.subTest(
+                baseline=baseline, position=position, remainder=remainder
+            ):
+                self._assert_shape_unproven(
+                    _corrupt_closer(source, position, remainder),
+                    oid=2510 + index,
+                )
+
+
+    # ------------------------------------------------------------------
+    # Quoted function application. Independent implementation review of
+    # the GREEN at d59ee4dc5b0285a55021d0507056dedab959c3c4 found that
+    # call detection only recognized an UNQUOTED identifier applied with
+    # parentheses, so a quoted callee ran before the authorization
+    # boundary and the routine was still reported PROVEN.
+    #
+    # Every case below is valid PL/pgSQL, not malformed input, and every
+    # callee is an ordinary routine rather than a reviewed guard helper.
+    # ------------------------------------------------------------------
+
+    def test_quoted_identifier_application_is_a_call(self) -> None:
+        """A quoted callee applied with parentheses is a call.
+
+        Quoting changes an identifier's spelling, never whether applying
+        it executes something. A quoted identifier must not inherit the
+        keyword exemptions either: "NULL" is a routine name, not the
+        no-op statement.
+        """
+        cases = {
+            "bare_quoted_callee": 'PERFORM "side_effect"();',
+            "qualified_quoted_callee": 'PERFORM public."side_effect"();',
+            "fully_quoted_callee": 'PERFORM "public"."side_effect"();',
+            "quoted_keyword_callee": 'PERFORM "NULL"();',
+        }
+        for index, (label, statement) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                self._assert_shape_unproven(statement, oid=2530 + index)
+
+
+if __name__ == "__main__":
+    unittest.main()

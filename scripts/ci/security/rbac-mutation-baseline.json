@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 358,
-  "signature_count": 331,
-  "signature_sha256": "69be2874070be8c454339bc27f2e7e21c8477f824b6af991c2bd1cb451259219",
-  "note": "Reviewed #200 trial-balance single-source migration: two direct rpc_get_trial_balance call sites in useTrialBalance and PostingService were removed and replaced by one canonical call in trial-balance-rpc.ts. No new table mutation or RPC target was introduced; the net reduction is one candidate and one signature."
+  "candidate_count": 354,
+  "signature_count": 328,
+  "signature_sha256": "e400feb32313f1acd801f01ab9d7930115a2a863bb5a9e1dfaa3dcec05fe1b7c",
+  "note": "Reviewed #278 boundary change: in supabase-service.ts the direct stage_wip_log close UPDATE was replaced by the audited rpc_close_stage_wip_194 RPC. The direct stage_wip_log update count goes 2 to 1 and one rpc_call signature is added; the candidate total stays 354 and every other signature is unchanged."
 }

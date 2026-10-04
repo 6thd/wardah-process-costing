@@ -39,7 +39,14 @@ const TABLE_RESULTS: Record<string, { data: unknown; error: unknown }> = {
   user_organizations: { data: { org_id: 'org-1' }, error: null },
   stock_transfers: { data: [TRANSFER], error: null },
   warehouses: { data: [{ id: 'wh-1', code: 'WH1', name: 'Main' }, { id: 'wh-2', code: 'WH2', name: 'Branch' }], error: null },
-  stock_transfer_items: { data: [], error: null },
+  stock_transfer_items: { data: [{ id: 'tri-1', transfer_id: 'tr-1', product_id: 'p1', quantity: 5 }], error: null },
+};
+
+// .single() answers that differ from the list answer, so a submit handler that
+// reads the transfer header and the source-bin valuation gets realistic rows.
+const SINGLE_RESULTS: Record<string, { data: unknown; error: unknown }> = {
+  stock_transfers: { data: TRANSFER, error: null },
+  bins: { data: { valuation_rate: 7 }, error: null },
 };
 
 const fromSpy = vi.fn((table: string) => {
@@ -49,7 +56,7 @@ const fromSpy = vi.fn((table: string) => {
   for (const method of chain) {
     builder[method] = vi.fn(() => builder);
   }
-  builder.single = vi.fn(() => Promise.resolve(result));
+  builder.single = vi.fn(() => Promise.resolve(SINGLE_RESULTS[table] ?? result));
   return builder;
 });
 
@@ -123,5 +130,42 @@ describe('StockTransferManagement — confirm ("تأكيد التحويل") requ
     render(<StockTransferManagement />);
 
     await waitFor(() => expect(screen.getByRole('button', { name: /تأكيد التحويل/ })).toBeInTheDocument());
+  });
+});
+
+// The legacy confirm path built two stock_ledger_entries rows in the browser and
+// inserted them directly — a surface Migration 185 closed on purpose (42501), with
+// no canonical transfer RPC yet (#160). Until that RPC exists the confirm action is
+// explicitly unsupported rather than a doomed attempt, and the fix must never be to
+// reopen direct ledger writes.
+describe('StockTransferManagement — confirm is fail-closed until the canonical transfer RPC (#160)', () => {
+  it('renders the confirm control disabled with an explanation linked to #160', async () => {
+    setPermissions(['inventory.stock_moves.read', 'inventory.stock_moves.approve']);
+    render(<StockTransferManagement />);
+
+    const confirm = await screen.findByRole('button', { name: /تأكيد التحويل/ });
+    expect(confirm).toBeDisabled();
+    const explanationId = confirm.getAttribute('aria-describedby');
+    expect(explanationId).toBeTruthy();
+    expect(document.getElementById(explanationId as string)).toHaveTextContent('#160');
+  });
+
+  it('never reads source-bin valuation or writes stock_ledger_entries from the browser', async () => {
+    setPermissions(['inventory.stock_moves.read', 'inventory.stock_moves.approve']);
+    const user = userEvent.setup();
+    render(<StockTransferManagement />);
+
+    const confirm = await screen.findByRole('button', { name: /تأكيد التحويل/ });
+    await user.click(confirm);
+    // Let any async submit chain run to completion before asserting its absence.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(fromSpy).not.toHaveBeenCalledWith('stock_ledger_entries');
+    expect(fromSpy).not.toHaveBeenCalledWith('bins');
+    expect(fromSpy).not.toHaveBeenCalledWith('stock_transfer_items');
+    const updateCalls = fromSpy.mock.results
+      .map((r) => r.value as Record<string, ReturnType<typeof vi.fn>>)
+      .filter((builder) => builder.update?.mock.calls.length);
+    expect(updateCalls).toHaveLength(0);
   });
 });

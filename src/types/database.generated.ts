@@ -4067,6 +4067,7 @@ export type Database = {
           due_date: string | null
           id: string
           item_id: string | null
+          maintenance_version: number
           notes: string | null
           order_number: string
           org_id: string
@@ -4092,6 +4093,7 @@ export type Database = {
           due_date?: string | null
           id?: string
           item_id?: string | null
+          maintenance_version?: number
           notes?: string | null
           order_number: string
           org_id: string
@@ -4117,6 +4119,7 @@ export type Database = {
           due_date?: string | null
           id?: string
           item_id?: string | null
+          maintenance_version?: number
           notes?: string | null
           order_number?: string
           org_id?: string
@@ -4398,6 +4401,7 @@ export type Database = {
           expires_at: string | null
           id: string
           item_id: string
+          maintenance_version: number
           mo_id: string
           notes: string | null
           org_id: string
@@ -4419,6 +4423,7 @@ export type Database = {
           expires_at?: string | null
           id?: string
           item_id: string
+          maintenance_version?: number
           mo_id: string
           notes?: string | null
           org_id: string
@@ -4440,6 +4445,7 @@ export type Database = {
           expires_at?: string | null
           id?: string
           item_id?: string
+          maintenance_version?: number
           mo_id?: string
           notes?: string | null
           org_id?: string
@@ -5978,60 +5984,109 @@ export type Database = {
           attachments: Json | null
           corrective_action: string | null
           created_at: string | null
+          disposition: string | null
           failed_quantity: number | null
           findings: string | null
           id: string
           inspection_date: string | null
           inspection_number: string
+          inspection_seq: number | null
           inspection_type: string | null
           inspector_id: string | null
+          mo_id: string | null
           org_id: string
           passed_quantity: number | null
+          qc_cycle: number | null
+          request_hash: string | null
+          request_id: string | null
           result: string | null
           sample_size: number | null
           specifications: string | null
+          stage_id: string | null
           updated_at: string | null
-          work_order_id: string
+          work_order_id: string | null
         }
         Insert: {
           attachments?: Json | null
           corrective_action?: string | null
           created_at?: string | null
+          disposition?: string | null
           failed_quantity?: number | null
           findings?: string | null
           id?: string
           inspection_date?: string | null
           inspection_number: string
+          inspection_seq?: number | null
           inspection_type?: string | null
           inspector_id?: string | null
+          mo_id?: string | null
           org_id: string
           passed_quantity?: number | null
+          qc_cycle?: number | null
+          request_hash?: string | null
+          request_id?: string | null
           result?: string | null
           sample_size?: number | null
           specifications?: string | null
+          stage_id?: string | null
           updated_at?: string | null
-          work_order_id: string
+          work_order_id?: string | null
         }
         Update: {
           attachments?: Json | null
           corrective_action?: string | null
           created_at?: string | null
+          disposition?: string | null
           failed_quantity?: number | null
           findings?: string | null
           id?: string
           inspection_date?: string | null
           inspection_number?: string
+          inspection_seq?: number | null
           inspection_type?: string | null
           inspector_id?: string | null
+          mo_id?: string | null
           org_id?: string
           passed_quantity?: number | null
+          qc_cycle?: number | null
+          request_hash?: string | null
+          request_id?: string | null
           result?: string | null
           sample_size?: number | null
           specifications?: string | null
+          stage_id?: string | null
           updated_at?: string | null
-          work_order_id?: string
+          work_order_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "quality_inspections_mo_id_fkey"
+            columns: ["mo_id"]
+            isOneToOne: false
+            referencedRelation: "manufacturing_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quality_inspections_mo_id_fkey"
+            columns: ["mo_id"]
+            isOneToOne: false
+            referencedRelation: "v_manufacturing_orders_full"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quality_inspections_mo_id_fkey"
+            columns: ["mo_id"]
+            isOneToOne: false
+            referencedRelation: "wip_by_stage"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quality_inspections_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "manufacturing_stages"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "quality_inspections_work_order_id_fkey"
             columns: ["work_order_id"]
@@ -9642,6 +9697,7 @@ export type Database = {
           created_by: string | null
           current_operator_id: string | null
           id: string
+          maintenance_version: number
           mo_id: string
           notes: string | null
           operation_id: string | null
@@ -9672,6 +9728,7 @@ export type Database = {
           created_by?: string | null
           current_operator_id?: string | null
           id?: string
+          maintenance_version?: number
           mo_id: string
           notes?: string | null
           operation_id?: string | null
@@ -9702,6 +9759,7 @@ export type Database = {
           created_by?: string | null
           current_operator_id?: string | null
           id?: string
+          maintenance_version?: number
           mo_id?: string
           notes?: string | null
           operation_id?: string | null
@@ -10237,6 +10295,7 @@ export type Database = {
           due_date: string | null
           id: string
           item_id: string | null
+          maintenance_version: number
           notes: string | null
           order_number: string
           org_id: string
@@ -10475,6 +10534,7 @@ export type Database = {
           created_by: string | null
           current_operator_id: string | null
           id: string
+          maintenance_version: number
           mo_id: string
           notes: string | null
           operation_id: string | null
@@ -10600,6 +10660,7 @@ export type Database = {
           created_by: string | null
           current_operator_id: string | null
           id: string
+          maintenance_version: number
           mo_id: string
           notes: string | null
           operation_id: string | null
@@ -10928,6 +10989,7 @@ export type Database = {
           due_date: string | null
           id: string
           item_id: string | null
+          maintenance_version: number
           notes: string | null
           order_number: string
           org_id: string
@@ -10990,8 +11052,18 @@ export type Database = {
           user_accepted_count: number
         }[]
       }
+      rpc_close_stage_wip_194: { Args: { p_wip_id: string }; Returns: Json }
       rpc_complete_manufacturing_order: {
         Args: { p_payload: Json }
+        Returns: Json
+      }
+      rpc_consume_material_event: {
+        Args: {
+          p_consumptions: Json
+          p_event_id: string
+          p_mo_id: string
+          p_stage_id: string
+        }
         Returns: Json
       }
       rpc_consume_reserved_materials: {
@@ -11074,6 +11146,19 @@ export type Database = {
           status: string
         }[]
       }
+      rpc_get_material_issue_context: {
+        Args: { p_mo_id: string }
+        Returns: Json
+      }
+      rpc_get_material_issue_wo_statuses: {
+        Args: { p_org_id: string }
+        Returns: Json
+      }
+      rpc_get_material_reservation_setup: {
+        Args: { p_item_id: string; p_org_id: string }
+        Returns: Json
+      }
+      rpc_get_mo_quality_status: { Args: { p_mo_id: string }; Returns: Json }
       rpc_get_org_uom_engine_enabled: {
         Args: { p_org_id: string }
         Returns: boolean
@@ -11091,6 +11176,7 @@ export type Database = {
         Args: { p_org_id: string; p_product_id: string }
         Returns: Json
       }
+      rpc_get_quality_policy: { Args: { p_org_id: string }; Returns: Json }
       rpc_get_trial_balance: {
         Args: { p_as_of_date?: string; p_tenant: string }
         Returns: {
@@ -11110,8 +11196,16 @@ export type Database = {
         Args: { p_issue_id: string; p_note?: string; p_org_id: string }
         Returns: Json
       }
+      rpc_list_material_issue_orders: {
+        Args: { p_org_id: string }
+        Returns: Json
+      }
       rpc_list_periods: {
         Args: { p_fiscal_year?: number; p_tenant?: string }
+        Returns: Json
+      }
+      rpc_list_quality_inspections: {
+        Args: { p_limit?: number; p_mo_id?: string; p_org_id: string }
         Returns: Json
       }
       rpc_list_supplier_invoice_candidates: {
@@ -11128,6 +11222,15 @@ export type Database = {
       }
       rpc_list_uom_receivable_purchase_orders: {
         Args: { p_org_id: string }
+        Returns: Json
+      }
+      rpc_manage_material_issue_setup: {
+        Args: {
+          p_actor_id: string
+          p_command: Json
+          p_event_id: string
+          p_org_id: string
+        }
         Returns: Json
       }
       rpc_manual_stock_movement: {
@@ -11210,6 +11313,19 @@ export type Database = {
         }
         Returns: string
       }
+      rpc_reconcile_material_issue_setup: {
+        Args: {
+          p_actor_id: string
+          p_command: Json
+          p_event_id: string
+          p_org_id: string
+        }
+        Returns: Json
+      }
+      rpc_record_quality_inspection: {
+        Args: { p_mo_id: string; p_payload: Json; p_request_id: string }
+        Returns: Json
+      }
       rpc_remove_org_member: { Args: { p_payload: Json }; Returns: Json }
       rpc_replace_user_roles: { Args: { p_payload: Json }; Returns: Json }
       rpc_reset_customer_receipt_to_draft: {
@@ -11234,6 +11350,31 @@ export type Database = {
           p_entry_id: string
           p_reversal_date?: string
           p_reversal_reason?: string
+        }
+        Returns: Json
+      }
+      rpc_set_gl_event_mapping: {
+        Args: {
+          p_credit_account_code: string
+          p_debit_account_code: string
+          p_description?: string
+          p_event_code: string
+          p_is_active?: boolean
+          p_org_id: string
+          p_work_center_code?: string
+        }
+        Returns: Json
+      }
+      rpc_set_material_issue_wo_statuses: {
+        Args: { p_allowed_statuses: string[]; p_org_id: string }
+        Returns: Json
+      }
+      rpc_set_mo_quality_hold: {
+        Args: {
+          p_action: string
+          p_expected_version: number
+          p_mo_id: string
+          p_reason?: string
         }
         Returns: Json
       }
@@ -11266,6 +11407,10 @@ export type Database = {
           p_use_for_purchase?: boolean
           p_use_for_sale?: boolean
         }
+        Returns: Json
+      }
+      rpc_set_quality_policy: {
+        Args: { p_expected_version: number; p_org_id: string; p_policy: Json }
         Returns: Json
       }
       rpc_subledger_gl_reconciliation: {
@@ -11394,6 +11539,7 @@ export type Database = {
           created_by: string | null
           current_operator_id: string | null
           id: string
+          maintenance_version: number
           mo_id: string
           notes: string | null
           operation_id: string | null
@@ -11721,7 +11867,6 @@ export type Database = {
               p_product: string
               p_qty: number
               p_rate: number
-              p_source_line_id: string
               p_voucher_id: string
               p_voucher_number: string
               p_voucher_type: string
@@ -11736,6 +11881,7 @@ export type Database = {
               p_product: string
               p_qty: number
               p_rate: number
+              p_source_line_id: string
               p_voucher_id: string
               p_voucher_number: string
               p_voucher_type: string
@@ -11773,6 +11919,10 @@ export type Database = {
           }
       wardah_assert_org_admin: { Args: { p_org: string }; Returns: undefined }
       wardah_assert_org_member: { Args: { p_org: string }; Returns: undefined }
+      wardah_assert_stage_wip_editor_194: {
+        Args: { p_action: string; p_org: string }
+        Returns: undefined
+      }
       wardah_create_posted_voucher_gl: {
         Args: {
           p_actor: string
@@ -11797,6 +11947,10 @@ export type Database = {
       wardah_is_sensitive_permission: {
         Args: { p_permission_key: string }
         Returns: boolean
+      }
+      wardah_lock_products_for_stock_write: {
+        Args: { p_org: string; p_product_ids: string[] }
+        Returns: string[]
       }
       wardah_next_voucher_number: {
         Args: { p_kind: string; p_org: string }

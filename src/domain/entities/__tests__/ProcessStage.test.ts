@@ -55,6 +55,59 @@ describe('ProcessStage Entity', () => {
     });
   });
 
+  describe('fromRawData hydration invariants (fail closed, no clamping)', () => {
+    const valid = {
+      id: 'stage-1',
+      name: 'Mixing',
+      sequence: 1,
+      status: StageStatus.IN_PROGRESS,
+      unitsStarted: 100,
+      unitsCompleted: 40,
+      completionPercentage: 60,
+      accumulatedCost: 1000,
+    };
+
+    it('rejects completed units above started units at hydration, not on first derived read', () => {
+      expect(() => ProcessStage.fromRawData({ ...valid, unitsStarted: 100, unitsCompleted: 120 }))
+        .toThrow('completed units cannot exceed started units');
+    });
+
+    it('rejects negative persisted quantities (Quantity invariant)', () => {
+      expect(() => ProcessStage.fromRawData({ ...valid, unitsStarted: -1, unitsCompleted: 0 }))
+        .toThrow('Quantity cannot be negative');
+      expect(() => ProcessStage.fromRawData({ ...valid, unitsCompleted: -5 }))
+        .toThrow('Quantity cannot be negative');
+    });
+
+    it.each([-0.01, 100.01, 150, Number.NaN, Number.POSITIVE_INFINITY])(
+      'rejects completionPercentage %s',
+      (completionPercentage) => {
+        expect(() => ProcessStage.fromRawData({ ...valid, completionPercentage }))
+          .toThrow('completion percentage must be between 0 and 100');
+      },
+    );
+
+    it('accepts the boundary values and keeps them unchanged', () => {
+      const all = ProcessStage.fromRawData({ ...valid, unitsCompleted: 100, completionPercentage: 100 });
+      expect(all.unitsInProgress.value).toBe(0);
+      expect(all.completionPercentage).toBe(100);
+
+      const none = ProcessStage.fromRawData({ ...valid, unitsStarted: 0, unitsCompleted: 0, completionPercentage: 0 });
+      expect(none.unitsInProgress.value).toBe(0);
+      expect(none.completionPercentage).toBe(0);
+    });
+
+    it('round-trips toJSON() output of a valid entity', () => {
+      const stage = ProcessStage.fromRawData(valid);
+      expect(ProcessStage.fromRawData(stage.toJSON()).toJSON()).toEqual(stage.toJSON());
+    });
+
+    it('still guards withUnitsCompleted on an already-hydrated entity', () => {
+      const stage = ProcessStage.fromRawData(valid);
+      expect(() => stage.withUnitsCompleted(101)).toThrow('Completed units cannot exceed started units');
+    });
+  });
+
   describe('computed properties', () => {
     it('should calculate unitsInProgress', () => {
       const stage = ProcessStage.fromRawData({

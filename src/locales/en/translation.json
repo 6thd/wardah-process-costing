@@ -825,7 +825,8 @@
     "accessDeniedDescription": "You don't have permission to access this page. Please contact your administrator.",
     "goBack": "Go Back",
     "goToDashboard": "Go to Dashboard",
-    "checkingPermissions": "Checking permissions..."
+    "checkingPermissions": "Checking permissions...",
+    "retryPermissionCheck": "Retry"
   },
   "validation": {
     "required": "This field is required",

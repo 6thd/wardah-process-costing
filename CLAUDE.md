@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-09-04
+**آخر تحديث موثق:** 2026-09-05
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -27,11 +27,11 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الحية الموثقة بعد Baseline المولد في 2026-09-04:
+الحالة الحية الموثقة بعد Baseline المولد في 2026-09-05:
 
-- Baseline الحالي: `000_schema_baseline_20260904_064514.sql`, cutoff 187.
-- Production: مطبقة حتى 187 (`187_stock_adjustment_ledger_idempotency`).
-- Repository: أعلى migration مرقمة هي 187.
+- Baseline الحالي: `000_schema_baseline_20260905_184634.sql`, cutoff 189.
+- Production: مطبقة حتى 189 (`189_hr_read_rbac_alignment`).
+- Repository: أعلى migration مرقمة هي 189.
 - Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
@@ -39,6 +39,18 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 الكتلة أعلاه مملوكة بالكامل لـ`scripts/ci/update_baseline_docs.py` وتُستبدل عند كل
 توليد Baseline. أي تحقق أو فجوة لاحقة للّقطة يجب أن تُسجّل في المراجع خارج الماركرين
 حتى لا يمحوها التشغيل التالي بصمت.
+
+> **Post-snapshot repository reconciliation — 2026-09-26 (updated after the PR #258 merge):** the generated block above is intentionally left byte-owned by `scripts/ci/update_baseline_docs.py` and remains a 2026-09-05 live-state snapshot. Current `main@3c43f3d460ce499bab29dd78e1355ca645dd9a06` contains repository Migrations 190 (`190_material_consumption_authorization_boundary.sql`) and **191** (`191_f2_stock_write_concurrency_closure.sql`, merged via PR #241; PR #246 was merged into the #241 branch first). PR #258 is also merged; its independently reviewed M191 §8 pre-Production performance characterization is technically complete. Do **not** infer that Production is at 190 or 191 from repository presence, and do not hand-edit the generated block to say so. **Operational precondition for M191:** 190 must be present exactly once in the live ledger with its postflight passing; M191 is never applied first; apply only the migrations the live ledger is missing. Repository closure of #258 does not authorize Production/Staging rollout. Staging trust is **UNVERIFIED / REBUILD RECOMMENDED**. Use `docs/architecture/CURRENT_STABILIZATION_20260925.md` for the repository/workflow restart point, `docs/architecture/MANUFACTURING_INVENTORY_RECONCILIATION_20260925.md` for the manufacturing/inventory findings (#229/#230/#234/#259/#260), and a fresh live ledger/readback for any Production claim.
+
+> **Live Production update — 2026-09-27 (outside generated DATABASE_STATE markers; supersedes the 2026-09-26 note for current Production status):** M190 was applied once to project `uutfztmqvajmsxnrqeiv` under ledger version `20260927082227`, from the canonical `main@dd04bc30` file (SHA-256 `0fa01345…ba2f`). An executor-run read-only Production readback on 2026-09-27, later independently rechecked by a read-only reviewer, confirmed the exact permission, the retired backflush boundary, removal of the automatic trigger, tightened table policy/grants, zero active SLE rows and zero stock-balance mismatches. M191 remains **unapplied** to Production. The cutoff-189 generated block above is a historical snapshot until baseline regeneration. See [M190 Production application and readback](docs/db/M190_PRODUCTION_APPLICATION_20260927.md) for the evidence boundary and outstanding M191 gates.
+
+> **Live Production update at M191 application — 2026-09-28 (outside generated DATABASE_STATE markers; superseded for current Production status by the M192 note below):** M191 was applied **once** to `uutfztmqvajmsxnrqeiv` under ledger version `20260928074428` from the canonical `main@76689dc` file (SHA-256 `637a81ca…3f40`). Executor-run read-only Production postflight confirmed its new restricted stock-lock helper, preserved ACLs for the 12 replaced functions, zero product/bin projection mismatches and zero `validate_stock_balance` rows. The owner/local agent reported a full restore of a private **post-M190/pre-M191** archive on a compatible Supabase PostgreSQL 17.6 image; the private archive/logs were not inspected here. **M192 had not been applied at this M191 snapshot.** See [M191 Production application and readback](docs/db/M191_PRODUCTION_APPLICATION_20260928.md) for evidence limits and the separate M192 decision.
+
+> **Live Production update — 2026-09-28, 11:11:41 UTC (outside generated DATABASE_STATE markers; supersedes the earlier 2026-09-28 M191 status note; superseded for current Production status by the M194 note below):** M192 was applied once to Production `uutfztmqvajmsxnrqeiv` as `192_material_consumption_retry_and_policy`, ledger version `20260928111141`. The executor submitted the exact `main@76689dc` file (SHA-256 `d0068597…77b8653`), received `success=true`, and independently read back the ledger, catalog, privileges and stock/projection invariants. M190 and M191 remain present once each. The historical M191 note above describes the earlier state; Staging was not changed. The employee UI and live user-session behavior remain unverified; #229, #230, #154 and #170 remain open. See [M192 Production application and readback](docs/db/M192_PRODUCTION_APPLICATION_20260928.md) for details and limits.
+
+> **Live Production update — 2026-09-29 (outside generated DATABASE_STATE markers; M193):** `193_posted_material_history_delete_guard` was applied once to `uutfztmqvajmsxnrqeiv`, ledger version `20260929070702`, from `main@f5d6d837` (SHA-256 `ac7b824e…7943`). Executor SELECT-only readback confirmed the three DELETE guards, eight TRUNCATE guards and closed client DELETE/TRUNCATE grants; no live DELETE/TRUNCATE or ordinary-user test was run. See [M193 Production application and readback](docs/db/M193_PRODUCTION_APPLICATION_20260929.md).
+
+> **Live Production update — 2026-09-30, 07:37:11 UTC (outside generated DATABASE_STATE markers; supersedes the earlier notes above for current Production status):** M194 `194_stage_wip_posted_cost_boundary` was applied once to `uutfztmqvajmsxnrqeiv`, ledger version `20260930073711`, from `main@145b536` (PR #284; SHA-256 `c32918e3…f1df`). The ledger shows M190–M194 once each and the stored SQL hashes match the canonical files. Executor read-only postflight confirmed the stage-WIP write guard, the close RPC and preserved M192/M193 guards and grants, with unchanged business rows and zero stock/tenant drift; Vercel production deployment for that commit is `READY`. The owner/local agent's backup, restore and rehearsal report was not inspected here. **Not verified live:** an ordinary-user WIP close, material issue, browser session or concurrency test. The M192 event hold and employee-UI restriction remain; #229, #230, #260, #154 and #170 remain open, and #278 awaits independent review of the application record. See [M194 Production application and readback](docs/db/M194_PRODUCTION_APPLICATION_20260930.md).
 
 استثناءات سجل Production التاريخية محفوظة دون تعديل في:
 `sql/migrations/migration_ledger_exceptions.json`:
@@ -186,6 +198,47 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   والتكرار التاريخي `ADJ-000001` ذي المصدر المجهول دون حذف أو backfill
   تخميني. هذا يغلق الحد المستقبلي فقط؛ remediation التاريخي قرار بيانات منفصل.
   نُشر زوج Baseline cutoff 187 عبر PR #217 عند `3917231b`.
+  وثائق المختبر السابقة راجعها PR #218 المدموج عند `8e26fc8`.
+- `sql/migrations/188_hr_multi_org_rls.sql` +
+  `docs/db/HR_MULTI_ORG_RLS_188_RUNBOOK.md` — **Migration 188 مدموجة عبر PR #223
+  ومطبقة على Production (`20260905070642`)**: تعالج Issue #222 عبر استبدال 75 سياسة HR قديمة على
+  19 جدولًا كانت إمّا تنهار مع عضويتين نشطتين، أو تختار `LIMIT 1` بلا ترتيب، أو
+  تقاطع المؤسسة الصريحة مع fallback `wardah_org_id(NULL)`. يحافظ على سرية P13
+  وبوابات `admin/manager` الحالية، ولا يطوي ترحيل RBAC المتابع في #156 ولا قناة
+  اختيار المؤسسة FU-6. postflight الحي أثبت 75 policy، كلها `authenticated`، وصفر
+  legacy selector أو policy بلا حارس. ولّد run `33952026388` زوج Baseline cutoff
+  188، ونشره PR #224 عند merge commit `20746954`.
+- `sql/migrations/199_manufacturing_quality_control.sql` +
+  `docs/db/MANUFACTURING_QUALITY_CONTROL_199_RUNBOOK.md` +
+  `.github/workflows/quality-control-199-acceptance.yml` — **Migration 199 (مستودع
+  فقط، غير مطبّقة؛ تتطلب 195–198 أولًا)**: وظيفة الضبط (الجودة) في التصنيع. أسئلة
+  جرد 2026-10-02 صارت إعدادات لكل مؤسسة في `wardah_internal.quality_policies`
+  (البوابة `off` افتراضيًا)، والفحوص ثابتة لا تُعدَّل وتُكتب عبر RPC فقط، وبوابة
+  الإفراج trigger على `manufacturing_orders` فيرثها أي مسار إتمام لاحق (#230).
+  مفاتيح `manufacturing.quality_inspections.*` مستثناة من توسيع القوالب بالـwildcard.
+- `sql/migrations/200_gl_event_mapping_write_closure.sql` +
+  `docs/db/GL_EVENT_MAPPING_WRITE_CLOSURE_200_RUNBOOK.md` +
+  `.github/workflows/gl-event-mapping-200-acceptance.yml` — **Migration 200 (مستودع
+  فقط، غير مطبّقة؛ تُطبَّق بعد 195–199 بالترتيب)**: تغلق الكتابة المباشرة على
+  `gl_event_mappings` (MS-01: كان أي عضو يعيد توجيه حسابات القيود)، وتُبقي `SELECT`
+  للأعضاء، وتضيف `rpc_set_gl_event_mapping` المحروسة بمسؤول المؤسسة والمدققة. تطبيقها
+  قبل 195–199 يجعل الـBaseline التالي يطوي migrations لم تُطبَّق. **العقد في §8 من
+  الـrunbook — اقرأه قبل أي `CREATE OR REPLACE` على الدالة** (حارسها تستبدله 201 في المستودع)؛ والملاحظات المؤجلة (ثغرة اتساق AP، الكاتب الثاني `rpc_upsert_event_mapping`،
+  حدث غير معروف، نشاط الحساب وقت الضبط فقط) في §9.
+- `sql/migrations/201_manufacturing_settings_permissions.sql` +
+  `docs/db/MANUFACTURING_SETTINGS_PERMISSIONS_201_RUNBOOK.md` +
+  `.github/workflows/manufacturing-settings-201-acceptance.yml` — **Migration 201 (مستودع
+  فقط، غير مطبّقة؛ تُطبَّق بعد 195–199 ثم 200)**: قرارا المالك D1/D3 — إعدادات التصنيع داخل
+  الإعدادات العامة (المسار `/settings/manufacturing` اقتراح تصميم)، وتعديلها صلاحية `manufacturing.settings.update` يمنحها مسؤول
+  المؤسسة للأدوار (مع `manufacturing.settings.read` لبوابة الصفحة). توسّع حارس كتّاب الإعدادات
+  الثلاثة (`rpc_set_gl_event_mapping`، `rpc_set_material_issue_wo_statuses`،
+  `rpc_set_quality_policy`) إلى محدِّد واحد `wardah_internal.manufacturing_settings_can_update_201`
+  = Super Admin أو `wardah_is_org_admin` أو حامل المفتاح — **مجموعة عليا للحارس السابق، لا يفقد
+  مسؤول حالي شيئًا** (مثبتة بمصفوفة هويات في القبول) (`has_permission` وحدها كانت ستقفل المسؤول المعرَّف بالدور فقط). المفتاحان
+  مستثنيان من توسيع القوالب بالـwildcard. تستبدل خمس دوال، وتشترط بصمة تامة
+  (`md5(prosrc)`) لأجسامها من 192 و199 و200، فأي استبدال بينها يوقفها مغلقة. **العقد والبصمات
+  قبل 201 وبعدها وتنسيق #313 (مثبت بالترتيبين) في §4 من الـrunbook — اقرأه قبل أي
+  `CREATE OR REPLACE` عليها**.
 
 ## Baseline
 

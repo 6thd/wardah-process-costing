@@ -2,7 +2,7 @@
  * Manufacturing Order Creation Tests
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // Mock dependencies
@@ -46,6 +46,10 @@ describe('createManufacturingOrder', () => {
 
     mockCheckAvailability.mockResolvedValue([]);
     mockReserveMaterials.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   const getClient = async () => mockSupabase;
@@ -335,5 +339,78 @@ describe('createManufacturingOrder', () => {
     // يجب ألا يسقط للمسار القديم عند خطأ DB حقيقي
     expect(mockInsert).not.toHaveBeenCalled();
   });
-});
 
+  // ===== حدّ الإنتاج: لا سقوط صامت للمسار غير الذرّي =====
+
+  it('fails closed in production when rpc_create_mo_with_reservation is missing (PGRST202)', async () => {
+    vi.stubEnv('PROD', true);
+    const { createManufacturingOrder } = await import('../createOrder');
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(
+      createManufacturingOrder(getClient, {
+        order_number: 'MO-001',
+        product_id: 'prod-1',
+        quantity: 10,
+      }, [{ item_id: 'item-1', quantity: 10, unit_cost: 5 }])
+    ).rejects.toThrow('الإنتاج');
+
+    // لا فحص توفر من المتصفح، ولا إدراج مباشر للأمر، ولا حجز منفصل
+    expect(mockCheckAvailability).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(mockReserveMaterials).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
+    consoleWarnSpy.mockRestore();
+  });
+
+  it.each([
+    ['production', true],
+    ['development', false],
+  ])('never falls back when the RPC answers without success and without error (%s)', async (_label, prod) => {
+    vi.stubEnv('PROD', prod);
+    const { createManufacturingOrder } = await import('../createOrder');
+
+    mockRpc.mockResolvedValue({ data: { success: false }, error: null });
+
+    await expect(
+      createManufacturingOrder(getClient, {
+        order_number: 'MO-001',
+        product_id: 'prod-1',
+        quantity: 10,
+      }, [{ item_id: 'item-1', quantity: 10, unit_cost: 5 }])
+    ).rejects.toThrow('استجابة غير متوقعة');
+
+    expect(mockCheckAvailability).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(mockReserveMaterials).not.toHaveBeenCalled();
+  });
+
+  it('keeps the legacy two-step fallback only outside production (explicit dev boundary)', async () => {
+    vi.stubEnv('PROD', false);
+    const { createManufacturingOrder } = await import('../createOrder');
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    mockCheckAvailability.mockResolvedValue([
+      { item_id: 'item-1', required: 10, available: 100, sufficient: true },
+    ]);
+    mockSingle.mockResolvedValue({
+      data: { id: 'mo-dev', order_number: 'MO-001', product_id: 'prod-1', quantity: 10 },
+      error: null,
+    });
+
+    const result = await createManufacturingOrder(getClient, {
+      order_number: 'MO-001',
+      product_id: 'prod-1',
+      quantity: 10,
+    }, [{ item_id: 'item-1', quantity: 10, unit_cost: 5 }]);
+
+    expect(result.id).toBe('mo-dev');
+    expect(mockCheckAvailability).toHaveBeenCalled();
+    expect(mockInsert).toHaveBeenCalled();
+    expect(mockReserveMaterials).toHaveBeenCalledWith('mo-dev', [
+      { item_id: 'item-1', quantity: 10, unit_cost: 5 },
+    ]);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('تطوير فقط'));
+    consoleWarnSpy.mockRestore();
+  });
+});

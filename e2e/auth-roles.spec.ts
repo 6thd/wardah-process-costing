@@ -7,6 +7,9 @@
 import { test, expect } from '@playwright/test';
 import { accounts, loginAs, logout, skipIfMissingEnv } from './fixtures/auth';
 
+const ORG_ADMIN_NAV = /Organization Admin|إدارة المنظمة/;
+const SUPER_ADMIN_NAV = /System Admin|إدارة النظام/;
+
 test.describe('Auth — Regular User', () => {
   test.beforeEach(async ({ page }) => {
     const skip = skipIfMissingEnv(['regularUser']);
@@ -19,12 +22,12 @@ test.describe('Auth — Regular User', () => {
   });
 
   test('org-admin menu is not visible', async ({ page }) => {
-    const orgAdminLink = page.locator('a[href="/org-admin"]');
+    const orgAdminLink = page.getByRole('button', { name: ORG_ADMIN_NAV });
     await expect(orgAdminLink).toHaveCount(0);
   });
 
   test('super-admin menu is not visible', async ({ page }) => {
-    const superAdminLink = page.locator('a[href="/super-admin"]');
+    const superAdminLink = page.getByRole('button', { name: SUPER_ADMIN_NAV });
     await expect(superAdminLink).toHaveCount(0);
   });
 
@@ -52,12 +55,12 @@ test.describe('Auth — Org Admin', () => {
   });
 
   test('org-admin menu is visible', async ({ page }) => {
-    const orgAdminLink = page.locator('a[href="/org-admin"]');
+    const orgAdminLink = page.getByRole('button', { name: ORG_ADMIN_NAV });
     await expect(orgAdminLink).toBeVisible();
   });
 
   test('super-admin menu is not visible', async ({ page }) => {
-    const superAdminLink = page.locator('a[href="/super-admin"]');
+    const superAdminLink = page.getByRole('button', { name: SUPER_ADMIN_NAV });
     await expect(superAdminLink).toHaveCount(0);
   });
 
@@ -86,7 +89,7 @@ test.describe('Auth — Super Admin', () => {
   });
 
   test('super-admin menu is visible', async ({ page }) => {
-    const superAdminLink = page.locator('a[href="/super-admin"]');
+    const superAdminLink = page.getByRole('button', { name: SUPER_ADMIN_NAV });
     await expect(superAdminLink).toBeVisible();
   });
 

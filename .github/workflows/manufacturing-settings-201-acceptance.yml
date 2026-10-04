@@ -1,0 +1,199 @@
+name: Manufacturing Settings Permissions 201 Acceptance
+
+# Owner decisions D1/D3 on the manufacturing-settings inventory (#312): editing
+# manufacturing settings is a role permission the org admin grants. 201 adds
+# manufacturing.settings.read/update and widens the three settings writers
+# (GL event mappings, material-issue statuses, quality policy) from org admin
+# only to org admin OR key holder, without locking out any current admin.
+# See sql/migrations/201_manufacturing_settings_permissions.sql.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/201_manufacturing_settings_permissions.sql'
+      - 'scripts/ci/fresh-db/acceptance_201_manufacturing_settings_permissions.sql'
+      - 'scripts/ci/fresh-db/acceptance_201_manufacturing_settings_permissions_red.sql'
+      - 'scripts/ci/fresh-db/acceptance_201_layer_order.sh'
+      - 'scripts/ci/fresh-db/acceptance_200_201_contract_claims.sql'
+      - '.github/workflows/manufacturing-settings-201-acceptance.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Settings writers admit org admins and delegated key holders only
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve Baseline pair and migration order
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/chain_order.txt
+
+          # No guard against 201 being absent from this GREEN chain: once a
+          # future Baseline regeneration folds 201 into the schema snapshot,
+          # 201 legitimately vanishes from the chain built off the latest
+          # Baseline above — the fresh database still ends up with 201's
+          # effects, just via the Baseline instead of a separate migration
+          # step, and that is a correct outcome for GREEN, not a failure.
+
+          # The red proof must stay buildable in that same future: reusing
+          # this same Baseline for the "pre-201" database would bake the fix
+          # in before the probe ever runs. Pin the red pair to the newest
+          # Baseline strictly before cutoff 201 instead, independent of
+          # whatever the latest Baseline currently is.
+          RED_PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 201)
+          red_pair_field() { printf '%s\n' "$RED_PAIR" | sed -n "s/^$1=//p"; }
+          echo "RED_BASELINE=$(red_pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "RED_REFERENCE=$(red_pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          RED_CUTOFF=$(red_pair_field BASELINE_CUTOFF)
+          RED_CUTOFF=${RED_CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$RED_CUTOFF" \
+            > /tmp/red_chain_order_full.txt
+          # This is where the "201 might be missing" guard actually belongs:
+          # the red chain is pinned to a pre-201 Baseline by construction, so
+          # 201 must always appear here for the cut below to mean anything.
+          # If it doesn't, the sed is a no-op and the red database silently
+          # becomes identical to green instead of reproducing the pre-fix
+          # state.
+          grep -q '^201_manufacturing_settings_permissions.sql$' /tmp/red_chain_order_full.txt
+
+          # Cut the chain at 201 itself, not just that one line: any
+          # migration numbered after 201 must never reach the red database
+          # either, or a future addition could silently leak into what is
+          # supposed to be the pre-fix proof.
+          sed '/^201_manufacturing_settings_permissions.sql$/,$d' \
+            /tmp/red_chain_order_full.txt > /tmp/red_order.txt
+
+      - name: Build fresh database through 201
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+      - name: Run Migration 201 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_201_manufacturing_settings_permissions.sql \
+            2>&1 | tee /tmp/mfg-settings-201.out
+          grep -q 'MFG_SETTINGS_201_ACCEPTANCE_PASS' /tmp/mfg-settings-201.out
+
+      - name: Contract-claim proofs for 200 and 201
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # Each written claim in the 200 §8 and 201 §3–§4 contracts that the
+          # suites above do not cover; see docs/db/CLAIM_LEDGER_200_201.md.
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_200_201_contract_claims.sql \
+            2>&1 | tee /tmp/claims-200-201.out
+          grep -q 'CLAIMS_200_201_PASS' /tmp/claims-200-201.out
+
+      - name: Red proof — no delegation path before 201
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_red
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_REFERENCE" -q
+          REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/red_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f scripts/ci/fresh-db/acceptance_201_manufacturing_settings_permissions_red.sql \
+            2>&1 | tee /tmp/mfg-settings-201-red.out
+          grep -q 'MFG_SETTINGS_201_RED_PROOF_PASS' /tmp/mfg-settings-201-red.out
+
+      - name: Layer order — 201 and a later fence on the same functions
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # The pre-201 red database and the green chain are templates only;
+          # every case runs on its own copy. A fence applied before 201 must
+          # make 201 refuse; a fence applied after 201 must keep the 201
+          # acceptance green, and one that drops the 201 layer must fail it.
+          PRE_DB=wardah_red POST_DB=wardah_fresh \
+            bash scripts/ci/fresh-db/acceptance_201_layer_order.sh \
+            2>&1 | tee /tmp/mfg-settings-201-layer-order.out
+
+      - name: Confirm both proof directions actually ran
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          grep -q 'MFG_SETTINGS_201_CATALOG_OK' /tmp/mfg-settings-201.out
+          grep -q 'MFG_SETTINGS_201_MEMBER_DENIED_OK' /tmp/mfg-settings-201.out
+          grep -q 'MFG_SETTINGS_201_KEYHOLDER_OK' /tmp/mfg-settings-201.out
+          grep -q 'MFG_SETTINGS_201_ADMIN_OK' /tmp/mfg-settings-201.out
+          grep -q 'MFG_SETTINGS_201_CROSS_ORG_OK' /tmp/mfg-settings-201.out
+          grep -q 'MFG_SETTINGS_201_TEMPLATE_EXPANSION_OK' /tmp/mfg-settings-201.out
+          grep -q 'MFG_SETTINGS_201_ACCEPTANCE_PASS' /tmp/mfg-settings-201.out
+          grep -q 'MFG_SETTINGS_201_RED_PRECONDITION_OK' /tmp/mfg-settings-201-red.out
+          grep -q 'MFG_SETTINGS_201_RED_PROOF_OK' /tmp/mfg-settings-201-red.out
+          grep -q 'MFG_SETTINGS_201_RED_PROOF_PASS' /tmp/mfg-settings-201-red.out
+          grep -q 'MFG_SETTINGS_201_FULL_ACL_UNCHANGED_OK' /tmp/mfg-settings-201-layer-order.out
+          grep -q 'MFG_SETTINGS_201_LAYER_ORDER_FENCE_FIRST_OK' /tmp/mfg-settings-201-layer-order.out
+          grep -q 'MFG_SETTINGS_201_LAYER_ORDER_CONFIG_AND_MISSING_OK' /tmp/mfg-settings-201-layer-order.out
+          grep -q 'MFG_SETTINGS_201_LAYER_ORDER_BOTH_LAYERS_OK' /tmp/mfg-settings-201-layer-order.out
+          grep -q 'MFG_SETTINGS_201_LAYER_ORDER_DROPPED_LAYER_CAUGHT_OK' /tmp/mfg-settings-201-layer-order.out
+          grep -q 'MFG_SETTINGS_201_LAYER_ORDER_PASS' /tmp/mfg-settings-201-layer-order.out
+          for m in CLAIMS_200_GUARD_ORDER_OK CLAIMS_200_VALIDATION_ORDER_OK \
+                   CLAIMS_200_ACCOUNT_RULES_OK CLAIMS_200_SHAPES_OK CLAIMS_200_READERS_OK \
+                   CLAIMS_201_SUPERSET_MATRIX_OK CLAIMS_201_HAS_PERMISSION_ALONE_GAP_OK \
+                   CLAIMS_201_MEMBER_READS_OK CLAIMS_200_201_PASS; do
+            grep -q "$m" /tmp/claims-200-201.out
+          done
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manufacturing-settings-201-${{ github.run_id }}
+          path: |
+            /tmp/chain_report.txt
+            /tmp/red_chain_report.txt
+            /tmp/mfg-settings-201.out
+            /tmp/mfg-settings-201-red.out
+            /tmp/mfg-settings-201-layer-order.out
+            /tmp/claims-200-201.out
+          retention-days: 30

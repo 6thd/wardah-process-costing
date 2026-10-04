@@ -1,0 +1,175 @@
+name: GL Event Mapping Write Closure 200 Acceptance
+
+# MS-01 (docs/architecture/MANUFACTURING_SETTINGS_INVENTORY_20261003.md):
+# gl_event_mappings decides the accounts of every event-driven journal. Before
+# 200 any active member could rewrite it directly. Contract after 200: members
+# keep SELECT; writes go only through rpc_set_gl_event_mapping (org admin,
+# validated, audited). See sql/migrations/200_gl_event_mapping_write_closure.sql.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/200_gl_event_mapping_write_closure.sql'
+      - 'scripts/ci/fresh-db/acceptance_200_gl_event_mapping_write_closure.sql'
+      - 'scripts/ci/fresh-db/acceptance_200_gl_event_mapping_write_closure_red.sql'
+      - 'scripts/ci/fresh-db/acceptance_200_gl_event_mapping_concurrency.sh'
+      - '.github/workflows/gl-event-mapping-200-acceptance.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: GL event mappings are writable only through the guarded RPC
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve Baseline pair and migration order
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/chain_order.txt
+
+          # No guard against 200 being absent from this GREEN chain: once a
+          # future Baseline regeneration folds 200 into the schema snapshot,
+          # 200 legitimately vanishes from the chain built off the latest
+          # Baseline above — the fresh database still ends up with 200's
+          # effects, just via the Baseline instead of a separate migration
+          # step, and that is a correct outcome for GREEN, not a failure.
+
+          # The red proof must stay buildable in that same future: reusing
+          # this same Baseline for the "pre-200" database would bake the fix
+          # in before the probe ever runs. Pin the red pair to the newest
+          # Baseline strictly before cutoff 200 instead, independent of
+          # whatever the latest Baseline currently is.
+          RED_PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 200)
+          red_pair_field() { printf '%s\n' "$RED_PAIR" | sed -n "s/^$1=//p"; }
+          echo "RED_BASELINE=$(red_pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "RED_REFERENCE=$(red_pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          RED_CUTOFF=$(red_pair_field BASELINE_CUTOFF)
+          RED_CUTOFF=${RED_CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$RED_CUTOFF" \
+            > /tmp/red_chain_order_full.txt
+          # This is where the "200 might be missing" guard actually belongs:
+          # the red chain is pinned to a pre-200 Baseline by construction, so
+          # 200 must always appear here for the cut below to mean anything.
+          # If it doesn't, the sed is a no-op and the red database silently
+          # becomes identical to green instead of reproducing the pre-fix
+          # state.
+          grep -q '^200_gl_event_mapping_write_closure.sql$' /tmp/red_chain_order_full.txt
+
+          # Cut the chain at 200 itself, not just that one line: any
+          # migration numbered after 200 must never reach the red database
+          # either, or a future addition could silently leak into what is
+          # supposed to be the pre-fix proof.
+          sed '/^200_gl_event_mapping_write_closure.sql$/,$d' \
+            /tmp/red_chain_order_full.txt > /tmp/red_order.txt
+
+      - name: Build fresh database through 200
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+      - name: Run Migration 200 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_200_gl_event_mapping_write_closure.sql \
+            2>&1 | tee /tmp/gl-event-200.out
+          grep -q 'GL_EVENT_200_ACCEPTANCE_PASS' /tmp/gl-event-200.out
+
+      - name: Deterministic concurrency proof
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/acceptance_200_gl_event_mapping_concurrency.sh \
+            2>&1 | tee /tmp/gl-event-200-race.out
+          grep -q 'GL_EVENT_200_CONCURRENCY_PASS' /tmp/gl-event-200-race.out
+
+      - name: Red proof — reproduce the pre-200 member write
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_red
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_REFERENCE" -q
+          REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/red_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f scripts/ci/fresh-db/acceptance_200_gl_event_mapping_write_closure_red.sql \
+            2>&1 | tee /tmp/gl-event-200-red.out
+          grep -q 'GL_EVENT_200_RED_PROOF_PASS' /tmp/gl-event-200-red.out
+
+      - name: Confirm both proof directions actually ran
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          grep -q 'GL_EVENT_200_GRANTS_OK' /tmp/gl-event-200.out
+          grep -q 'GL_EVENT_200_ADMIN_RPC_OK' /tmp/gl-event-200.out
+          grep -q 'GL_EVENT_200_MEMBER_PROBE_OK' /tmp/gl-event-200.out
+          grep -q 'GL_EVENT_200_AUDIT_OK' /tmp/gl-event-200.out
+          grep -q 'GL_EVENT_200_ACCEPTANCE_PASS' /tmp/gl-event-200.out
+          grep -q 'GL_EVENT_200_RACE_WAIT_OBSERVED' /tmp/gl-event-200-race.out
+          grep -q 'GL_EVENT_200_RACE_OK' /tmp/gl-event-200-race.out
+          grep -q 'GL_EVENT_200_DELETE_RACE_WAIT_OBSERVED' /tmp/gl-event-200-race.out
+          grep -q 'GL_EVENT_200_DELETE_RACE_OK' /tmp/gl-event-200-race.out
+          grep -q 'GL_EVENT_200_CONCURRENCY_PASS' /tmp/gl-event-200-race.out
+          grep -q 'GL_EVENT_200_RED_PRECONDITION_OK' /tmp/gl-event-200-red.out
+          grep -q 'GL_EVENT_200_RED_PROOF_OK' /tmp/gl-event-200-red.out
+          grep -q 'GL_EVENT_200_RED_PROOF_PASS' /tmp/gl-event-200-red.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gl-event-mapping-200-${{ github.run_id }}
+          path: |
+            /tmp/chain_report.txt
+            /tmp/red_chain_report.txt
+            /tmp/gl-event-200.out
+            /tmp/gl-event-200-red.out
+            /tmp/gl-event-200-race.out
+            /tmp/gl-event-200-race-*.out
+            /tmp/gl-event-200-race-*.err
+          retention-days: 30

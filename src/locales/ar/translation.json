@@ -502,7 +502,8 @@
     "accessDeniedDescription": "ليس لديك الصلاحية للوصول إلى هذه الصفحة. يرجى التواصل مع مسؤول النظام.",
     "goBack": "العودة",
     "goToDashboard": "الصفحة الرئيسية",
-    "checkingPermissions": "جاري التحقق من الصلاحيات..."
+    "checkingPermissions": "جاري التحقق من الصلاحيات...",
+    "retryPermissionCheck": "إعادة المحاولة"
   },
   "validation": {
     "required": "هذا الحقل مطلوب",

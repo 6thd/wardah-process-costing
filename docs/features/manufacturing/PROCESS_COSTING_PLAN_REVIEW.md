@@ -1,5 +1,18 @@
 # 📊 Process Costing Plan Review - Gemini 3.0 Plan Analysis
 
+> **تصحيح مؤرَّخ — 2026-09-25 (`main@0761d567`):** هذه المراجعة وثيقة تخطيط تاريخية،
+> وجدول «Current State» فيها **قديم**. تصحيحات الحالة الراهنة:
+>
+> - **`stage_wip_log` موجود** في Baseline cutoff 189 (`000_schema_baseline_20260905_184634.sql`)،
+>   وله عمود محسوب `cost_total`. وتكتب فيه `rpc_consume_reserved_materials_v2` تكلفة المواد
+>   داخل معاملة الاستهلاك الذرية. عبارة «❌ غير موجود» في الجدول أدناه لم تعد صحيحة.
+> - **وجود البنية/المحرك في SQL ≠ اكتمال مسار Process Costing الحي.** على مخطط cutoff 189
+>   يفشل `upsert_stage_cost` بـ`42702 costing_method ambiguous`، ويفشل
+>   `rpc_cost_of_production_report` على صف قانوني. ويكتب مسار الواجهة الحي أعمدة وجداول
+>   غير موجودة. التتبّع في #260، والأدلة في `docs/db/manufacturing-inventory-red-20260925/`.
+> - المرجع الحالي هو `ADVANCED_MANUFACTURING_ROADMAP.md` (MFG-P1)، وكذلك
+>   `CANONICAL_MANUFACTURING_EXECUTION_CONTRACT.md` §22.
+
 ## 🎯 Executive Summary
 
 **الخطة الجديدة ممتازة وتكمل الخطة السابقة بشكل أفضل!** ⭐⭐⭐⭐⭐
