@@ -56,6 +56,7 @@ jobs:
           bash docs/db/qc-privileged-write-closure-202/run_local.sh 2>&1 | tee /tmp/m202.out
           # A green exit is not enough: every proof direction must have run.
           for marker in 'M202_RED_REPRODUCED forged_gate_open=1 null_shadow=1 high_seq_shadow=1' \
+                        M202_RUNNER_NEGATIVE_CONTROLS_PASS \
                         M202_PREFLIGHT_CONTROLS_PASS M202_M201_FUNCTIONS_UNCHANGED \
                         M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS \
                         M202_OWNER_SWITCH_MECHANICS_OK 'M202_M199_REGRESSION_PASS 70/70' \

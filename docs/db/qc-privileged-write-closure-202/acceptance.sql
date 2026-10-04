@@ -622,6 +622,73 @@ SELECT pg_temp.mutant('hidden routine in an index expression',
 SELECT pg_temp.mutant('row-level security disabled', 'ALTER TABLE public.quality_inspections DISABLE ROW LEVEL SECURITY', 'POLICIES');
 SELECT pg_temp.mutant('another permissive INSERT policy', 'CREATE POLICY zz_any ON public.quality_inspections FOR INSERT TO PUBLIC WITH CHECK (true)', 'POLICIES');
 SELECT pg_temp.mutant('the entry role policy is dropped', 'DROP POLICY quality_inspections_entry_insert_202 ON public.quality_inspections', 'POLICIES');
+-- C12b. The entry policy is pinned to its exact installed shape (PERMISSIVE, FOR INSERT,
+-- TO the entry role only, no USING, WITH CHECK = the constant true). Every altered shape
+-- below must be refused by name; none forges a row.
+CREATE FUNCTION public.zz_pol_pred() RETURNS boolean LANGUAGE sql SECURITY INVOKER AS $f$ SELECT true $f$;
+ALTER FUNCTION public.zz_pol_pred() OWNER TO zz_forger;
+SELECT pg_temp.mutant('control: the pristine policy shape passes the closed-graph assertion', 'SELECT 1', '<assertion passed>');
+SELECT pg_temp.mutant('WITH CHECK replaced by a different-owner SECURITY INVOKER predicate',
+  'ALTER POLICY quality_inspections_entry_insert_202 ON public.quality_inspections WITH CHECK (public.zz_pol_pred())', 'POLICIES');
+SELECT pg_temp.mutant('WITH CHECK replaced by a catalog-only expression',
+  'ALTER POLICY quality_inspections_entry_insert_202 ON public.quality_inspections WITH CHECK (pg_catalog.pg_backend_pid() > 0)', 'POLICIES');
+SELECT pg_temp.mutant('WITH CHECK changed to false',
+  'ALTER POLICY quality_inspections_entry_insert_202 ON public.quality_inspections WITH CHECK (false)', 'POLICIES');
+SELECT pg_temp.mutant('WITH CHECK textually different but logically true (true AND true)',
+  'ALTER POLICY quality_inspections_entry_insert_202 ON public.quality_inspections WITH CHECK (true AND true)', 'POLICIES');
+SELECT pg_temp.mutant('policy retargeted to PUBLIC',
+  'ALTER POLICY quality_inspections_entry_insert_202 ON public.quality_inspections TO PUBLIC', 'POLICIES');
+SELECT pg_temp.mutant('policy retargeted to service_role',
+  'ALTER POLICY quality_inspections_entry_insert_202 ON public.quality_inspections TO service_role', 'POLICIES');
+SELECT pg_temp.mutant('policy re-created RESTRICTIVE',
+  'DROP POLICY quality_inspections_entry_insert_202 ON public.quality_inspections; CREATE POLICY quality_inspections_entry_insert_202 ON public.quality_inspections AS RESTRICTIVE FOR INSERT TO wardah_qc_entry_202 WITH CHECK (true)', 'POLICIES');
+SELECT pg_temp.mutant('policy re-created as FOR ALL',
+  'DROP POLICY quality_inspections_entry_insert_202 ON public.quality_inspections; CREATE POLICY quality_inspections_entry_insert_202 ON public.quality_inspections AS PERMISSIVE FOR ALL TO wardah_qc_entry_202 USING (true) WITH CHECK (true)', 'POLICIES');
+SELECT pg_temp.mutant('policy renamed',
+  'ALTER POLICY quality_inspections_entry_insert_202 ON public.quality_inspections RENAME TO zz_renamed', 'POLICIES');
+SELECT pg_temp.mutant('a RESTRICTIVE FOR ALL policy added beside the pinned one',
+  'CREATE POLICY zz_restrictive ON public.quality_inspections AS RESTRICTIVE FOR ALL TO wardah_qc_entry_202 USING (true) WITH CHECK (true)', 'POLICIES');
+SELECT pg_temp.mutant('catalog-level: a USING qualifier injected into the INSERT policy (pg_policy.polqual)',
+  'UPDATE pg_catalog.pg_policy SET polqual = polwithcheck WHERE polname = ''quality_inspections_entry_insert_202''', 'POLICIES');
+SELECT pg_temp.mutant('catalog-level: policy flipped to RESTRICTIVE (pg_policy.polpermissive)',
+  'UPDATE pg_catalog.pg_policy SET polpermissive = false WHERE polname = ''quality_inspections_entry_insert_202''', 'POLICIES');
+
+-- C12c. End to end: with the predicate mutant installed, the genuine RPC is refused by
+-- name BEFORE the predicate is ever evaluated. The predicate bumps a sequence (sequences
+-- are non-transactional, so a call would stay visible after rollback). Non-vacuity: with
+-- the guard trigger disabled the same predicate does run and the sequence moves.
+CREATE FUNCTION pg_temp.policy_probe(p_mo uuid, p_disable_guard boolean) RETURNS jsonb
+LANGUAGE plpgsql AS $fn$
+DECLARE v_before text; v_after text; v jsonb; v_msg text;
+BEGIN
+  BEGIN
+    CREATE SEQUENCE public.zz_pol_seq;
+    GRANT USAGE ON SEQUENCE public.zz_pol_seq TO PUBLIC;
+    CREATE FUNCTION public.zz_pol_probe() RETURNS boolean LANGUAGE sql SECURITY INVOKER
+      AS $f$ SELECT pg_catalog.nextval('public.zz_pol_seq') > 0 $f$;
+    ALTER FUNCTION public.zz_pol_probe() OWNER TO zz_forger;
+    ALTER POLICY quality_inspections_entry_insert_202 ON public.quality_inspections WITH CHECK (public.zz_pol_probe());
+    IF p_disable_guard THEN
+      ALTER TABLE public.quality_inspections DISABLE TRIGGER qc_write_guard_202;
+    END IF;
+    SELECT last_value::text || '/' || is_called::text INTO v_before FROM public.zz_pol_seq;
+    v := pg_temp.try_as(pg_temp.inspector(),
+           pg_temp.inspect_sql(p_mo, gen_random_uuid(), pg_temp.final('PASS', 10, 0)));
+    SELECT last_value::text || '/' || is_called::text INTO v_after FROM public.zz_pol_seq;
+    RAISE EXCEPTION USING ERRCODE = 'Z0202', MESSAGE = jsonb_build_object(
+      'ok', v -> 'ok', 'error', v ->> 'error', 'predicate_ran', v_before IS DISTINCT FROM v_after)::text;
+  EXCEPTION WHEN SQLSTATE 'Z0202' THEN
+    GET STACKED DIAGNOSTICS v_msg = MESSAGE_TEXT;
+  END;
+  RETURN v_msg::jsonb;
+END $fn$;
+SELECT pg_temp.ok((SELECT NOT (v ->> 'predicate_ran')::boolean AND NOT (v ->> 'ok')::boolean
+    AND v ->> 'error' LIKE '%QC_EXECUTION_GRAPH_OPEN_202: POLICIES%'
+  FROM (SELECT pg_temp.policy_probe((SELECT id FROM m WHERE k='c'), false) v) x),
+  'C12c with the predicate policy installed the genuine RPC is refused by name (POLICIES) and the predicate never ran');
+SELECT pg_temp.ok((SELECT (v ->> 'predicate_ran')::boolean
+  FROM (SELECT pg_temp.policy_probe((SELECT id FROM m WHERE k='c'), true) v) x),
+  'C12c non-vacuity: with the guard trigger disabled the same predicate does run (sequence moved)');
 -- C13. Pinned code, properties and ACLs.
 SELECT pg_temp.mutant('recording RPC body replaced',
   $s$DO $d$ DECLARE d text := pg_get_functiondef('public.rpc_record_quality_inspection(uuid,uuid,jsonb)'::regprocedure);
@@ -674,6 +741,13 @@ CREATE FUNCTION pg_temp.record(p_mo uuid, p_payload jsonb) RETURNS jsonb LANGUAG
   SELECT pg_temp.as_user(pg_temp.inspector(), pg_temp.inspect_sql(p_mo, gen_random_uuid(), p_payload)) $fn$;
 CREATE FUNCTION pg_temp.revision_of(p_inspection uuid) RETURNS integer LANGUAGE sql AS $$
   SELECT authority_revision FROM wardah_internal.quality_inspection_authority_202 WHERE inspection_id = p_inspection $$;
+CREATE FUNCTION pg_temp.list_mo(p_mo uuid) RETURNS jsonb LANGUAGE sql AS $fn$
+  SELECT pg_temp.as_user(pg_temp.inspector(), format(
+    'SELECT public.rpc_list_quality_inspections(%L::uuid, %L::uuid, 50)', pg_temp.org(), p_mo)) $fn$;
+-- 0-based position of an inspection id in a listing (NULL when absent).
+CREATE FUNCTION pg_temp.list_pos(p_list jsonb, p_id uuid) RETURNS integer LANGUAGE sql AS $fn$
+  SELECT (o - 1)::integer FROM jsonb_array_elements(p_list) WITH ORDINALITY t(e, o)
+  WHERE (e ->> 'id')::uuid = p_id $fn$;
 
 -- D1. NULL sequence: a genuine FAIL is no longer shadowed (RED2 closed).
 INSERT INTO m VALUES ('nul', pg_temp.mo('D-NULL'));
@@ -688,6 +762,11 @@ SELECT pg_temp.ok(pg_temp.ready((SELECT id FROM m WHERE k='nul')) IS FALSE
 SELECT pg_temp.ok((SELECT result FROM public.quality_inspections WHERE id =
   (pg_temp.release((SELECT id FROM m WHERE k='nul')) #>> '{final_inspection,id}')::uuid) = 'FAIL',
   'D1 the selected FINAL is the FAIL');
+SELECT pg_temp.ok((pg_temp.list_mo((SELECT id FROM m WHERE k='nul')) -> 0 ->> 'id')
+    = (pg_temp.release((SELECT id FROM m WHERE k='nul')) #>> '{final_inspection,id}')
+  AND (pg_temp.list_mo((SELECT id FROM m WHERE k='nul')) -> 0 ->> 'result') = 'FAIL'
+  AND (pg_temp.list_mo((SELECT id FROM m WHERE k='nul')) -> 1 ->> 'result') = 'PASS',
+  'D1 the listing heads the partition with the genuine FAIL the gate selects, ahead of the legacy NULL-sequence PASS');
 
 -- D2. High sequence + append-only supersession (RED3 closed without deleting history).
 INSERT INTO m VALUES ('hi', pg_temp.mo('D-HIGH'));
@@ -731,11 +810,28 @@ SELECT pg_temp.ok((SELECT bool_and((e->>'superseded')::boolean = (e->>'authority
       'SELECT public.rpc_list_quality_inspections(%L::uuid, %L::uuid, 50)', pg_temp.org(), (SELECT id FROM m WHERE k='hi')))) e
       WHERE (e->>'superseded')::boolean) = 2,
   'D2 the listing marks exactly the two retired rows as superseded and shows each revision');
+SELECT pg_temp.ok(
+  (pg_temp.list_mo((SELECT id FROM m WHERE k='hi')) -> 0 ->> 'id')::uuid = (SELECT (v->>'inspection_id')::uuid FROM r WHERE k='pass_hi')
+  AND (pg_temp.list_mo((SELECT id FROM m WHERE k='hi')) -> 0 ->> 'id')
+      = (pg_temp.release((SELECT id FROM m WHERE k='hi')) #>> '{final_inspection,id}')
+  AND pg_temp.list_pos(pg_temp.list_mo((SELECT id FROM m WHERE k='hi')), (SELECT (v #>> '{}')::uuid FROM r WHERE k='forged_hi')) = 2
+  AND pg_temp.list_pos(pg_temp.list_mo((SELECT id FROM m WHERE k='hi')), (SELECT (v->>'inspection_id')::uuid FROM r WHERE k='fail_hi'))
+      > pg_temp.list_pos(pg_temp.list_mo((SELECT id FROM m WHERE k='hi')), (SELECT (v->>'inspection_id')::uuid FROM r WHERE k='pass_hi')),
+  'D2 listing order: genuine revision-1 evidence leads; both revision-1 rows precede the legacy NULL-authority sequence-999 row, and the head is the gate''s selected row');
+SELECT pg_temp.ok((SELECT bool_and((e ->> 'partition_revision')::int = 1 AND NOT (e ->> 'awaiting_replacement')::boolean
+      AND e ->> 'authority_status' = CASE WHEN e ->> 'authority_revision' = '1' THEN 'CURRENT' ELSE 'SUPERSEDED' END)
+    FROM jsonb_array_elements(pg_temp.list_mo((SELECT id FROM m WHERE k='hi'))) e),
+  'D2 with a replacement present the partition is not awaiting: revision-1 rows CURRENT, revision-0 rows SUPERSEDED');
 SELECT pg_temp.as_user(pg_temp.admin(), pg_temp.supersede_sql((SELECT id FROM m WHERE k='hi'), 'FINAL', NULL, 1, 'second review'));
 SELECT pg_temp.ok(pg_temp.ready((SELECT id FROM m WHERE k='hi')) IS FALSE
   AND pg_temp.reason((SELECT id FROM m WHERE k='hi')) = 'QUALITY_RELEASE_REQUIRED'
   AND (pg_temp.release((SELECT id FROM m WHERE k='hi')) ->> 'authority_revision')::int = 2,
   'D2 a second supersession (revision 2) closes the gate again');
+SELECT pg_temp.ok(jsonb_array_length(pg_temp.list_mo((SELECT id FROM m WHERE k='hi'))) = 4
+  AND (SELECT bool_and((e ->> 'partition_revision')::int = 2 AND (e ->> 'awaiting_replacement')::boolean
+        AND (e ->> 'superseded')::boolean AND e ->> 'authority_status' = 'SUPERSEDED_AWAITING_REPLACEMENT')
+      FROM jsonb_array_elements(pg_temp.list_mo((SELECT id FROM m WHERE k='hi'))) e),
+  'D2 listing: when the latest remediation revision has no replacement every row is SUPERSEDED_AWAITING_REPLACEMENT (and the gate above stays blocked)');
 
 -- D3. IN_PROCESS: per stage, never across stages.
 SELECT pg_temp.set_policy(pg_temp.policy('all_orders', 'stages_and_final'));
@@ -756,11 +852,28 @@ SELECT pg_temp.ok(pg_temp.ready((SELECT id FROM m WHERE k='stg')) IS FALSE
   'D3 superseding stage A makes exactly stage A missing; stage B and FINAL are untouched');
 SELECT pg_temp.ok((pg_temp.release((SELECT id FROM m WHERE k='stg')) ->> 'authority_revision')::int = 0,
   'D3 the FINAL partition revision is independent of the stage partition');
+SELECT pg_temp.ok(
+  (SELECT bool_and(CASE
+      WHEN e ->> 'inspection_type' = 'IN_PROCESS' AND e ->> 'stage_id' = pg_temp.stage()::text
+        THEN e ->> 'authority_status' = 'SUPERSEDED_AWAITING_REPLACEMENT' AND (e ->> 'awaiting_replacement')::boolean
+      ELSE e ->> 'authority_status' = 'CURRENT' AND NOT (e ->> 'awaiting_replacement')::boolean END)
+   FROM jsonb_array_elements(pg_temp.list_mo((SELECT id FROM m WHERE k='stg'))) e)
+  AND jsonb_array_length(pg_temp.list_mo((SELECT id FROM m WHERE k='stg'))) = 3,
+  'D3 listing: only the superseded stage A partition is awaiting replacement; stage B and FINAL stay CURRENT');
 INSERT INTO r VALUES ('stage_a', pg_temp.record((SELECT id FROM m WHERE k='stg'), pg_temp.stage_insp(pg_temp.stage())));
 SELECT pg_temp.ok(pg_temp.ready((SELECT id FROM m WHERE k='stg')) IS TRUE
   AND pg_temp.revision_of((SELECT (v->>'inspection_id')::uuid FROM r WHERE k='stage_a')) = 1
   AND pg_temp.revision_of((SELECT (v->>'inspection_id')::uuid FROM r WHERE k='stage_b')) = 0,
   'D3 genuine stage A evidence at revision 1 restores the gate; stage B stays at revision 0');
+SELECT pg_temp.ok(
+  pg_temp.list_pos(pg_temp.list_mo((SELECT id FROM m WHERE k='stg')), (SELECT (v->>'inspection_id')::uuid FROM r WHERE k='stage_a'))
+    < (SELECT (o - 1)::integer FROM jsonb_array_elements(pg_temp.list_mo((SELECT id FROM m WHERE k='stg'))) WITH ORDINALITY t(e, o)
+       WHERE e ->> 'inspection_number' = 'D-STG-A')
+  AND (SELECT e ->> 'authority_status' FROM jsonb_array_elements(pg_temp.list_mo((SELECT id FROM m WHERE k='stg'))) e
+       WHERE e ->> 'inspection_number' = 'D-STG-A') = 'SUPERSEDED'
+  AND (SELECT e ->> 'authority_status' FROM jsonb_array_elements(pg_temp.list_mo((SELECT id FROM m WHERE k='stg'))) e
+       WHERE (e ->> 'id')::uuid = (SELECT (v->>'inspection_id')::uuid FROM r WHERE k='stage_a')) = 'CURRENT',
+  'D3 listing: genuine stage A evidence (revision 1) is listed ahead of the retired sequence-999 legacy row and is CURRENT');
 SELECT pg_temp.as_user(pg_temp.admin(), pg_temp.supersede_sql((SELECT id FROM m WHERE k='stg'), 'IN_PROCESS', pg_temp.stage_b(), 0, 'stage B re-check'));
 SELECT pg_temp.ok(pg_temp.reason((SELECT id FROM m WHERE k='stg')) = 'QUALITY_STAGE_INSPECTION_REQUIRED'
   AND (pg_temp.release((SELECT id FROM m WHERE k='stg')) -> 'missing_stage_ids') = to_jsonb(ARRAY[pg_temp.stage_b()::text]),
@@ -830,6 +943,30 @@ SELECT pg_temp.forge_denied('postgres', 'TRUNCATE public.quality_inspections', '
   'D6 inspections cannot be truncated (the authority link now references them)');
 SELECT pg_temp.forge_denied('postgres', 'TRUNCATE public.quality_inspections CASCADE', 'M193_MANUFACTURING_HISTORY_TRUNCATE_DENIED',
   'D6 TRUNCATE ... CASCADE still reaches the M193 history guard');
+
+-- D7. Listing order ties. Same partition, same revision, same sequence: id DESC decides,
+-- exactly as the gate does; a NULL sequence sorts after any numbered row at the same revision.
+INSERT INTO m VALUES ('tie', pg_temp.mo('D-TIE'));
+SELECT pg_temp.as_user(pg_temp.inspector(), pg_temp.hold_sql((SELECT id FROM m WHERE k='tie'), 'hold'));
+INSERT INTO r VALUES ('tie_a', to_jsonb(pg_temp.legacy_row((SELECT id FROM m WHERE k='tie'), 'D-TIE-A', 'FINAL', NULL, 1, 7, 'PASS', 10, 0)));
+INSERT INTO r VALUES ('tie_b', to_jsonb(pg_temp.legacy_row((SELECT id FROM m WHERE k='tie'), 'D-TIE-B', 'FINAL', NULL, 1, 7, 'FAIL', 0, 10)));
+INSERT INTO r VALUES ('tie_n', to_jsonb(pg_temp.legacy_row((SELECT id FROM m WHERE k='tie'), 'D-TIE-N', 'FINAL', NULL, 1, NULL, 'PASS', 10, 0)));
+SELECT pg_temp.ok(
+  (pg_temp.list_mo((SELECT id FROM m WHERE k='tie')) -> 0 ->> 'id')::uuid
+      = (SELECT id FROM public.quality_inspections WHERE mo_id = (SELECT id FROM m WHERE k='tie') AND inspection_seq = 7 ORDER BY id DESC LIMIT 1)
+  AND (pg_temp.list_mo((SELECT id FROM m WHERE k='tie')) -> 0 ->> 'id')
+      = (pg_temp.release((SELECT id FROM m WHERE k='tie')) #>> '{final_inspection,id}')
+  AND (pg_temp.list_mo((SELECT id FROM m WHERE k='tie')) -> 2 ->> 'id')::uuid = (SELECT (v #>> '{}')::uuid FROM r WHERE k='tie_n'),
+  'D7 equal sequence: the higher id leads (and is the gate''s selected row); the NULL sequence is last');
+-- Two partitions are listed by their head rows, newest sequence first; within a partition rows stay together.
+INSERT INTO m VALUES ('two', pg_temp.mo('D-TWOPART'));
+SELECT pg_temp.as_user(pg_temp.inspector(), pg_temp.hold_sql((SELECT id FROM m WHERE k='two'), 'hold'));
+SELECT pg_temp.legacy_row((SELECT id FROM m WHERE k='two'), 'D-TWO-F1', 'FINAL', NULL, 1, 10, 'PASS', 10, 0);
+SELECT pg_temp.legacy_row((SELECT id FROM m WHERE k='two'), 'D-TWO-S1', 'IN_PROCESS', pg_temp.stage(), NULL, 30, 'PASS', 5, 0);
+SELECT pg_temp.legacy_row((SELECT id FROM m WHERE k='two'), 'D-TWO-S0', 'IN_PROCESS', pg_temp.stage(), NULL, 20, 'PASS', 5, 0);
+SELECT pg_temp.ok((SELECT string_agg(e ->> 'inspection_number', ',') FROM jsonb_array_elements(pg_temp.list_mo((SELECT id FROM m WHERE k='two'))) e)
+  = 'D-TWO-S1,D-TWO-S0,D-TWO-F1',
+  'D7 partitions are listed by head sequence (stage 30 then 20, then the FINAL at 10), rows within a partition by sequence');
 
 -- ===================================================== E. post-201 contract
 SELECT pg_temp.ok((SELECT count(*) FROM (VALUES

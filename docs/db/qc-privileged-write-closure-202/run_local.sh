@@ -34,6 +34,32 @@ M202=sql/migrations/202_qc_privileged_write_closure.sql
 PSQL=(psql -X -v ON_ERROR_STOP=1 -q)
 q1() { psql -X -tAq -d "$1" -c "$2"; }
 
+# run_checked LABEL DB FILE OUTFILE MARKER [WORKDIR] [MIN_OK_NOTICES]
+# Runs a SQL file with ON_ERROR_STOP and accepts it only if ALL of: the real psql
+# process exit code is 0 (captured, never masked), the output carries no psql
+# ERROR/FATAL/PANIC line, the success marker is present, and (optionally) at
+# least/exactly the expected number of 'ok' notices were emitted. Notices and
+# markers alone are never trusted. Prints REFUSED: ... and returns non-zero
+# otherwise; the output is kept, not hidden.
+run_checked() {
+  local label="$1" db="$2" file="$3" out="$4" marker="$5" dir="${6:-.}" want_ok="${7:-}" rc=0
+  ( cd "$dir" && psql -X -v ON_ERROR_STOP=1 -d "$db" -f "$file" ) >"$out" 2>&1 || rc=$?
+  if (( rc != 0 )); then
+    echo "REFUSED: $label psql exit code $rc" >&2; grep -E '(ERROR|FATAL|PANIC):' "$out" | head -3 >&2 || true; return 1
+  fi
+  if grep -Eq '(ERROR|FATAL|PANIC):  ' "$out"; then
+    echo "REFUSED: $label emitted a psql error although the exit code was 0" >&2
+    grep -E '(ERROR|FATAL|PANIC):  ' "$out" | head -3 >&2 || true; return 1
+  fi
+  if ! grep -Fq "$marker" "$out"; then
+    echo "REFUSED: $label success marker '$marker' missing" >&2; return 1
+  fi
+  if [[ -n "$want_ok" ]] && [[ "$(grep -c 'NOTICE:  ok ' "$out")" != "$want_ok" ]]; then
+    echo "REFUSED: $label expected exactly $want_ok ok-notices, got $(grep -c 'NOTICE:  ok ' "$out")" >&2; return 1
+  fi
+  echo "$label: psql rc=0, no psql error, marker ok: $marker"
+}
+
 PAIR="$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 190)"
 pf() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
 CUTOFF="$(pf BASELINE_CUTOFF)"
@@ -60,11 +86,44 @@ build_chain() { # $1 db, $2 order file, $3 with-fixture
 }
 copy_db() { createdb -T "$1" "$2"; }
 
+# ------------------------------------------- runner negative controls (mandatory)
+# The runner must refuse a SQL file whose psql process failed or reported an error
+# AFTER it already emitted the expected 'ok' notices and the success marker. Each
+# control runs the real run_checked against a real psql and must be REFUSED, with
+# the specific reason; a control that is accepted aborts the whole run.
+neg_control() { # $1 label, $2 sql body (heredoc text), $3 expected refusal text, $4 want_ok
+  local f="$TASK_DIR/neg_$$.sql" out="$TASK_DIR/neg.out" msg
+  printf '%s\n' "$2" > "$f"
+  if msg="$(run_checked "negative control '$1'" postgres "$f" "$out" NEG_MARKER . "${4:-}" 2>&1)"; then
+    echo "CONTROL FAIL: runner accepted '$1'" >&2; exit 1
+  fi
+  grep -qF "$3" <<<"$msg" || { echo "CONTROL FAIL: '$1' refused for the wrong reason (wanted: $3): $msg" >&2; exit 1; }
+  grep -q 'PASS' <<<"$msg" && { echo "CONTROL FAIL: '$1' printed a PASS" >&2; exit 1; }
+  echo "control ok: runner refuses '$1' ($3)"
+}
+OK_NOTICES="DO \$\$ BEGIN RAISE NOTICE 'ok  one'; RAISE NOTICE 'ok  two'; END \$\$;"
+neg_control 'late error after notices and marker (ON_ERROR_STOP, real exit 3)' \
+  "$OK_NOTICES
+\\echo NEG_MARKER
+SELECT 1/0;" 'psql exit code 3'
+neg_control 'late error after marker with a masked exit code of 0' \
+  "\\set ON_ERROR_STOP off
+$OK_NOTICES
+\\echo NEG_MARKER
+SELECT 1/0;" 'although the exit code was 0'
+neg_control 'marker missing' \
+  "$OK_NOTICES" "success marker 'NEG_MARKER' missing"
+neg_control 'wrong number of ok notices' \
+  "$OK_NOTICES
+\\echo NEG_MARKER" 'expected exactly 3 ok-notices, got 2' 3
+echo 'M202_RUNNER_NEGATIVE_CONTROLS_PASS'
+
 # ---------------------------------------------------------------- RED (pre-202)
 build_chain "${P}_base" "$TASK_DIR/order201.txt" fixture
 copy_db "${P}_base" "${P}_red"
-(cd "$HERE" && psql -X -v ON_ERROR_STOP=1 -d "${P}_red" -f red.sql 2>&1 | tee "$TASK_DIR/red.out" | grep -E 'ERROR|M202_RED' )
-grep -q 'M202_RED_REPRODUCED forged_gate_open=1 null_shadow=1 high_seq_shadow=1' "$TASK_DIR/red.out"
+run_checked 'RED (pre-202)' "${P}_red" red.sql "$TASK_DIR/red.out" \
+  'M202_RED_REPRODUCED forged_gate_open=1 null_shadow=1 high_seq_shadow=1' "$HERE" || exit 1
+grep -E 'M202_RED_REPRODUCED' "$TASK_DIR/red.out"
 dropdb "${P}_red"
 
 ACL_SQL="SELECT md5(string_agg(p.oid::regprocedure::text || coalesce(p.proacl::text,'') || p.proowner::regrole::text, ';' ORDER BY p.oid::regprocedure::text))
@@ -182,11 +241,15 @@ echo 'M202_PREFLIGHT_CONTROLS_PASS'
 [[ "$(q1 "${P}_base" "$BODY_SQL")" == "$BODY_BEFORE" ]] || { echo 'FAIL: a body of the five M201 functions changed' >&2; exit 1; }
 echo 'M202_M201_FUNCTIONS_UNCHANGED owner+ACL+body of all five identical before and after'
 copy_db "${P}_base" "${P}_acc"
-(cd "$HERE" && psql -X -v ON_ERROR_STOP=1 -d "${P}_acc" -f acceptance.sql 2>&1 | tee "$TASK_DIR/acc.out" | grep -E 'ERROR|ACCEPTANCE_PASS')
-grep -q 'M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS' "$TASK_DIR/acc.out"
+run_checked 'acceptance' "${P}_acc" acceptance.sql "$TASK_DIR/acc.out" \
+  M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS "$HERE" || exit 1
+grep -E 'ACCEPTANCE_PASS' "$TASK_DIR/acc.out"
 echo "acceptance assertions: $(grep -c 'NOTICE:  ok ' "$TASK_DIR/acc.out")"
+echo "acceptance mutants caught: $(grep -c 'NOTICE:  ok  mutant caught' "$TASK_DIR/acc.out"); forgeries refused: $(grep -c 'NOTICE:  ok  forgery refused' "$TASK_DIR/acc.out")"
 dropdb "${P}_acc"
-psql -X -v ON_ERROR_STOP=1 -d postgres -f "$HERE/owner_switch_mechanics.sql" 2>&1 | grep -E 'ERROR|MECHANICS'
+run_checked 'owner-switch mechanics' postgres "$HERE/owner_switch_mechanics.sql" "$TASK_DIR/mech.out" \
+  M202_OWNER_SWITCH_MECHANICS_OK . || exit 1
+grep -E 'MECHANICS' "$TASK_DIR/mech.out"
 
 # ------------------------------------------------ regression: the M199 suite (70)
 # The M199 suite pins the M199-era chain. Two expectations are stale for a reason
@@ -211,8 +274,8 @@ s = s.replace(a, "ALTER TABLE public.quality_inspections DISABLE TRIGGER qc_writ
 pathlib.Path(sys.argv[1]).write_text(s)
 PY
 copy_db "${P}_base" "${P}_reg"
-psql -X -v ON_ERROR_STOP=1 -d "${P}_reg" -f "$TASK_DIR/r/docs/db/quality-control-199/acceptance.sql" 2>&1 | tee "$TASK_DIR/reg.out" | grep -E 'ERROR' || true
-[[ "$(grep -c 'NOTICE:  ok ' "$TASK_DIR/reg.out")" == 70 ]] || { echo 'FAIL: M199 regression is not 70/70' >&2; exit 1; }
+run_checked 'M199 regression' "${P}_reg" "$TASK_DIR/r/docs/db/quality-control-199/acceptance.sql" "$TASK_DIR/reg.out" \
+  M199_QUALITY_CONTROL_ACCEPTANCE_PASS . 70 || { echo 'FAIL: M199 regression did not pass 70/70 with psql rc 0' >&2; exit 1; }
 echo 'M202_M199_REGRESSION_PASS 70/70'
 dropdb "${P}_reg"
 
@@ -221,8 +284,7 @@ for f in acceptance_201_manufacturing_settings_permissions.sql:MFG_SETTINGS_201_
          acceptance_200_201_contract_claims.sql:CLAIMS_200_201_PASS \
          acceptance_200_gl_event_mapping_write_closure.sql:GL_EVENT_200_ACCEPTANCE_PASS; do
   copy_db "${P}_base" "${P}_reg"
-  psql -X -v ON_ERROR_STOP=1 -d "${P}_reg" -f "scripts/ci/fresh-db/${f%%:*}" > "$TASK_DIR/reg_${f%%:*}.out" 2>&1 || true
-  grep -q "${f##*:}" "$TASK_DIR/reg_${f%%:*}.out" \
+  run_checked "${f%%:*}" "${P}_reg" "scripts/ci/fresh-db/${f%%:*}" "$TASK_DIR/reg_${f%%:*}.out" "${f##*:}" . \
     || { echo "FAIL: ${f%%:*} did not pass on the 202 chain" >&2; tail -5 "$TASK_DIR/reg_${f%%:*}.out" >&2; exit 1; }
   echo "regression ok: ${f%%:*}"
   dropdb "${P}_reg"

@@ -48,7 +48,7 @@
 | `OPERATOR_CLASS` | فهرس على المخازن الأربعة يستخدم operator class خارج `pg_catalog` — دوال الدعم تُستدعى أثناء الفحص/التفرّد لا الـexpression فقط |
 | `REWRITE_RULE` | أي `CREATE RULE` على المخازن الأربعة؛ القاعدة تُنفَّذ بديلًا عن أو إضافة للعبارة الأصلية ولا يغطيها جرد section 7 للـtriggers |
 | `INHERITANCE` | أحد المخازن الأربعة أصبح له أصل أو فرع في `pg_inherits`، أو `relkind` ليست `r` (partitioned/غيرها) — الفرع (inheritance عادي أو partition) لا يرث triggers/RLS/grants الأصل تلقائيًا، فكتابة مباشرة إليه تتجاوز كل حارس أعلاه بينما يراها المقيّم عبر الأصل |
-| `POLICIES` | RLS معطّل أو سياسة INSERT غير سياسة دور المدخل |
+| `POLICIES` | RLS معطّل، أو سياسة INSERT/ALL غير سياسة دور المدخل، أو سياسة دور المدخل بغير شكلها المثبّت تمامًا: `PERMISSIVE`، `FOR INSERT`، `TO wardah_qc_entry_202` فقط، `polqual IS NULL`، و`pg_get_expr(polwithcheck) = 'true'` حرفيًا. أي `WITH CHECK` يستدعي دالة (مثلًا دالة SECURITY INVOKER بمالك مختلف) أو يغيّر الصياغة (`true AND true`) أو يعيد توجيه السياسة إلى PUBLIC/`service_role` أو يحوّلها RESTRICTIVE/FOR ALL أو يعيد تسميتها، يُرفض بالاسم داخل الحارس `BEFORE INSERT` — قبل وصول الصف إلى تقييم RLS، فلا تُنفَّذ دالة المسند أصلًا (مثبت بحارس-تسلسل غير معاملي، §7) |
 | `FUNCTION_PIN` / `RPC_ACL` / `HELPER_ACL` | تغيّر جسم أو خصائص (`search_path`، DEFINER، مالك) الـRPC أو التحضير أو التقييم أو الحارس، أو ACL غير المتوقع |
 
 بصمات `md5(prosrc)` الحالية (ثوابت داخل `qc_assert_closed_graph_202`):
@@ -121,8 +121,21 @@ PostgreSQL يبحث `pg_temp` قبل `pg_catalog` لاسم نوع غير مؤه�
 
 - **الشرائح:** FINAL حسب (org, MO, QC cycle)، وIN_PROCESS حسب (org, MO, stage) دون تغيير نطاق M199
   (التقييم لكل مرحلة مستقل عن الـcycle).
-- **الترتيب الموحد:** `inspection_seq DESC NULLS LAST, id DESC` داخل أدلة أحدث `authority_revision`.
+- **الترتيب الموحد (البوابة):** `inspection_seq DESC NULLS LAST, id DESC` داخل أدلة أحدث `authority_revision`.
   M199 كان `ORDER BY inspection_seq DESC` فتُرتَّب NULL أولًا (أُثبت RED: صف مزوّر بـNULL يحجب FAIL حقيقي).
+- **ترتيب القائمة (`rpc_list_quality_inspections`) مُحاذى للبوابة:** داخل كل شريحة (FINAL حسب `qc_cycle`،
+  IN_PROCESS حسب المرحلة بلا فلتر cycle — كتعريف البوابة؛ والبوابة تقرأ cycle الـMO الحالي غير الفارغ فقط)
+  `authority_revision DESC, inspection_seq DESC NULLS LAST, id DESC`. **انحراف مقصود عن صياغة `NULLS LAST` على
+  الـrevision:** الصف بلا رابط سلطة يُعامَل revision 0 (`COALESCE(…,0)`) كما تفعل البوابة تمامًا، فصف NULL-authority
+  وصف مرتبط بـrevision 0 يتنافسان بالتسلسل ثم الـid كما في البوابة؛ ترتيب `NULLS LAST` الحرفي كان سيعرض في الرأس
+  صفًا غير الذي تختاره البوابة عند revision 0. أما الصف القديم NULL-authority بتسلسل مرتفع عشوائي فيأتي **بعد**
+  أي دليل حقيقي عند revision أعلى (مثبت D2). الشرائح نفسها تُسرد بترتيب تسلسل رأس كلٍّ منها (الأحدث أولًا)،
+  وصفوف الشريحة متجاورة. الصف الأول في كل شريحة هو الصف الذي تختاره البوابة (مثبت).
+- **حالة الشريحة في القائمة:** لكل صف الآن `partition_revision` (أحدث revision لتجاوز الشريحة)،
+  `awaiting_replacement`، و`authority_status` ∈ {`CURRENT`، `SUPERSEDED`، `SUPERSEDED_AWAITING_REPLACEMENT`}.
+  حين لا يوجد فحص حقيقي عند أحدث revision (بعد تجاوز بلا بديل) تحمل **كل** صفوف الشريحة
+  `SUPERSEDED_AWAITING_REPLACEMENT`، والبوابة تبقى مغلقة (`QUALITY_RELEASE_REQUIRED`/`QUALITY_STAGE_INSPECTION_REQUIRED`).
+  الحقول القديمة (`authority_revision`، `superseded`) بلا تغيير في المعنى.
 - **`authority_revision`:** جدول خاص `quality_inspection_authority_202` يكتبه المدخل فقط. الصف بلا رابط
   = revision 0 (يشمل كل التاريخ السابق، دون backfill تخميني).
 - **التجاوز:** `rpc_supersede_quality_evidence_202(mo, type, stage, expected_revision, reason)`
@@ -143,7 +156,7 @@ PostgreSQL يبحث `pg_temp` قبل `pg_catalog` لاسم نوع غير مؤه�
 |---|---|---|
 | `rpc_record_quality_inspection` | M199 `499045298cf48632bd79325494307994` (مالك postgres) | `88503b79…` (مالك `wardah_qc_entry_202`، `search_path=pg_catalog, pg_temp` — انظر §2أ) |
 | `evaluate_quality_release_199` | M199 `f640dd1264b840d593d82bf53a49e181` | `fb8dd9fe…` |
-| `rpc_list_quality_inspections` | M199 `159090c0b1f4e060cf218d026a0169c3` | `9cb343debbf7bd62b87a94926af5a8d8` |
+| `rpc_list_quality_inspections` | M199 `159090c0b1f4e060cf218d026a0169c3` | `bb2432f528a97ebb7f4d75a3e5b2f585` (كانت `9cb343de…` في الرأس السابق `7c4841ae`، قبل محاذاة الترتيب وحالة الشريحة) |
 | دوال M201 الخمس | بصمات ما بعد 201 (ثابتة) | **غير مستبدلة**؛ تُقارن بصمة وACL ومالك كلٍّ منها قبل/بعد في `run_local.sh` |
 
 الـpreflight يثبّت بصمات M199 الثلاث وبصمات ما بعد 201 للخمس (`rpc_set_gl_event_mapping`
@@ -217,8 +230,9 @@ supersession append-only، وتوثيق هذه السلسلة.
 | الفحص | النتيجة |
 |---|---|
 | RED قبل 202 | `M202_RED_REPRODUCED`: INSERT مباشر من service_role يفتح البوابة، NULL يحجب FAIL، 999 يحجبه ولا آلية تجاوز |
+| ضوابط المشغّل السلبية (إلزامية، قبل RED) | 4 ضوابط على `run_checked` الحقيقي: خطأ متأخر بعد notices والـmarker بخروج psql فعلي 3؛ خطأ متأخر مع إخفاء رمز الخروج (0) عبر `ON_ERROR_STOP off`؛ marker مفقود؛ عدد notices خاطئ — كلها **مرفوضة** بسببها المحدد ولا تُطبع أي PASS؛ `M202_RUNNER_NEGATIVE_CONTROLS_PASS`. كل مجموعات الانحدار (M199 وM200/M201) وRED والقبول وآلية المالك تُشغَّل الآن بـ`run_checked`: رمز خروج psql الحقيقي 0 + خلوّ الخرج من `ERROR/FATAL/PANIC` + marker النجاح (+ عدد notices المطلوب = 70 تمامًا لـM199). أُزيل `|| true` الذي كان يخفي الفشل |
 | ضوابط preflight/ذرية | 17 ضابطًا: بلا M201، انحراف كل من الدوال الخمس، نص M199 السابق لـ201 لدالتين، انحراف أجسام M199 الثلاثة، بلا USAGE على public، منح جدول لـauthenticated، trigger سابق يفتح الرسم (يُجهض كاملًا)، إعادة تطبيق، دور موجود |
-| قبول 202 | 192 تأكيدًا + `M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS`: سطح الامتيازات، المسار الحقيقي، التزوير (owner/same-owner/different-owner/marker/GUC/nested/replica)، **62** mutant كتالوجي مُلتقَط بسببه المحدد (يشمل COLUMN_TYPE×2 وOPERATOR_CLASS وREWRITE_RULE وINHERITANCE)، و26 محاولة تزوير مرفوضة بسببها، و5 ضوابط non-vacuity (تعطيل الحارس أو إعادة المنح يجعل التزوير ينجح)، NULL والـsupersession (FINAL وIN_PROCESS ومرحلتان ودورتان وفساد)، عقد ما بعد 201 |
+| قبول 202 | 215 تأكيدًا + `M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS`: سطح الامتيازات، المسار الحقيقي، التزوير (owner/same-owner/different-owner/marker/GUC/nested/replica)، **75** mutant كتالوجي مُلتقَط بسببه المحدد (يشمل COLUMN_TYPE×2 وOPERATOR_CLASS وREWRITE_RULE وINHERITANCE، و13 جديدًا لسياسة الإدخال: ضابط الشكل السليم، مسند دالة SECURITY INVOKER بمالك مختلف، تعبير كتالوجي فقط، `false`، `true AND true`، إعادة توجيه إلى PUBLIC وإلى `service_role`، إعادة إنشاء RESTRICTIVE وFOR ALL، إعادة تسمية، سياسة RESTRICTIVE ALL إضافية، وتعديل مباشر لـ`pg_policy.polqual` و`polpermissive` للإثبات أن الفحصين غير فارغين)، وفحص نهاية-لنهاية: مع سياسة مسند تزيد sequence غير معاملي، الـRPC الحقيقي يُرفض بـ`POLICIES` **ولم تُنفَّذ دالة المسند** (الـsequence لم يتحرك)، وكـnon-vacuity: بتعطيل الحارس تتحرك الـsequence. (مسند `polqual` لا يمكن إنشاؤه بـDDL على سياسة INSERT؛ فُحص بتعديل كتالوج في عنقود مؤقت فقط)، و26 محاولة تزوير مرفوضة بسببها، و5 ضوابط non-vacuity (تعطيل الحارس أو إعادة المنح يجعل التزوير ينجح)، NULL والـsupersession (FINAL وIN_PROCESS ومرحلتان ودورتان وفساد)، ترتيب القائمة وحالتها (D1/D2/D3/D7: الدليل الحقيقي عند revision 1 يسبق صفًا قديمًا NULL-authority بتسلسل 999، تعادل التسلسل يحسمه id، NULL أخيرًا، رأس الشريحة = صف البوابة، `SUPERSEDED_AWAITING_REPLACEMENT` لـFINAL وللمرحلة فقط)، عقد ما بعد 201 |
 | تصحيح `search_path` | `type_shadow_regression.sh`: `M202_TYPE_SHADOW_REGRESSION_PASS` — صفر إصابة بهوية مميّزة (GREEN) على مساري hold والكتابة معًا، وإصابة مؤكدة بعد عكس تصحيح `mo_quality_gate_199` عمدًا (RED، non-vacuity)، ثم عودة لصفر بعد الاستعادة |
 | دوال M201 الخمس | المالك والـACL والجسم متطابقة قبل/بعد 202 |
 | انحدار M199 | 70/70 بنسخة معدَّلة بتغييرين موثقين في `run_local.sh` (توقّع `NOT_ORG_ADMIN` القديم بعد 201، وبذر صف legacy بإدخال مباشر يمنعه 202 عمدًا) |
@@ -242,3 +256,11 @@ supersession append-only، وتوثيق هذه السلسلة.
 - **الحدود البنيوية المضافة في §2 (COLUMN_TYPE/OPERATOR_CLASS/REWRITE_RULE/INHERITANCE):** كل واحدة
   مُثبَتة بـmutant حي واحد على الأقل؛ لم تُفحص تركيبات متزامنة أو DDL أخرى (مثل EVENT TRIGGER أو
   PUBLICATION) لم يُطلب فحصها صريحًا.
+- **تصحيحات الجولة الأخيرة (الرأس بعد `7c4841ae`) — حدودها:** (1) تثبيت السياسة يغطي سياسة INSERT/ALL فقط؛
+  سياسات SELECT/UPDATE/DELETE الأخرى على `quality_inspections` ليست جزءًا من العقد المثبّت. (2) محاذاة القائمة
+  تعتمد على فعل `COALESCE(revision,0)` كالبوابة (انحراف موثق في §3)؛ القائمة تعرض شرائح FINAL لكل cycle بينما
+  البوابة تقرأ cycle الـMO الحالي فقط، فحالة `SUPERSEDED_AWAITING_REPLACEMENT` لـcycle قديم لا تعني أن البوابة
+  الحالية مغلقة بسببه. لم يُختبر الأداء على بيانات كبيرة (نافذة `row_number` فوق كل صفوف المؤسسة/الأمر قبل LIMIT).
+  (3) مغلّف المشغّل `run_checked` يضمن أن فشل psql وخطأً متأخرًا لا يمرّان؛ لا يثبت صحة ما يطبعه الملف نفسه
+  من notices، وهو لا يغطي `type_shadow_regression.sh` وconcurrency.py الذين يعتمدان على rc الفعلي لعملياتهما
+  (`set -Eeuo pipefail`) وعلى markers.
