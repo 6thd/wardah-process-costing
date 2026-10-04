@@ -286,15 +286,25 @@ Round 4, all 44 locked hashes match, Bash syntax and whitespace pass. Document
 checks confirm the four correction topics and selected-chain wording are
 present; these are text checks, not runtime role, namespace or selector proofs.
 
+## Round 6 residual wording
 
-Round 5 independent text review at `85bd4f09` passed all four corrections;
-proof files stayed identical and no new PG17 run was claimed. Round 6 clarifies
-remaining execution-graph wording (including different-owner INVOKER paths),
-fail-closed occupancy for BOTH advisory classes, and removes the stale literal-
-identity helper sentence. These are wording corrections, not new acceptance.
+Round 5 independent text review at `85bd4f09` passed all four corrections.
+Proof files stayed identical and no new PG17 run was claimed. The closed-graph
+acceptance rule is effective execution identity. A different-owner SECURITY
+INVOKER that the entry role can execute still runs as that role, so the
+role-to-signature map would stamp the legitimate entrypoint. A proowner
+comparison plus a trusted-postgres disposition leaves that path open. The
+fail-closed namespace sentence names both class `1463898704` and class
+`1463898705`. Round 3 item 6 derives identity from the execution-role mapping
+and rejects a caller-supplied function name. The context-mutator sentence is
+wrapped with the surrounding prose. These are wording corrections, not new
+acceptance.
+
 #315 was observed still Open/Draft/Unmerged at
-`b104e3717717cbbe539e9493030ca8458da9126f`, newer than the review's
-`3819a3f3387d7fe577491426e9a1b79b971885c5`. No #315 delta is absorbed or accepted
-here. If M201 merges, reconcile any future fence against its post-201 function
-bodies; pre-201 replacements must not erase or bypass either layer. Existing
-pair-order/simulated-fence tests are not proof of an implemented pause.
+`b104e3717717cbbe539e9493030ca8458da9126f`, newer than the review pin
+`3819a3f3387d7fe577491426e9a1b79b971885c5`. No #315 delta is absorbed or
+accepted here. If M201 merges, reconcile any future fence onto the post-201
+bodies of the replaced functions. A fence written from the pre-201 source is
+the erasure case described by `3819a3f3`. That reconciliation is not in this
+packet. Existing pair-order and simulated-fence tests are not proof of an
+implemented pause.

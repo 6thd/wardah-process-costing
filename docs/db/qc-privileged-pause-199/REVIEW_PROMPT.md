@@ -1,19 +1,28 @@
-# Independent Round 6 wording closure review
+# Independent Round 6 residual-wording review
 
-Round 5 reviewed parent: `85bd4f09e7f2f8cfe2084042a29e530e22577709`, tree
+Supplied Round 5 parent: `85bd4f09e7f2f8cfe2084042a29e530e22577709`, tree
 `b9b1d6d563b25a0ac7689705536f8181fbdf6546`. All four Round 5 text corrections
-passed. Review ONLY the three-document wording delta against this parent:
+passed. Review ONLY the three-document wording delta after that parent:
 
-- Effective execution graph includes different-owner SECURITY INVOKER routines
-  (PUBLIC/default/inherited EXECUTE, nested calls/operators/triggers/dispatch),
-  never merely proowner equality or blanket trusted-postgres classification.
-- Unknown occupancy of EITHER class 1463898704 or 1463898705 fails closed.
-- Round 3 helper wording now agrees with the execution-role mapping; no arbitrary
-  literal function-name argument establishes identity. Formatting is cleaned.
-- #315 drift is observed, not absorbed: current readback head
-  b104e3717717cbbe539e9493030ca8458da9126f remains open/draft/unmerged; the supplied
-  Round 5 review saw 3819a3f3387d7fe577491426e9a1b79b971885c5. If M201 merges,
-  require post-201 function-body reconciliation; no simulated fence proves pause.
+- The closed-graph acceptance rule is effective execution identity. A
+  different-owner SECURITY INVOKER that the entry role can execute still runs
+  as that role, so the role-to-signature map stamps the legitimate entrypoint.
+  Enumeration covers every pg_proc, procedure, trigger, default ACL and
+  membership edge. A proowner comparison plus a trusted-postgres disposition
+  leaves that path open. Same-owner rogue mutants still fail the gate.
+  Superuser and DDL administrators stay outside the guarantee.
+- The fail-closed namespace sentence itself names both class `1463898704` and
+  class `1463898705`.
+- Round 3 item 6 derives identity from the execution-role mapping and rejects
+  a caller-supplied function name.
+- The context-mutator sentence wraps with the surrounding prose. README has one
+  blank line before the Round 6 heading. No trailing whitespace, tabs, or
+  missing final newlines.
+- #315 drift is observed, not absorbed. Current readback
+  `b104e3717717cbbe539e9493030ca8458da9126f` remains open, draft and unmerged,
+  newer than review pin `3819a3f3387d7fe577491426e9a1b79b971885c5`. If M201
+  merges, require reconciliation onto the post-201 function bodies. No
+  simulated fence proves pause.
 
 The older four questions below are context, not a request to redesign or repeat
 all reviews. Return PASS/FAIL for these residual wording corrections and list
@@ -36,10 +45,11 @@ Live-main readback: `1fe5eccc8e52874bc6038f26ffd4366628c46ca1`, tree
 not merged into that main. Report new drift; do not silently absorb it.
 #308/#310/#311 references remain the same as README.
 
-Verify only contract, README and this prompt change against the Round 5 parent; all proof
-code and the 44-source lock remain byte-identical. Total PR is seven additions
-against frozen base. Main-only M200 files are not PR deletions. No rebase/relock.
-This is four specific contract defects, not a repeat of all RED reproductions.
+Verify only contract, README and this prompt change against the Round 5 parent.
+All proof code and the 44-source lock remain byte-identical. Total PR is seven
+additions against frozen base. Main-only M200 files are not PR deletions. No
+rebase/relock. This is residual wording after the four PASS corrections, not a
+repeat of all RED reproductions.
 
 1. Identity binding: does the document stop claiming helper reachability from
    a textual signature, NOLOGIN or EXECUTE revoke alone? Check distinct dedicated

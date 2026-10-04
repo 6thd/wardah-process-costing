@@ -207,10 +207,10 @@ They are requirements for future implementation, not implemented protections.
 3. Use a reviewed hierarchy: global shared barrier -> org shared barriers in
    ascending order -> pause rows -> business locks. A global controller takes
    the global exclusive barrier before org enumeration/state transitions, so it
-   need not hold N org exclusive advisory locks. Every writer, org controller and new-org
-   provisioning must take the global shared prefix before any org lock.
-   A writer without a server-resolved
-   org refuses before org/business locks; no caller-supplied org is trusted.
+   need not hold N org exclusive advisory locks. Every writer, org controller
+   and new-org provisioning must take the global shared prefix before any org
+   lock. A writer without a server-resolved org refuses before org/business
+   locks; no caller-supplied org is trusted.
    Review global controller overlap with org controllers and provisioning.
    Read back max_locks_per_transaction and budget the remaining locks under
    realistic transactions; it sizes shared capacity, not a hard per-tx cap.
@@ -289,15 +289,16 @@ in a private schema, not a caller-settable custom GUC. Bind it to backend identi
 full transaction ID (`xid8`, never the wrapping 32-bit xid), org, epoch,
 server-derived entrypoint identity and nesting depth.
 Only narrow, reviewed DEFINER entrypoints with distinct per-entrypoint NOLOGIN
-owners may establish/push/pop context, under the role/code binding below. No client EXECUTE on the context mutator, no direct
-DML/DDL or owner membership for client/service roles; pinned search_path and
-fully qualified references are required. Context rows must be removed on normal
-exit, scoped/restored on nested exit and rolled back on errors; committed orphan
-context is a failed invariant. Guards check both intended execution owner and
-matching context. Current_user, literal arguments or context existence alone
-are insufficient. Inventory all owner-executed dynamic SQL and callable helpers
-that could forge context or reach protected QC/fence/audit stores. No acceptance
-until spoof/direct-helper/nested/error/pool-reuse probes pass.
+owners may establish/push/pop context, under the role/code binding below. No
+client EXECUTE on the context mutator, no direct DML/DDL or owner membership
+for client/service roles; pinned search_path and fully qualified references
+are required. Context rows must be removed on normal exit, scoped/restored on
+nested exit and rolled back on errors; committed orphan context is a failed
+invariant. Guards check both intended execution owner and matching context.
+Current_user, literal arguments or context existence alone are insufficient.
+Inventory all owner-executed dynamic SQL and callable helpers that could forge
+context or reach protected QC/fence/audit stores. No acceptance until
+spoof/direct-helper/nested/error/pool-reuse probes pass.
 
 Selected binding is execution-role isolation, not PL/pgSQL caller introspection.
 Each privileged public entrypoint gets its own distinct NOLOGIN, NOSUPERUSER,
@@ -313,46 +314,47 @@ no entry owner owns that store or can change its access policy. Trigger guard
 checks must preserve/validate the write execution role rather than replace it
 with a shared DEFINER guard owner and then mistake that for caller identity.
 
-This isolation is meaningful only if the owner/code graph is closed. For every
-entry role, acceptance enumerates ALL pg_proc/procedure/trigger/default-ACL and
-membership paths, not just the named endpoint: only that frozen entrypoint and
-its reviewed private SECURITY INVOKER helpers may run as that owner. Reject any
-additional same-owner DEFINER routine, mutable search_path, generic dynamic SQL,
-role-changing/capability-granting helper, client or service-role SET/INHERIT path,
-or executable owner-level route that can bypass isolation. Entry roles cannot
+This isolation is meaningful only if the effective execution graph is closed.
+For every entry role, acceptance enumerates every pg_proc, procedure, trigger,
+default ACL and membership edge, not just the named endpoint. The measure is
+which code executes with that role's identity, not which routine shares its
+proowner. A different-owner SECURITY INVOKER routine that the entry role can
+execute still runs as that entry role, so the role-to-signature map stamps the
+legitimate entrypoint. The traversal includes PUBLIC, default and inherited
+EXECUTE, nested calls, operators, casts, triggers and dynamic dispatch. Only
+the frozen entrypoint and its reviewed private SECURITY INVOKER helpers may
+execute with that identity; every other reachable routine must be revoked or
+unreachable. A proowner comparison plus a trusted-postgres disposition leaves
+that path open and blocks acceptance. Reject any additional same-owner DEFINER
+routine, mutable search_path, generic dynamic SQL, role-changing or
+capability-granting helper, client or service-role SET/INHERIT path, or
+executable owner-level route that can bypass isolation. Entry roles cannot
 CREATE in any schema, change ownership or grant access to the context store.
 Fingerprint this closed graph at postflight and admission monitoring; changes
 invalidate acceptance and require re-review. In particular audit the existing
 postgres-owned service_role-callable DEFINER/dynamic-SQL paths: no acceptance
 while any grants arbitrary privileged execution or entry-role access. A trusted
 fixed postgres-owned routine is not automatically an arbitrary-code exploit,
-but an unresolved reachability edge is a blocker.
+but any unresolved edge that executes as the entry role is a blocker.
 
-The graph is evaluated by effective execution identity, NOT proowner equality.
-Traverse every reachable SECURITY INVOKER routine regardless of its owner,
-including PUBLIC/default/inherited EXECUTE, nested calls, operators/casts,
-triggers and dynamic dispatch; INVOKER retains the entry role's authority. Such
-code must be an explicitly frozen reviewed helper or be unreachable/revoked.
-Unknown or write-capable unreviewed INVOKER code blocks acceptance even when
-owned by postgres or by a different role. Mutants must cover a different-owner
-INVOKER that forges context, not just a same-owner DEFINER. No blanket trusted-
-postgres disposition can exempt an effective entry-role execution path.
-
-Adding a same-owner rogue function or a forged-context helper in a local mutant
-must fail the catalog/role binding gate even if it can forge a row at runtime.
-This is not a claim that SQL can distinguish two arbitrary functions running as
-the same owner; it explicitly forbids that deployment. NOLOGIN does not contain
-superusers/DDL administrators; they can SET ROLE or alter the graph and remain
-outside the database-only guarantee. Preserve those operational exclusions.
+Mutants must cover a different-owner SECURITY INVOKER that forges context, not
+only a same-owner DEFINER. Adding a same-owner rogue function or a
+forged-context helper in a local mutant must fail the catalog/role binding
+gate even if it can forge a row at runtime. This is not a claim that SQL can
+distinguish two arbitrary functions running as the same owner; it explicitly
+forbids that deployment. NOLOGIN does not contain superusers/DDL
+administrators; they can SET ROLE or alter the graph and remain outside the
+database-only guarantee. Preserve those operational exclusions.
 
 RECOVERY allowlist is a fixed server-code constant containing only reviewed
 recovery entrypoint identities (initially only
 `public.rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid)` for unknown
-material issue events), with literal identity in the allowlisted entrypoint body. No
-client-writable allowlist table, payload-based identity or arbitrary name passed
-to a helper. The helper is reachable only through restricted entrypoints and
-uses the protected context above; reconciliation may close, never apply events.
-Exact deployed function signatures/owners are frozen by implementation review.
+material issue events), with literal identity in the allowlisted entrypoint
+body. No client-writable allowlist table, payload-based identity or arbitrary
+name passed to a helper. The helper is reachable only through restricted
+entrypoints and uses the protected context above; reconciliation may close,
+never apply events. Exact deployed function signatures/owners are frozen by
+implementation review.
 
 If a parameter marker is retained in a later implementation, reserve
 `wardah.qc_entry_context`, revoke SET/ALTER SYSTEM grants via pg_parameter_acl
@@ -401,12 +403,12 @@ Preserve the quota acceptance and per-org/day concurrency contract. Rekey during
 verified drain of old M171 calls with admission closed, not a rolling mixture of
 old and new lock keys. No M171 modification or rekey proof is made here.
 Every other dynamic/external two-int caller must likewise use a disjoint fixed
-class or be disabled/drained under explicit policy. If its range may include the
-fence class `1463898704` OR rekey class `1463898705` and disposition is
-unresolved, namespace acceptance fails closed;
-do not treat timeout as proof of reservation. Single-bigint business locks such
-as M200 use PostgreSQL's separate key space. Namespace registration and old-call
-drain are prerequisites of P04/P12, with collision and allocator-upgrade mutants.
+class or be disabled/drained under explicit policy. If its range may include
+fence class `1463898704` or rekey class `1463898705` and disposition is
+unresolved, namespace acceptance fails closed. Do not treat timeout as proof
+of reservation. Single-bigint business locks such as M200 use PostgreSQL's
+separate key space. Namespace registration and old-call drain are prerequisites
+of P04/P12, with collision and allocator-upgrade mutants.
 
 | Participant | Transaction-duration lock prefix |
 | --- | --- |
