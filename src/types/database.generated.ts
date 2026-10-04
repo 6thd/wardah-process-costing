@@ -11431,6 +11431,16 @@ export type Database = {
         Args: { p_adjustment_id: string }
         Returns: Json
       }
+      rpc_supersede_quality_evidence_202: {
+        Args: {
+          p_expected_revision: number
+          p_inspection_type: string
+          p_mo_id: string
+          p_reason: string
+          p_stage_id: string
+        }
+        Returns: Json
+      }
       rpc_transition_mo_status: {
         Args: {
           p_mo_id: string
