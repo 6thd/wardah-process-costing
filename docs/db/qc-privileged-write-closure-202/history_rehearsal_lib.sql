@@ -99,7 +99,8 @@ END $fn$;
 
 
 -- The ORACLE: compares the live structure to the baseline captured BEFORE the
--- procedure (GUC m202.f0, loaded from a file written before the load). It never
+-- procedure (GUC m202.f0). The value is captured before the load and persisted to
+-- f0.txt after the COMMIT, from the retained value (history_rehearsal.sql). It never
 -- re-captures; a drifted state raises.
 CREATE FUNCTION pg_temp.assert_fp(p_label text) RETURNS void LANGUAGE plpgsql AS $fn$
 DECLARE v_now text := pg_temp.fp(); v_base text := current_setting('m202.f0');
@@ -127,4 +128,3 @@ BEGIN
   END IF;
   RAISE NOTICE 'ok  oracle rejects the committed state once %', p_label;
 END $fn$;
-
