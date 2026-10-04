@@ -14,6 +14,7 @@ on:
       - 'sql/migrations/201_manufacturing_settings_permissions.sql'
       - 'scripts/ci/fresh-db/acceptance_201_manufacturing_settings_permissions.sql'
       - 'scripts/ci/fresh-db/acceptance_201_manufacturing_settings_permissions_red.sql'
+      - 'scripts/ci/fresh-db/acceptance_201_layer_order.sh'
       - '.github/workflows/manufacturing-settings-201-acceptance.yml'
       - 'sql/baseline/**'
       - 'sql/migrations/**'
@@ -132,6 +133,18 @@ jobs:
             2>&1 | tee /tmp/mfg-settings-201-red.out
           grep -q 'MFG_SETTINGS_201_RED_PROOF_PASS' /tmp/mfg-settings-201-red.out
 
+      - name: Layer order — 201 and a later fence on the same functions
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # The pre-201 red database and the green chain are templates only;
+          # every case runs on its own copy. A fence applied before 201 must
+          # make 201 refuse; a fence applied after 201 must keep the 201
+          # acceptance green, and one that drops the 201 layer must fail it.
+          PRE_DB=wardah_red POST_DB=wardah_fresh \
+            bash scripts/ci/fresh-db/acceptance_201_layer_order.sh \
+            2>&1 | tee /tmp/mfg-settings-201-layer-order.out
+
       - name: Confirm both proof directions actually ran
         shell: bash
         run: |
@@ -146,6 +159,10 @@ jobs:
           grep -q 'MFG_SETTINGS_201_RED_PRECONDITION_OK' /tmp/mfg-settings-201-red.out
           grep -q 'MFG_SETTINGS_201_RED_PROOF_OK' /tmp/mfg-settings-201-red.out
           grep -q 'MFG_SETTINGS_201_RED_PROOF_PASS' /tmp/mfg-settings-201-red.out
+          grep -q 'MFG_SETTINGS_201_LAYER_ORDER_FENCE_FIRST_OK' /tmp/mfg-settings-201-layer-order.out
+          grep -q 'MFG_SETTINGS_201_LAYER_ORDER_BOTH_LAYERS_OK' /tmp/mfg-settings-201-layer-order.out
+          grep -q 'MFG_SETTINGS_201_LAYER_ORDER_DROPPED_LAYER_CAUGHT_OK' /tmp/mfg-settings-201-layer-order.out
+          grep -q 'MFG_SETTINGS_201_LAYER_ORDER_PASS' /tmp/mfg-settings-201-layer-order.out
 
       - name: Upload acceptance evidence
         if: always()
@@ -157,4 +174,5 @@ jobs:
             /tmp/red_chain_report.txt
             /tmp/mfg-settings-201.out
             /tmp/mfg-settings-201-red.out
+            /tmp/mfg-settings-201-layer-order.out
           retention-days: 30

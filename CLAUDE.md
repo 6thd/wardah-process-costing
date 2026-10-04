@@ -232,8 +232,10 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   `rpc_set_quality_policy`) إلى محدِّد واحد `wardah_internal.manufacturing_settings_can_update_201`
   = Super Admin أو `wardah_is_org_admin` أو حامل المفتاح — **مجموعة عليا للحارس السابق، لا يفقد
   مسؤول حالي شيئًا** (`has_permission` وحدها كانت ستقفل المسؤول المعرَّف بالدور فقط). المفتاحان
-  مستثنيان من توسيع القوالب بالـwildcard. تستبدل خمس دوال؛ **العقد والسلسلة وتنسيق #313 في §4
-  من الـrunbook — اقرأه قبل أي `CREATE OR REPLACE` عليها**.
+  مستثنيان من توسيع القوالب بالـwildcard. تستبدل خمس دوال، وتشترط بصمة تامة
+  (`md5(prosrc)`) لأجسامها من 192 و199 و200، فأي استبدال بينها يوقفها مغلقة. **العقد والبصمات
+  قبل 201 وبعدها وتنسيق #313 (مثبت بالترتيبين) في §4 من الـrunbook — اقرأه قبل أي
+  `CREATE OR REPLACE` عليها**.
 
 ## Baseline
 

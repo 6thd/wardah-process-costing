@@ -26,13 +26,16 @@
 --
 -- Every replaced body is the previous body verbatim except the guard (or, for
 -- rpc_get_quality_policy and create_role_from_template, the single line or
--- list noted above). The preflight refuses to run if any current body no
--- longer matches the version this migration was written against, so a later
--- CREATE OR REPLACE (for example the G05 pause fence proposed in #313) cannot
--- be silently overwritten. Whichever of the two lands second must carry both
--- changes; see docs/db/MANUFACTURING_SETTINGS_PERMISSIONS_201_RUNBOOK.md.
+-- list noted above). The preflight compares an exact hash of each current
+-- body (md5 of pg_proc.prosrc) with the 192/199/200 version this file copies
+-- and refuses to run on any difference, so a later CREATE OR REPLACE (for
+-- example the G05 pause fence proposed in #313) cannot be silently
+-- overwritten. The postflight pins the resulting bodies the same way.
+-- Whichever of 201 and the fence lands second must carry both layers; see
+-- docs/db/MANUFACTURING_SETTINGS_PERMISSIONS_201_RUNBOOK.md, section 4.
 --
--- Requires 192, 199 and 200. Production order: 195 -> 199, 200, then 201.
+-- Requires 192 (rpc_set_material_issue_wo_statuses), 199 and 200.
+-- Production order: 192 (already applied), then 195 -> 199, 200, then 201.
 -- No UI depends on these keys yet; the /settings/manufacturing UI PR waits
 -- for 201 to be applied and verified on Production (DB-first).
 
@@ -43,7 +46,7 @@ SET LOCAL statement_timeout = '5min';
 
 DO $preflight$
 DECLARE
-  v_def text;
+  v_mismatch text;
 BEGIN
   IF to_regclass('public.permissions') IS NULL
      OR to_regclass('public.modules') IS NULL
@@ -77,34 +80,40 @@ BEGIN
     RAISE EXCEPTION 'MFG_SETTINGS_201_TARGET_FUNCTION_MISSING';
   END IF;
 
-  v_def := pg_get_functiondef('public.rpc_set_gl_event_mapping(uuid,text,text,text,text,text,boolean)'::regprocedure);
-  IF position('PERFORM public.wardah_assert_org_admin(p_org_id);' IN v_def) = 0
-     OR position('ON CONFLICT (org_id, event_code, COALESCE(work_center_code, '''')) DO NOTHING' IN v_def) = 0 THEN
-    RAISE EXCEPTION 'MFG_SETTINGS_201_UNEXPECTED_BODY: rpc_set_gl_event_mapping';
-  END IF;
+  -- Each replaced function must still be, byte for byte, the body this file
+  -- copies. The fingerprint is md5(pg_proc.prosrc): the text between the
+  -- dollar quotes, stored verbatim and re-emitted verbatim by pg_dump, so it
+  -- is the same in every environment that applied the canonical 192, 199 and
+  -- 200 files (and in a later Baseline that folds them). Any other
+  -- CREATE OR REPLACE in between, even one that keeps every line a marker
+  -- check would look for (the G05 pause fence proposed in #313, for
+  -- example), changes the hash and stops 201 here instead of being silently
+  -- overwritten. Security mode and search_path are pinned too, because the
+  -- CREATE OR REPLACE below restates them.
+  SELECT string_agg(format('%s: md5 %s, expected %s (from %s)',
+                           e.sig, COALESCE(md5(p.prosrc), 'missing'), e.body_md5, e.source),
+                    '; ' ORDER BY e.sig)
+  INTO v_mismatch
+  FROM (VALUES
+    ('public.rpc_set_gl_event_mapping(uuid,text,text,text,text,text,boolean)',
+     '36e7f114c562c5de17fc24b9f5d6a7d7', '200'),
+    ('public.rpc_set_material_issue_wo_statuses(uuid,text[])',
+     '2025fc602029597fe97756c901485b33', '192'),
+    ('public.rpc_set_quality_policy(uuid,jsonb,bigint)',
+     '23b60f4dfe97a0e690e630f42d6084ea', '199'),
+    ('public.rpc_get_quality_policy(uuid)',
+     'a802945bb3fb0afa5e1b5d0af5219c20', '199'),
+    ('public.create_role_from_template(uuid,uuid,character varying,uuid)',
+     '5cb026fc706caef1914dbf9a1aa5236b', '199')
+  ) AS e(sig, body_md5, source)
+  LEFT JOIN pg_proc p ON p.oid = to_regprocedure(e.sig)
+  WHERE md5(p.prosrc) IS DISTINCT FROM e.body_md5
+     OR p.prosecdef IS DISTINCT FROM true
+     OR p.proconfig IS DISTINCT FROM ARRAY['search_path=public, pg_temp'];
 
-  v_def := pg_get_functiondef('public.rpc_set_material_issue_wo_statuses(uuid,text[])'::regprocedure);
-  IF position('PERFORM public.wardah_assert_org_admin(p_org_id);' IN v_def) = 0
-     OR position('manufacturing.material_issue_wo_policy.update' IN v_def) = 0 THEN
-    RAISE EXCEPTION 'MFG_SETTINGS_201_UNEXPECTED_BODY: rpc_set_material_issue_wo_statuses';
-  END IF;
-
-  v_def := pg_get_functiondef('public.rpc_set_quality_policy(uuid,jsonb,bigint)'::regprocedure);
-  IF position('PERFORM public.wardah_assert_org_admin(p_org_id);' IN v_def) = 0
-     OR position('''migration'',199' IN v_def) = 0 THEN
-    RAISE EXCEPTION 'MFG_SETTINGS_201_UNEXPECTED_BODY: rpc_set_quality_policy';
-  END IF;
-
-  v_def := pg_get_functiondef('public.rpc_get_quality_policy(uuid)'::regprocedure);
-  IF position('''can_manage_policy'', wardah_internal.quality_is_admin_199(p_org_id)' IN v_def) = 0 THEN
-    RAISE EXCEPTION 'MFG_SETTINGS_201_UNEXPECTED_BODY: rpc_get_quality_policy';
-  END IF;
-
-  v_def := pg_get_functiondef('public.create_role_from_template(uuid,uuid,character varying,uuid)'::regprocedure);
-  IF position('''manufacturing.quality_inspections.approve_conditional'')' IN v_def) = 0
-     OR position('''manufacturing.material_issue_setup.prepare''' IN v_def) = 0
-     OR position('''rbac.role.create''' IN v_def) = 0 THEN
-    RAISE EXCEPTION 'MFG_SETTINGS_201_UNEXPECTED_BODY: create_role_from_template';
+  IF v_mismatch IS NOT NULL THEN
+    RAISE EXCEPTION 'MFG_SETTINGS_201_UNEXPECTED_BODY: %', v_mismatch
+      USING HINT = 'A function 201 replaces was changed after 192/199/200. Re-derive 201 from the current bodies so both layers survive; see the 201 runbook, section 4.';
   END IF;
 END
 $preflight$;
@@ -527,7 +536,29 @@ COMMENT ON FUNCTION public.rpc_set_gl_event_mapping(uuid, text, text, text, text
 DO $postflight$
 DECLARE
   v_sig text;
+  v_mismatch text;
 BEGIN
+  -- The bodies 201 leaves behind. A later migration that replaces any of
+  -- these functions checks these hashes in its own preflight and must carry
+  -- the 201 layer forward (runbook section 4).
+  SELECT string_agg(format('%s: md5 %s, expected %s', e.sig, COALESCE(md5(p.prosrc), 'missing'), e.body_md5),
+                    '; ' ORDER BY e.sig)
+  INTO v_mismatch
+  FROM (VALUES
+    ('public.rpc_set_gl_event_mapping(uuid,text,text,text,text,text,boolean)', '68a55461e73a5829728b45f430d4db59'),
+    ('public.rpc_set_material_issue_wo_statuses(uuid,text[])', 'cd01220eab3266ce28744821825b0915'),
+    ('public.rpc_set_quality_policy(uuid,jsonb,bigint)', '782b30957175c20cfff71b6c9a3ee26d'),
+    ('public.rpc_get_quality_policy(uuid)', '95347a01c938b4295d17e02e723b97ab'),
+    ('public.create_role_from_template(uuid,uuid,character varying,uuid)', 'd1d315bab6f854a846624d79006b6008')
+  ) AS e(sig, body_md5)
+  LEFT JOIN pg_proc p ON p.oid = to_regprocedure(e.sig)
+  WHERE md5(p.prosrc) IS DISTINCT FROM e.body_md5
+     OR p.prosecdef IS DISTINCT FROM true
+     OR p.proconfig IS DISTINCT FROM ARRAY['search_path=public, pg_temp'];
+  IF v_mismatch IS NOT NULL THEN
+    RAISE EXCEPTION 'MFG_SETTINGS_201_RESULT_BODY_MISMATCH: %', v_mismatch;
+  END IF;
+
   IF (SELECT count(*) FROM public.permissions p JOIN public.modules m ON m.id = p.module_id
       WHERE m.name = 'manufacturing'
         AND p.permission_key IN ('manufacturing.settings.read', 'manufacturing.settings.update')) <> 2 THEN
