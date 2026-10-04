@@ -1,0 +1,95 @@
+name: QC and material issue native M199 acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/fixtures/qc-material-199/**'
+      - 'docs/db/qc-material-199-closure/**'
+      - '.github/workflows/qc-material-199-native.yml'
+      - 'sql/migrations/19[0-9]_*.sql'
+      - 'sql/baseline/**'
+      - 'scripts/ci/fresh-db/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    name: Frozen QC/material client on canonical PG17 M199
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['55439:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '55439'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+      WARDAH_QC_OUTPUT: /tmp/qc-material-199-evidence
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 2ea72541fec4b52e7e0af2a3809ecb7be791bb47
+          path: reviewed-client
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install PG17 client and Python fixture dependency
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [ ! -x /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh ]; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-common
+          fi
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+          python -m pip install 'psycopg[binary]==3.3.6'
+          mkdir -p "$WARDAH_QC_OUTPUT"
+      - name: Prove input and connection refusals
+        run: |
+          set -Eeuo pipefail
+          python3 tests/fixtures/qc-material-199/test_controls.py reviewed-client | tee "$WARDAH_QC_OUTPUT/refusals.txt"
+          grep -Fxq 'QC_MATERIAL_REFUSAL_CONTROLS_PASS connections=15 sources=4 client=4' "$WARDAH_QC_OUTPUT/refusals.txt"
+      - name: Install reviewed browser dependencies after refusals
+        run: |
+          set -Eeuo pipefail
+          python3 tests/fixtures/qc-material-199/test_markers.py
+          npm ci --ignore-scripts
+          ln -s "$GITHUB_WORKSPACE/node_modules" reviewed-client/node_modules
+          npx playwright install --with-deps chromium
+      - name: Prove native browser and joint races on one M199 database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "checkout: $(git rev-parse HEAD) tree: $(git rev-parse HEAD^{tree})" | tee "$WARDAH_QC_OUTPUT/acceptance.txt"
+          psql --version | tee -a "$WARDAH_QC_OUTPUT/acceptance.txt"
+          psql --version | grep -Eq '^psql \(PostgreSQL\) 17\.'
+          bash tests/fixtures/qc-material-199/run_local.sh reviewed-client 2>&1 | tee -a "$WARDAH_QC_OUTPUT/acceptance.txt"
+          python3 tests/fixtures/qc-material-199/check_markers.py "$WARDAH_QC_OUTPUT/acceptance.txt"
+          python3 tests/fixtures/qc-material-199/test_markers.py "$WARDAH_QC_OUTPUT/acceptance.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: qc-material-199-native-${{ github.run_id }}
+          path: /tmp/qc-material-199-evidence/
+          retention-days: 30
