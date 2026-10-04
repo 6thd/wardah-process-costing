@@ -35,7 +35,9 @@
 -- docs/db/MANUFACTURING_SETTINGS_PERMISSIONS_201_RUNBOOK.md, section 4.
 --
 -- Requires 192 (rpc_set_material_issue_wo_statuses), 199 and 200.
--- Production order: 192 (already applied), then 195 -> 199, 200, then 201.
+-- Production order: 192 (recorded as applied in
+-- docs/db/M192_PRODUCTION_APPLICATION_20260928.md; confirm in the live ledger),
+-- then 195 -> 199, 200, then 201.
 -- No UI depends on these keys yet; the /settings/manufacturing UI PR waits
 -- for 201 to be applied and verified on Production (DB-first).
 
@@ -138,7 +140,8 @@ WHERE m.name = 'manufacturing';
 
 -- ---------------------------------------------------------------------------
 -- 2. Template expansion: wildcards must not grant the settings keys. Body
---    equals M199 except the two keys added to the exact-name-only list.
+--    equals M199 except the two keys added to the exact-name-only list and
+--    one comment line that now names M201.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.create_role_from_template(
   p_org_id uuid,

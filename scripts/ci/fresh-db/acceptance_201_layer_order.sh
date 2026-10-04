@@ -115,6 +115,26 @@ SQL
 done
 echo 'MFG_SETTINGS_201_LAYER_ORDER_FENCE_FIRST_OK: 201 refuses every fenced function and changes nothing'
 
+# A2. A change outside the body that 201's CREATE OR REPLACE would also
+# overwrite: only search_path differs. A3. A target function is missing.
+copy_db a2 "$PRE_DB"
+"${PSQL[@]}" -d "$db" -c "ALTER FUNCTION public.rpc_set_quality_policy(uuid,jsonb,bigint) SET search_path = public"
+if "${PSQL[@]}" -d "$db" -f "$MIGRATION" >"$work/a2.out" 2>&1 \
+   || ! grep -q 'MFG_SETTINGS_201_UNEXPECTED_BODY: .*rpc_set_quality_policy' "$work/a2.out"; then
+  cat "$work/a2.out" >&2
+  echo 'MFG_SETTINGS_201_LAYER_ORDER_FAIL: 201 did not refuse a changed search_path' >&2
+  exit 1
+fi
+copy_db a3 "$PRE_DB"
+"${PSQL[@]}" -d "$db" -c "DROP FUNCTION public.rpc_get_quality_policy(uuid)"
+if "${PSQL[@]}" -d "$db" -f "$MIGRATION" >"$work/a3.out" 2>&1 \
+   || ! grep -q 'MFG_SETTINGS_201_TARGET_FUNCTION_MISSING' "$work/a3.out"; then
+  cat "$work/a3.out" >&2
+  echo 'MFG_SETTINGS_201_LAYER_ORDER_FAIL: 201 did not refuse a missing target function' >&2
+  exit 1
+fi
+echo 'MFG_SETTINGS_201_LAYER_ORDER_CONFIG_AND_MISSING_OK: 201 refuses a changed search_path and a missing target'
+
 # --------------------------------------------------------------------------
 # B1. 201 first, then a fence that keeps the 201 layer.
 # --------------------------------------------------------------------------

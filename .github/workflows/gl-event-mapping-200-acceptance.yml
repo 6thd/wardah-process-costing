@@ -152,6 +152,8 @@ jobs:
           grep -q 'GL_EVENT_200_ACCEPTANCE_PASS' /tmp/gl-event-200.out
           grep -q 'GL_EVENT_200_RACE_WAIT_OBSERVED' /tmp/gl-event-200-race.out
           grep -q 'GL_EVENT_200_RACE_OK' /tmp/gl-event-200-race.out
+          grep -q 'GL_EVENT_200_DELETE_RACE_WAIT_OBSERVED' /tmp/gl-event-200-race.out
+          grep -q 'GL_EVENT_200_DELETE_RACE_OK' /tmp/gl-event-200-race.out
           grep -q 'GL_EVENT_200_CONCURRENCY_PASS' /tmp/gl-event-200-race.out
           grep -q 'GL_EVENT_200_RED_PRECONDITION_OK' /tmp/gl-event-200-red.out
           grep -q 'GL_EVENT_200_RED_PROOF_OK' /tmp/gl-event-200-red.out
