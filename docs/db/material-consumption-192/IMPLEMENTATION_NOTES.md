@@ -59,3 +59,11 @@ client insert payloads, and changes to each normalized business field.
 Independent final-head verification must check the raw run, NULL and malformed
 policy behavior, the generated TypeScript changes, and any reviewer findings.
 No Production or Staging write is implied by these tests.
+
+## Historical runner scope (2026-10-04 consolidation)
+
+`run_local.sh` requires the cutoff-189 baseline pair and applies exactly M190,
+M191 and M192. Later chains (M195 and above) quarantine legacy setup RPCs and
+are outside this historical M192 runner's scope. This cap changes no canonical
+SQL, shared fixture, helper or source lock; it does not establish acceptance of
+the post-M195 chain, Production, Staging or a client rollout.
