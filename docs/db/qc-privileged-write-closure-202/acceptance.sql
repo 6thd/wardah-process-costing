@@ -573,6 +573,30 @@ SELECT pg_temp.mutant('entry role may execute another public function', 'GRANT E
 SELECT pg_temp.mutant('entry role may UPDATE quality_inspections', 'GRANT UPDATE ON public.quality_inspections TO wardah_qc_entry_202', 'ENTRY_TABLE_PRIVILEGES');
 SELECT pg_temp.mutant('entry role may DELETE quality_inspections', 'GRANT DELETE ON public.quality_inspections TO wardah_qc_entry_202', 'ENTRY_TABLE_PRIVILEGES');
 SELECT pg_temp.mutant('entry role may UPDATE markers', 'GRANT UPDATE ON wardah_internal.qc_entry_markers_202 TO wardah_qc_entry_202', 'ENTRY_TABLE_PRIVILEGES');
+-- C11b. Column domain/composite types, operator classes and rewrite rules on
+-- the guarded stores (closed-graph coverage beyond expression-function
+-- dependencies).
+SELECT pg_temp.mutant('a guarded column changed to a user-defined domain',
+  'CREATE DOMAIN zz_dom_text_202 AS text; ALTER TABLE public.quality_inspections ALTER COLUMN findings TYPE zz_dom_text_202',
+  'COLUMN_TYPE');
+SELECT pg_temp.mutant('a guarded column changed to a domain array',
+  $s$CREATE DOMAIN zz_dom_uuid_202 AS uuid;
+     ALTER TABLE wardah_internal.quality_supersessions_202 ALTER COLUMN superseded_inspection_ids DROP DEFAULT;
+     ALTER TABLE wardah_internal.quality_supersessions_202
+       ALTER COLUMN superseded_inspection_ids TYPE zz_dom_uuid_202[] USING superseded_inspection_ids::zz_dom_uuid_202[]$s$,
+  'COLUMN_TYPE');
+SELECT pg_temp.mutant('an index on a guarded store uses a non-pg_catalog operator class',
+  $s$CREATE OPERATOR CLASS zz_opc_202 FOR TYPE text USING btree AS FUNCTION 1 pg_catalog.bttextcmp(text,text);
+     CREATE INDEX zz_idx_202 ON public.quality_inspections USING btree (request_hash zz_opc_202)$s$,
+  'OPERATOR_CLASS');
+SELECT pg_temp.mutant('a rewrite rule is added to a guarded store',
+  'CREATE RULE zz_rule_202 AS ON INSERT TO public.quality_inspections DO ALSO NOTHING',
+  'REWRITE_RULE');
+
+SELECT pg_temp.mutant('a plain-inheritance child is attached to a guarded store',
+  'CREATE TABLE public.zz_qi_child_202 () INHERITS (public.quality_inspections)',
+  'INHERITANCE');
+
 -- C12. Triggers, hidden routines, RLS and policies.
 SELECT pg_temp.mutant('guard trigger disabled', 'ALTER TABLE public.quality_inspections DISABLE TRIGGER qc_write_guard_202', 'INSERT_TRIGGERS');
 SELECT pg_temp.mutant('guard trigger dropped from the authority link', 'DROP TRIGGER qc_write_guard_202 ON wardah_internal.quality_inspection_authority_202', 'INSERT_TRIGGERS');

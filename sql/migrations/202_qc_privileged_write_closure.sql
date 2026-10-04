@@ -111,8 +111,129 @@ BEGIN
      OR has_table_privilege('anon', 'public.quality_inspections', 'SELECT') THEN
     RAISE EXCEPTION 'M202_REQUIRES_M199';
   END IF;
+
+  -- Pre-existing functions this file does NOT replace, but whose search_path
+  -- this file corrects below (section 0), metadata only. Pin every body exactly
+  -- (and, for the two SECURITY INVOKER ones, owner and ACL too) before touching
+  -- only proconfig.
+  SELECT string_agg(format('%s: md5 %s, expected %s', e.sig, COALESCE(md5(p.prosrc), 'missing'), e.body_md5),
+                    '; ' ORDER BY e.sig)
+  INTO v_mismatch
+  FROM (VALUES
+    ('wardah_internal.mo_quality_gate_199()', 'e2cf479d7a63eb9345bba34cef2bac1c',
+     true, ARRAY['search_path=""']),
+    ('wardah_internal.mo_quality_insert_199()', '0dd1403d7f0aaf7935f1ff4beaa26ed7',
+     true, ARRAY['search_path=""']),
+    ('public.wardah_assert_org_member(uuid)', '33c67e93cd2d49eb67dd84bf85721908',
+     true, ARRAY['search_path=public']),
+    ('public.wardah_is_org_admin(uuid)', '5f9184946d63312758ac000a338f8677',
+     true, ARRAY['search_path=public']),
+    ('wardah_internal.quality_actor_can_199(uuid,text,boolean)', '6075f418c1133c9bfb6172b626b3d32c',
+     true, ARRAY['search_path=""']),
+    ('trg_mo_status_machine()', 'e2489f51cadb5fb04d39e1d921ef7d2a',
+     false, ARRAY['search_path=public']),
+    ('public.validate_mo_transition(text,text)', '22789ca9c175eb3476b5c33648b92d1a',
+     false, ARRAY['search_path=public'])
+  ) AS e(sig, body_md5, want_secdef, cfg)
+  LEFT JOIN pg_proc p ON p.oid = to_regprocedure(e.sig)
+  WHERE md5(p.prosrc) IS DISTINCT FROM e.body_md5
+     OR p.prosecdef IS DISTINCT FROM e.want_secdef
+     OR p.proconfig IS DISTINCT FROM e.cfg;
+  IF v_mismatch IS NOT NULL THEN
+    RAISE EXCEPTION 'M202_UNEXPECTED_PRE_EXISTING_BODY: %', v_mismatch
+      USING HINT = 'One of the search_path corrections in section 0 targets a function that changed since this file was derived; re-derive that correction.';
+  END IF;
+  -- trg_mo_status_machine() and validate_mo_transition() must keep EXECUTE
+  -- restricted exactly as today (ALTER FUNCTION SET never touches grants, this
+  -- only proves the preflight read the live ACL, not a stale assumption).
+  IF NOT has_function_privilege('authenticated', 'trg_mo_status_machine()', 'EXECUTE')
+     OR has_function_privilege('anon', 'trg_mo_status_machine()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.validate_mo_transition(text,text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.validate_mo_transition(text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'M202_UNEXPECTED_PRE_EXISTING_ACL';
+  END IF;
 END
 $preflight$;
+
+-- ---------------------------------------------------------------------------
+-- 0. search_path correction, metadata only (ALTER FUNCTION ... SET, never
+--    CREATE OR REPLACE; no canonical migration file is edited; every body
+--    above is pinned byte-identical before and after — proven in postflight).
+--
+--    An unqualified type name inside a PL/pgSQL DECLARE or expression resolves
+--    against pg_temp before pg_catalog whenever search_path does not list
+--    pg_temp explicitly (confirmed live on PostgreSQL 17.11 with a benign
+--    pg_temp.<type> domain whose CHECK only RAISEs NOTICE — no forged rows, no
+--    payload): any authenticated login can create that domain, and its CHECK
+--    then executes with the shadowed function's own, more privileged
+--    current_user. Two corrections, not one:
+--      * search_path='' or 'public' alone written the CORRECT, unquoted,
+--        comma-separated way (search_path = pg_catalog, pg_temp, or
+--        search_path = public, pg_temp — matching the schema the function's
+--        own unqualified references, if any, need) stops it — verified by
+--        current_schemas(true) returning pg_catalog (or public) ahead of
+--        pg_temp_N, and the sentinel not firing.
+--      * the SAME text with outer single quotes (search_path =
+--        'pg_catalog, pg_temp') is NOT equivalent: PostgreSQL stores it as one
+--        malformed schema name, current_schemas(true) comes back
+--        {pg_temp_N, pg_catalog} — pg_temp first — and the sentinel fires.
+--    Affected PL/pgSQL statement shapes confirmed vulnerable: a plain
+--    assignment (v := text_expr::type), a cast inside INSERT ... VALUES, and a
+--    DECLARE block's own bare-type variables resolved on that function's FIRST
+--    call in a given backend (so a stale, differently-compiled session plan
+--    cannot mask this during testing). A RETURN expr matching the function's
+--    own declared return type was NOT reproducible (PL/pgSQL coerces to the
+--    fixed return-type OID directly), but every other shape was, including
+--    regclass, regprocedure, regnamespace and oid, not just text/numeric/uuid.
+--
+--    A function with NO SET clause of its own (auth.uid(), the local Supabase
+--    shim: LANGUAGE sql, no proconfig, body `... ::uuid`) is NOT independently
+--    vulnerable or safe — it inherits whatever search_path is ACTIVE AT ITS
+--    CALL SITE. So a function with a provably safe body can still leak through
+--    a callee like this: confirmed via PG_CONTEXT that wardah_assert_org_member
+--    (search_path='public', no cast of its own) and quality_actor_can_199
+--    (search_path='', no cast of its own) each call auth.uid() directly and
+--    each reproduces the shadow with current_user=postgres; wardah_is_org_admin
+--    (search_path='public') does the same and is reachable from
+--    quality_is_admin_199 (called by rpc_supersede_quality_evidence_202, and by
+--    qc_prepare_inspection_202 whenever a policy sets
+--    admins_subject_to_quality_controls=false). This migration does NOT alter
+--    auth.uid() or any object in the auth schema — the shim itself is a local,
+--    unverified stand-in for Supabase's hosted implementation, which is reached
+--    only through these callers' own search_path.
+--    wardah_internal.qc_assert_closed_graph_202() additionally qualifies every
+--    base-type reference in its own body with pg_catalog. explicitly (it is the
+--    function the whole guarantee reduces to); every other function corrected
+--    here relies on the ordered search_path alone, verified sufficient for
+--    every shape above.
+--    quality_has_explicit_grant_199 and quality_is_production_participant_199
+--    take the caller-evaluated actor id as a plain uuid parameter and never
+--    call auth.uid() or cast a bare type in their own body (confirmed from the
+--    PG_CONTEXT trace: neither appears as a frame); they are correctly left
+--    untouched. quality_is_admin_199's own body has no direct cast or
+--    auth.uid() call either — fixing its two callees here is sufficient for it.
+--
+--    trg_mo_status_machine() and validate_mo_transition() predate M199 by a
+--    wide margin and fire on every manufacturing_orders status transition, not
+--    only QC's; both declare a bare `TEXT` local under search_path='public'
+--    (pg_temp not listed) and were reproduced the same way via the ordinary
+--    hold action. Rewriting the MO status machine is out of scope; this is the
+--    same narrow, metadata-only, pinned correction as the rest of section 0,
+--    not a change to any transition rule.
+--
+--    Explicitly NOT inventoried or closed by this migration: any OTHER
+--    search_path='' (or pg_temp-unlisted) function reachable by an ordinary,
+--    non-admin login outside the call graph actually exercised above —
+--    including, named but not verified, similarly-shaped candidates in M196
+--    and elsewhere. Treat as an open boundary, not a closed one.
+-- ---------------------------------------------------------------------------
+ALTER FUNCTION wardah_internal.mo_quality_gate_199() SET search_path = pg_catalog, pg_temp;
+ALTER FUNCTION wardah_internal.mo_quality_insert_199() SET search_path = pg_catalog, pg_temp;
+ALTER FUNCTION public.wardah_assert_org_member(uuid) SET search_path = public, pg_temp;
+ALTER FUNCTION public.wardah_is_org_admin(uuid) SET search_path = public, pg_temp;
+ALTER FUNCTION wardah_internal.quality_actor_can_199(uuid,text,boolean) SET search_path = pg_catalog, pg_temp;
+ALTER FUNCTION trg_mo_status_machine() SET search_path = public, pg_temp;
+ALTER FUNCTION public.validate_mo_transition(text,text) SET search_path = public, pg_temp;
 
 -- ---------------------------------------------------------------------------
 -- 1. The dedicated execution role. NOLOGIN, no attributes, no memberships; it will
@@ -180,7 +301,7 @@ REVOKE ALL ON wardah_internal.quality_supersessions_202
 -- 3. Immutability and orphan-marker triggers.
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION wardah_internal.deny_qc_history_change_202()
-RETURNS trigger LANGUAGE plpgsql SET search_path = ''
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp
 AS $fn$
 BEGIN
   RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'QC_HISTORY_IMMUTABLE_202',
@@ -204,7 +325,7 @@ FOR EACH STATEMENT EXECUTE FUNCTION wardah_internal.deny_manufacturing_history_t
 -- A marker must not survive COMMIT. DEFINER on purpose: the deferred event is
 -- evaluated at COMMIT, after the RPC has returned to the calling session.
 CREATE FUNCTION wardah_internal.qc_marker_orphan_check_202()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $fn$
 BEGIN
   IF EXISTS (SELECT 1 FROM wardah_internal.qc_entry_markers_202 m
@@ -225,33 +346,42 @@ FOR EACH ROW EXECUTE FUNCTION wardah_internal.qc_marker_orphan_check_202();
 --    Reads catalogs only.
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION wardah_internal.qc_assert_closed_graph_202()
-RETURNS void LANGUAGE plpgsql STABLE SET search_path = ''
+RETURNS void LANGUAGE plpgsql STABLE SET search_path = pg_catalog, pg_temp
 AS $fn$
 DECLARE
-  c_entry constant name := 'wardah_qc_entry_202';
-  v_entry oid;
-  v_ins oid := 'public.quality_inspections'::regclass;
-  v_mark oid := 'wardah_internal.qc_entry_markers_202'::regclass;
-  v_auth oid := 'wardah_internal.quality_inspection_authority_202'::regclass;
-  v_sup oid := 'wardah_internal.quality_supersessions_202'::regclass;
-  v_rpc oid := 'public.rpc_record_quality_inspection(uuid,uuid,jsonb)'::regprocedure;
-  v_prep oid := 'wardah_internal.qc_prepare_inspection_202(uuid,uuid,jsonb)'::regprocedure;
-  v_eval oid := 'wardah_internal.evaluate_quality_release_199(uuid,uuid,uuid,text,numeric)'::regprocedure;
-  v_guard oid := 'wardah_internal.qc_write_guard_202()'::regprocedure;
-  v_assert oid := 'wardah_internal.qc_assert_closed_graph_202()'::regprocedure;
-  v_member oid := 'public.wardah_assert_org_member(uuid)'::regprocedure;
-  v_ns oid := 'wardah_internal'::regnamespace;
-  v_db oid := (SELECT d.oid FROM pg_catalog.pg_database d WHERE d.datname = current_database());
-  v_cls oid := 'pg_catalog.pg_class'::regclass::oid;
-  v_prc oid := 'pg_catalog.pg_proc'::regclass::oid;
-  v_nsp oid := 'pg_catalog.pg_namespace'::regclass::oid;
-  v_tables oid[];
-  v_got text[];
-  v_want text[];
-  v_privs text;
+  -- Defense in depth: every base-type reference below is explicitly
+  -- pg_catalog-qualified, not just the function's search_path (which already
+  -- lists pg_catalog before pg_temp). An authenticated session can always
+  -- CREATE a pg_temp domain whose name shadows a builtin type (e.g. "oid",
+  -- "regclass", "text"); PostgreSQL resolves an unqualified type name by
+  -- scanning the schemas in search_path IN ORDER, so correctly ordering
+  -- pg_catalog ahead of pg_temp is sufficient on its own (verified) — the
+  -- explicit qualification here additionally survives any future edit that
+  -- might change this function's search_path without reviewing this comment.
+  c_entry constant pg_catalog.name := 'wardah_qc_entry_202';
+  v_entry pg_catalog.oid;
+  v_ins pg_catalog.oid := 'public.quality_inspections'::pg_catalog.regclass;
+  v_mark pg_catalog.oid := 'wardah_internal.qc_entry_markers_202'::pg_catalog.regclass;
+  v_auth pg_catalog.oid := 'wardah_internal.quality_inspection_authority_202'::pg_catalog.regclass;
+  v_sup pg_catalog.oid := 'wardah_internal.quality_supersessions_202'::pg_catalog.regclass;
+  v_rpc pg_catalog.oid := 'public.rpc_record_quality_inspection(uuid,uuid,jsonb)'::pg_catalog.regprocedure;
+  v_prep pg_catalog.oid := 'wardah_internal.qc_prepare_inspection_202(uuid,uuid,jsonb)'::pg_catalog.regprocedure;
+  v_eval pg_catalog.oid := 'wardah_internal.evaluate_quality_release_199(uuid,uuid,uuid,text,numeric)'::pg_catalog.regprocedure;
+  v_guard pg_catalog.oid := 'wardah_internal.qc_write_guard_202()'::pg_catalog.regprocedure;
+  v_assert pg_catalog.oid := 'wardah_internal.qc_assert_closed_graph_202()'::pg_catalog.regprocedure;
+  v_member pg_catalog.oid := 'public.wardah_assert_org_member(uuid)'::pg_catalog.regprocedure;
+  v_ns pg_catalog.oid := 'wardah_internal'::pg_catalog.regnamespace;
+  v_db pg_catalog.oid := (SELECT d.oid FROM pg_catalog.pg_database d WHERE d.datname = current_database());
+  v_cls pg_catalog.oid := 'pg_catalog.pg_class'::pg_catalog.regclass::pg_catalog.oid;
+  v_prc pg_catalog.oid := 'pg_catalog.pg_proc'::pg_catalog.regclass::pg_catalog.oid;
+  v_nsp pg_catalog.oid := 'pg_catalog.pg_namespace'::pg_catalog.regclass::pg_catalog.oid;
+  v_tables pg_catalog.oid[];
+  v_got pg_catalog.text[];
+  v_want pg_catalog.text[];
+  v_privs pg_catalog.text;
   r record;
-  t oid;
-  v_priv text;
+  t pg_catalog.oid;
+  v_priv pg_catalog.text;
 BEGIN
   v_tables := ARRAY[v_ins, v_mark, v_auth, v_sup];
 
@@ -282,10 +412,10 @@ BEGIN
   -- 3. The role owns exactly one object: the entry RPC.
   --    (pg_shdepend is cluster-wide: only this database's rows and shared objects count.)
   IF (SELECT count(*) FROM pg_catalog.pg_shdepend d
-      WHERE d.refclassid = 'pg_catalog.pg_authid'::regclass AND d.refobjid = v_entry
+      WHERE d.refclassid = 'pg_catalog.pg_authid'::pg_catalog.regclass AND d.refobjid = v_entry
         AND d.deptype = 'o' AND d.dbid IN (0, v_db)) <> 1
      OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_shdepend d
-      WHERE d.refclassid = 'pg_catalog.pg_authid'::regclass AND d.refobjid = v_entry
+      WHERE d.refclassid = 'pg_catalog.pg_authid'::pg_catalog.regclass AND d.refobjid = v_entry
         AND d.deptype = 'o' AND d.dbid = v_db AND d.classid = v_prc AND d.objid = v_rpc
         AND d.objsubid = 0) THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'QC_EXECUTION_GRAPH_OPEN_202: OWNED_OBJECTS';
@@ -293,11 +423,11 @@ BEGIN
 
   -- 4. Every ACL entry naming the role is on the allowlist, with exactly the
   --    allowed privileges (column-level entries and default ACLs fail this).
-  SELECT COALESCE(array_agg(format('%s:%s:%s', d.classid::oid, d.objid::oid, d.objsubid)
+  SELECT COALESCE(array_agg(format('%s:%s:%s', d.classid::pg_catalog.oid, d.objid::pg_catalog.oid, d.objsubid)
                             ORDER BY d.classid, d.objid, d.objsubid), '{}')
   INTO v_got
   FROM pg_catalog.pg_shdepend d
-  WHERE d.refclassid = 'pg_catalog.pg_authid'::regclass AND d.refobjid = v_entry AND d.deptype = 'a'
+  WHERE d.refclassid = 'pg_catalog.pg_authid'::pg_catalog.regclass AND d.refobjid = v_entry AND d.deptype = 'a'
     AND d.dbid IN (0, v_db);
   SELECT array_agg(x ORDER BY x) INTO v_want FROM unnest(ARRAY[
     format('%s:%s:0', v_nsp, v_ns), format('%s:%s:0', v_cls, v_ins), format('%s:%s:0', v_cls, v_mark),
@@ -383,28 +513,83 @@ BEGIN
   --    index of the stores the entry role writes.
   IF EXISTS (
     SELECT 1 FROM pg_catalog.pg_depend d
-    JOIN pg_catalog.pg_proc p ON d.refclassid = 'pg_catalog.pg_proc'::regclass AND d.refobjid = p.oid
+    JOIN pg_catalog.pg_proc p ON d.refclassid = 'pg_catalog.pg_proc'::pg_catalog.regclass AND d.refobjid = p.oid
     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname NOT IN ('pg_catalog','information_schema')
-      AND ((d.classid = 'pg_catalog.pg_attrdef'::regclass AND d.objid IN (
+      AND ((d.classid = 'pg_catalog.pg_attrdef'::pg_catalog.regclass AND d.objid IN (
               SELECT ad.oid FROM pg_catalog.pg_attrdef ad WHERE ad.adrelid = ANY (v_tables)))
-        OR (d.classid = 'pg_catalog.pg_constraint'::regclass AND d.objid IN (
+        OR (d.classid = 'pg_catalog.pg_constraint'::pg_catalog.regclass AND d.objid IN (
               SELECT co.oid FROM pg_catalog.pg_constraint co WHERE co.conrelid = ANY (v_tables)))
-        OR (d.classid = 'pg_catalog.pg_class'::regclass AND d.objid IN (
+        OR (d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass AND d.objid IN (
               SELECT i.indexrelid FROM pg_catalog.pg_index i WHERE i.indrelid = ANY (v_tables))))
   ) OR EXISTS (
     SELECT 1 FROM pg_catalog.pg_depend d
-    JOIN pg_catalog.pg_operator o ON d.refclassid = 'pg_catalog.pg_operator'::regclass AND d.refobjid = o.oid
+    JOIN pg_catalog.pg_operator o ON d.refclassid = 'pg_catalog.pg_operator'::pg_catalog.regclass AND d.refobjid = o.oid
     JOIN pg_catalog.pg_namespace n ON n.oid = o.oprnamespace
     WHERE n.nspname NOT IN ('pg_catalog','information_schema')
-      AND ((d.classid = 'pg_catalog.pg_attrdef'::regclass AND d.objid IN (
+      AND ((d.classid = 'pg_catalog.pg_attrdef'::pg_catalog.regclass AND d.objid IN (
               SELECT ad.oid FROM pg_catalog.pg_attrdef ad WHERE ad.adrelid = ANY (v_tables)))
-        OR (d.classid = 'pg_catalog.pg_constraint'::regclass AND d.objid IN (
+        OR (d.classid = 'pg_catalog.pg_constraint'::pg_catalog.regclass AND d.objid IN (
               SELECT co.oid FROM pg_catalog.pg_constraint co WHERE co.conrelid = ANY (v_tables)))
-        OR (d.classid = 'pg_catalog.pg_class'::regclass AND d.objid IN (
+        OR (d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass AND d.objid IN (
               SELECT i.indexrelid FROM pg_catalog.pg_index i WHERE i.indrelid = ANY (v_tables))))
   ) THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'QC_EXECUTION_GRAPH_OPEN_202: HIDDEN_ROUTINE';
+  END IF;
+
+  -- 8b. No column of a guarded store (or its array element type) may be a DOMAIN
+  --     or composite type. A domain's CHECK is a function call that runs on every
+  --     INSERT that supplies a value for that column, as whichever role performs
+  --     the INSERT — the same mechanism as the pg_temp shadow this migration
+  --     closes elsewhere, but reachable here by ALTER TABLE ... ALTER COLUMN TYPE
+  --     (table ownership, not an ordinary login) rather than by an unqualified
+  --     cast. Every column of the four stores must resolve, directly or through
+  --     exactly one level of array, to a pg_catalog base type.
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_attribute a
+    JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
+    LEFT JOIN pg_catalog.pg_type ety ON ety.oid = ty.typelem AND ty.typelem <> 0
+    WHERE a.attrelid = ANY (v_tables) AND a.attnum > 0 AND NOT a.attisdropped
+      AND (ty.typtype <> 'b' OR ty.typnamespace <> 'pg_catalog'::pg_catalog.regnamespace
+           OR (ety.oid IS NOT NULL
+               AND (ety.typtype <> 'b' OR ety.typnamespace <> 'pg_catalog'::pg_catalog.regnamespace)))
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'QC_EXECUTION_GRAPH_OPEN_202: COLUMN_TYPE';
+  END IF;
+
+  -- 8c. Every operator class backing an index on a guarded store must be a
+  --     pg_catalog one. A user-defined operator class's support functions (used
+  --     for comparison/hashing during INSERT and its unique-constraint checks,
+  --     not just an expression in the index) would otherwise run as the
+  --     inserting role, and section 8's dependency scan only follows expression
+  --     functions, not opclass support functions.
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_index i, unnest(i.indclass) AS used_opc
+    JOIN pg_catalog.pg_opclass oc ON oc.oid = used_opc
+    WHERE i.indrelid = ANY (v_tables) AND oc.opcnamespace <> 'pg_catalog'::pg_catalog.regnamespace
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'QC_EXECUTION_GRAPH_OPEN_202: OPERATOR_CLASS';
+  END IF;
+
+  -- 8d. No rewrite rule on a guarded store. A rule (unlike a trigger) runs
+  --     in place of, or in addition to, the original statement and is not
+  --     covered by section 7's trigger inventory at all.
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rw WHERE rw.ev_class = ANY (v_tables)) THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'QC_EXECUTION_GRAPH_OPEN_202: REWRITE_RULE';
+  END IF;
+
+  -- 8e. The four stores are ordinary, non-partitioned tables with no ancestor or
+  --     descendant in the inheritance/partition hierarchy (PostgreSQL implements
+  --     both through pg_inherits). A child — plain INHERITS or an attached
+  --     partition — does not automatically gain the parent's triggers, RLS or
+  --     grants, so a direct write to it bypasses every guard above while a
+  --     query against the parent (as the evaluator issues) can still see rows
+  --     stored there. relkind also rules out a store later declared PARTITION
+  --     BY with no partition attached yet.
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_class cl WHERE cl.oid = ANY (v_tables) AND cl.relkind <> 'r')
+     OR EXISTS (SELECT 1 FROM pg_catalog.pg_inherits ih
+                WHERE ih.inhrelid = ANY (v_tables) OR ih.inhparent = ANY (v_tables)) THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'QC_EXECUTION_GRAPH_OPEN_202: INHERITANCE';
   END IF;
 
   -- 9. RLS stays on and the only INSERT-capable policy is the entry role's own.
@@ -414,7 +599,7 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy po
          WHERE po.polrelid = v_ins AND po.polcmd = 'a'
            AND po.polname = 'quality_inspections_entry_insert_202'
-           AND po.polroles = ARRAY[v_entry]::oid[]) THEN
+           AND po.polroles = ARRAY[v_entry]::pg_catalog.oid[]) THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'QC_EXECUTION_GRAPH_OPEN_202: POLICIES';
   END IF;
 
@@ -427,11 +612,11 @@ BEGIN
       (v_guard, '87728ac9fe99afb1289af4e3ffd46d96', false)) w(fn, pin, owned) LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
                    WHERE p.oid = r.fn AND md5(p.prosrc) = r.pin AND p.prokind = 'f'
-                     AND p.proconfig = ARRAY['search_path=""']::text[]
+                     AND p.proconfig = ARRAY['search_path=pg_catalog, pg_temp']::text[]
                      AND (p.proowner = v_entry) = r.owned
                      AND (p.prosecdef = (r.fn <> v_guard))) THEN
       RAISE EXCEPTION USING ERRCODE = 'P0001',
-        MESSAGE = format('QC_EXECUTION_GRAPH_OPEN_202: FUNCTION_PIN %s', r.fn::regproc);
+        MESSAGE = format('QC_EXECUTION_GRAPH_OPEN_202: FUNCTION_PIN %s', r.fn::pg_catalog.regproc);
     END IF;
   END LOOP;
   IF NOT has_function_privilege('authenticated', v_rpc, 'EXECUTE')
@@ -458,7 +643,7 @@ $fn$;
 --    link). SECURITY INVOKER so current_user is the role that executes the INSERT.
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION wardah_internal.qc_write_guard_202()
-RETURNS trigger LANGUAGE plpgsql SET search_path = ''
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp
 AS $fn$
 BEGIN
   IF current_user::text <> 'wardah_qc_entry_202' THEN
@@ -501,7 +686,7 @@ $fn$;
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION wardah_internal.evaluate_quality_release_199(
   p_org uuid, p_mo uuid, p_routing uuid, p_status text, p_completed_qty numeric
-) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = ''
+) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $fn$
 DECLARE
   v_policy wardah_internal.quality_policies%ROWTYPE;
@@ -629,7 +814,7 @@ $fn$;
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION wardah_internal.qc_prepare_inspection_202(
   p_mo_id uuid, p_request_id uuid, p_payload jsonb
-) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $fn$
 DECLARE
   v_org uuid;
@@ -811,7 +996,7 @@ $fn$;
 
 CREATE OR REPLACE FUNCTION public.rpc_record_quality_inspection(
   p_mo_id uuid, p_request_id uuid, p_payload jsonb
-) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $fn$
 DECLARE
   v_prep jsonb;
@@ -925,7 +1110,7 @@ $fn$;
 CREATE FUNCTION public.rpc_supersede_quality_evidence_202(
   p_mo_id uuid, p_inspection_type text, p_stage_id uuid, p_expected_revision integer,
   p_reason text
-) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $fn$
 DECLARE
   v_org uuid;
@@ -1146,6 +1331,21 @@ BEGIN
   -- M195 containment survives.
   IF has_table_privilege('authenticated','public.manufacturing_orders','UPDATE') THEN
     RAISE EXCEPTION 'M202_M195_CONTAINMENT_DRIFT';
+  END IF;
+
+  -- Section 0: the two ALTER FUNCTION statements changed only proconfig.
+  -- M199's files are untouched; prove it here, not just assume it from the
+  -- statement's shape.
+  SELECT string_agg(e.sig, '; ') INTO v_mismatch
+  FROM (VALUES
+    ('wardah_internal.mo_quality_gate_199()', 'e2cf479d7a63eb9345bba34cef2bac1c'),
+    ('wardah_internal.mo_quality_insert_199()', '0dd1403d7f0aaf7935f1ff4beaa26ed7')
+  ) AS e(sig, body_md5)
+  LEFT JOIN pg_proc p ON p.oid = to_regprocedure(e.sig)
+  WHERE md5(p.prosrc) IS DISTINCT FROM e.body_md5
+     OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp']::text[];
+  IF v_mismatch IS NOT NULL THEN
+    RAISE EXCEPTION 'M202_M199_TRIGGER_SEARCH_PATH_NOT_APPLIED: %', v_mismatch;
   END IF;
 END
 $postflight$;

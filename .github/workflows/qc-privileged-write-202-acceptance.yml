@@ -60,7 +60,8 @@ jobs:
                         M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS \
                         M202_OWNER_SWITCH_MECHANICS_OK 'M202_M199_REGRESSION_PASS 70/70' \
                         'regression ok: DEFINER guard contract self-test' \
-                        M202_CONCURRENCY_PASS GREEN_M202_QC_PRIVILEGED_WRITE_CLOSURE; do
+                        M202_CONCURRENCY_PASS M202_TYPE_SHADOW_REGRESSION_PASS \
+                        GREEN_M202_QC_PRIVILEGED_WRITE_CLOSURE; do
             grep -Fq "$marker" /tmp/m202.out || { echo "missing $marker" >&2; exit 1; }
           done
       - name: Static migration gates

@@ -234,4 +234,15 @@ echo 'regression ok: DEFINER guard contract self-test'
 copy_db "${P}_base" "${P}_conc"
 python3 "$HERE/concurrency.py" "${P}_conc" | tee "$TASK_DIR/conc.out" | tail -3
 grep -q M202_CONCURRENCY_PASS "$TASK_DIR/conc.out"
+
+# -------------------------------------------------------- type-shadow regression
+# Fresh-session attack-before/fix-after for the search_path correction (section 0
+# of the migration): a benign pg_temp.<type> domain whose CHECK only RAISEs
+# NOTICE must show zero privileged (non-caller) hits on this build, and the
+# same probe, with one function's fix reverted, must show a privileged hit
+# (non-vacuity) and return to zero once restored.
+copy_db "${P}_base" "${P}_tsr"
+bash "$HERE/type_shadow_regression.sh" "${P}_tsr" | tee "$TASK_DIR/tsr.out"
+grep -q M202_TYPE_SHADOW_REGRESSION_PASS "$TASK_DIR/tsr.out"
+dropdb "${P}_tsr"
 echo 'GREEN_M202_QC_PRIVILEGED_WRITE_CLOSURE'

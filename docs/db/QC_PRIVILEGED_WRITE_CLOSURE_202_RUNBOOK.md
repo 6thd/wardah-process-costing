@@ -44,6 +44,10 @@
 | `SESSION_REPLICATION_ROLE` | أي دور غير superuser يستطيع `SET session_replication_role` (يشمل `GRANT SET ON PARAMETER` والموروث) |
 | `INSERT_TRIGGERS` / `MARKER_TRIGGERS` | أي trigger إضافي (يعمل بهوية المدخل) أو حارس غير `ENABLE ALWAYS` |
 | `HIDDEN_ROUTINE` | دالة/عامل خارج `pg_catalog` في default أو CHECK أو فهرس لهذه الجداول |
+| `COLUMN_TYPE` | عمود (أو عنصر مصفوفة) بنوع DOMAIN أو مركّب — الـCHECK الخاص بالـdomain دالة تُستدعى عند كل INSERT بهوية من ينفّذه، بالآلية نفسها التي يغلقها هذا الـmigration في §أ1 أدناه، لكن عبر `ALTER TABLE ... ALTER COLUMN TYPE` لا cast غير مؤهَّل |
+| `OPERATOR_CLASS` | فهرس على المخازن الأربعة يستخدم operator class خارج `pg_catalog` — دوال الدعم تُستدعى أثناء الفحص/التفرّد لا الـexpression فقط |
+| `REWRITE_RULE` | أي `CREATE RULE` على المخازن الأربعة؛ القاعدة تُنفَّذ بديلًا عن أو إضافة للعبارة الأصلية ولا يغطيها جرد section 7 للـtriggers |
+| `INHERITANCE` | أحد المخازن الأربعة أصبح له أصل أو فرع في `pg_inherits`، أو `relkind` ليست `r` (partitioned/غيرها) — الفرع (inheritance عادي أو partition) لا يرث triggers/RLS/grants الأصل تلقائيًا، فكتابة مباشرة إليه تتجاوز كل حارس أعلاه بينما يراها المقيّم عبر الأصل |
 | `POLICIES` | RLS معطّل أو سياسة INSERT غير سياسة دور المدخل |
 | `FUNCTION_PIN` / `RPC_ACL` / `HELPER_ACL` | تغيّر جسم أو خصائص (`search_path`، DEFINER، مالك) الـRPC أو التحضير أو التقييم أو الحارس، أو ACL غير المتوقع |
 
@@ -59,6 +63,59 @@
 أي migration لاحقة تستبدل إحداها **يجب** أن تستبدل `qc_assert_closed_graph_202` بالبصمات الجديدة،
 وإلا توقفت كتابة QC مغلقةً (وهذا مقصود). والـRPC نفسها تعيد التحقق من العضوية
 (`wardah_assert_org_member`) للمؤسسة التي حلّها التحضير فلا تعتمد على المساعد وحده.
+
+### 2أ) تصحيح `search_path`: ثغرة عبور `pg_temp`، والسلسلة العابرة عبر `auth.uid()`
+
+اكتُشف أثناء المراجعة أن `search_path = ''` (الذي استُخدم أصلًا في كل دوال 202 الجديدة) **لا يكفي**:
+PostgreSQL يبحث `pg_temp` قبل `pg_catalog` لاسم نوع غير مؤهَّل ما لم يُذكر `pg_temp` صريحًا في القائمة —
+وأي عضو مصادق عليه (غير مسؤول) يستطيع إنشاء `CREATE DOMAIN pg_temp.uuid AS pg_catalog.uuid CHECK (...)`
+فتُستدعى دالة الـCHECK هذه عند أي `::uuid` غير مؤهَّل، بهوية الدالة المُستدعية (`current_user`) لا هوية
+العميل. أُثبت هذا حيًا (PostgreSQL 17.11، domain بلا أي كتابة مزوَّرة، الـCHECK يرفع NOTICE فقط):
+
+- **الصياغة الصحيحة إلزامية:** `SET search_path = pg_catalog, pg_temp` (قائمة غير مقتبسة، عنصران).
+  كتابتها بين علامتي اقتباس واحدة `SET search_path = 'pg_catalog, pg_temp'` **ليست** معادلة؛ تُخزَّن
+  اسم schema واحدًا مشوَّهًا، و`current_schemas(true)` يُرجع `{pg_temp_N, pg_catalog}` — `pg_temp` أولًا،
+  فتنفَّذ الثغرة رغم الشكل الصحيح ظاهريًا. أُثبت الفرق بقراءة `current_setting('search_path')` و
+  `current_schemas(true)` من داخل كل صياغة، لا بالاستنتاج.
+- **الصياغة الموجودة أصلًا `public, pg_temp`** (في `rpc_list_quality_inspections` وغيرها) **سليمة**: يُدرَج
+  `pg_catalog` ضمنيًا قبل أي عنصر غير مذكور في القائمة، فيسبق `pg_temp` المذكور صريحًا في آخرها.
+- **الأشكال المتأثرة:** تعيين متغير (`v := expr::type`)، cast داخل `INSERT ... VALUES`، وDECLARE لمتغير
+  بنوع غير مؤهَّل — يُحسم عند **أول استدعاء للدالة في الجلسة** (فلا يخفيه cache خطة جلسة أقدم). `RETURN
+  expr::type` المطابق لنوع العودة المُعلَن للدالة نفسها **لم يتكرّر** (PL/pgSQL يُجبر النوع المعروف
+  مباشرة). يشمل التأثر `regclass` و`regprocedure` و`regnamespace` و`oid`، لا `uuid`/`numeric`/`text` فقط.
+- **السلسلة العابرة — لا يكفي فحص الجسم وحده:** `auth.uid()` (شيم Supabase المحلي: `LANGUAGE sql` بلا
+  `SET` خاصة، جسمها `...::uuid`) يرث search_path **المُستدعي** عند كل استدعاء. فحص جسم
+  `wardah_assert_org_member` (بلا cast) أو `quality_actor_can_199` (بلا cast) ظاهريًا سليم، لكن كلتيهما
+  تستدعيان `auth.uid()` مباشرة، وكلتاهما كانت `search_path='public'`/`''` (لا `pg_temp` في موضع آمن)،
+  فأُعيد إنتاج الثغرة عبرهما بـ`current_user=postgres` (أُثبت بـ`PG_CONTEXT` مُفصَّلًا، لا بالعدّ). **لا
+  تُلمس** `auth.uid()` أو أي كائن في مخطط `auth` هنا؛ الشيم المحلي بديل غير مُتحقَّق منه لتنفيذ Supabase
+  المستضاف، ويُبلَغ عنه فقط من خلال المستدعين.
+
+**التصحيح — `ALTER FUNCTION ... SET search_path`، تعديل بيانات وصفية فقط، لا `CREATE OR REPLACE`،
+ولا ملف M199/M198 قانوني يُلمس — يثبّت section 0 من الملف جسم كل دالة (`md5(prosrc)`) قبل التغيير
+ويتحقق postflight أنه لم يتغيّر:**
+
+| الدالة | كانت | أصبحت | السبب |
+|---|---|---|---|
+| 8 دوال 202 الجديدة (`deny_qc_history_change_202`، `qc_marker_orphan_check_202`، `qc_assert_closed_graph_202`، `qc_write_guard_202`، `evaluate_quality_release_199`، `qc_prepare_inspection_202`، `rpc_record_quality_inspection`، `rpc_supersede_quality_evidence_202`) | `''` | `pg_catalog, pg_temp` | الكتابة الوحيدة والمقيّم |
+| `wardah_internal.mo_quality_gate_199()` / `mo_quality_insert_199()` (M199، لم يُلمس ملفها) | `''` | `pg_catalog, pg_temp` | trigger على **أي** انتقال حالة MO إلى/من `quality_check`، يصل إليه `hold`/`return` العادي بلا صلاحية مسؤول |
+| `public.wardah_assert_org_member(uuid)` | `public` | `public, pg_temp` | تستدعي `auth.uid()`؛ حارس عضوية مستدعى من كل مسار QC |
+| `public.wardah_is_org_admin(uuid)` | `public` | `public, pg_temp` | تستدعي `auth.uid()`؛ تصل إليها `quality_is_admin_199` (مستدعاة من `qc_prepare_inspection_202` حين `admins_subject_to_quality_controls=false`، ومن `rpc_supersede_quality_evidence_202` دائمًا) |
+| `wardah_internal.quality_actor_can_199(uuid,text,boolean)` (M199) | `''` | `pg_catalog, pg_temp` | تستدعي `auth.uid()` مباشرة كوسيط لمساعدين آخرين |
+| `trg_mo_status_machine()` / `public.validate_mo_transition(text,text)` (أقدم من M199، تسبقانه بكثير) | `public` | `public, pg_temp` | يُطلقهما أي انتقال حالة MO عادي، DECLARE `TEXT` خام؛ تصحيح بيانات وصفية ضيق لا تغيير قاعدة انتقال |
+
+**لم يُلمس لعدم وجود cast أو استدعاء `auth.uid()` في جسمها مباشرة (تحقَّق من كل مسار استدعاء فعليًا لا
+بالقراءة فقط):** `quality_has_explicit_grant_199`، `quality_is_production_participant_199` (تستلمان
+الفاعل معاملًا جاهزًا)، `quality_is_admin_199` نفسها (تفويض فقط؛ مستدعياها المصحَّحان كافيان)، `has_permission`
+و`is_super_admin` (كلتاهما `public, pg_temp` سليمة أصلًا).
+
+**حدود صريحة غير مُغلقة:** أي دالة أخرى بصياغة غير آمنة يصل إليها عضو عادي خارج المسارات المفحوصة فعليًا
+أعلاه — بما فيها نظائر محتملة في M196 وغيرها — **لم تُجرَد ولم تُثبَت**؛ لا يُدَّعى إغلاق أمني شامل.
+
+**القبول:** `docs/db/qc-privileged-write-closure-202/type_shadow_regression.sh` (مُدار من
+`run_local.sh`): جلسة جديدة تمامًا، domain حساس بلا أي كتابة، مسارا الـRPC والـhold معًا — صفر إصابة
+بهوية مميّزة على البناء الصحيح (GREEN)، وإصابة مؤكدة بعد عكس تصحيح واحد عمدًا (RED، non-vacuity)، ثم
+صفر بعد الاستعادة.
 
 ## 3) الاختيار NULL-safe والـsupersession append-only
 
@@ -84,7 +141,7 @@
 
 | الدالة | قبل 202 | بعد 202 |
 |---|---|---|
-| `rpc_record_quality_inspection` | M199 `499045298cf48632bd79325494307994` (مالك postgres) | `88503b79…` (مالك `wardah_qc_entry_202`، `search_path=''`) |
+| `rpc_record_quality_inspection` | M199 `499045298cf48632bd79325494307994` (مالك postgres) | `88503b79…` (مالك `wardah_qc_entry_202`، `search_path=pg_catalog, pg_temp` — انظر §2أ) |
 | `evaluate_quality_release_199` | M199 `f640dd1264b840d593d82bf53a49e181` | `fb8dd9fe…` |
 | `rpc_list_quality_inspections` | M199 `159090c0b1f4e060cf218d026a0169c3` | `9cb343debbf7bd62b87a94926af5a8d8` |
 | دوال M201 الخمس | بصمات ما بعد 201 (ثابتة) | **غير مستبدلة**؛ تُقارن بصمة وACL ومالك كلٍّ منها قبل/بعد في `run_local.sh` |
@@ -120,9 +177,30 @@ supersession append-only، وتوثيق هذه السلسلة.
 2. **Baseline:** `pg_dump --no-owner` (كما تُولَّد اللقطات) يُسقط مالك الـRPC، فتفتح اللقطة التالية
    الرسم (`OWNED_OBJECTS`) فتُرفض كل كتابة QC مغلقةً، وتفشل منح الدور إن لم يُنشأ قبل اللقطة.
    لا يُولَّد Baseline يطوي 202 قبل تعديل المولّد/الشيم ليُنشئ الدور ويحفظ المالك، مع قبول Fresh DB.
-3. **استعادة منطقية:** حارس `ENABLE ALWAYS` يُطلَق حتى مع `session_replication_role = replica`؛ تحميل بيانات
-   `quality_inspections` بـCOPY عادي يُرفض. الاستعادة الفيزيائية/PITR سليمة؛ أي استعادة منطقية تحتاج
-   إجراءً موثقًا بموافقة المالك (`DISABLE TRIGGER` صريح لهذا الجدول فقط ثم إعادة `ENABLE ALWAYS`).
+3. **استعادة منطقية:** `ENABLE ALWAYS` موجود على **كلا** الجدولين المحروسين بـguard القائمة
+   السوداء — `public.quality_inspections` **و** `wardah_internal.quality_inspection_authority_202` —
+   ويُطلَق حتى مع `session_replication_role = replica`؛ تحميل بيانات بـCOPY أو INSERT عادي في أيٍّ
+   منهما يُرفض (`QC_WRITE_PROVENANCE_REQUIRED_202`)، حتى بهوية `postgres` نفسها. **الإجراء الكامل
+   المُثبَت فعليًا** (عنقود مؤقت PG17.11، لا بيانات حقيقية):
+
+   ```sql
+   BEGIN;
+   ALTER TABLE public.quality_inspections DISABLE TRIGGER qc_write_guard_202;
+   ALTER TABLE wardah_internal.quality_inspection_authority_202 DISABLE TRIGGER qc_write_guard_202;
+   -- استرجاع الصفوف التاريخية في كلا الجدولين هنا (ما تفعله أداة الاستعادة)
+   ALTER TABLE public.quality_inspections ENABLE ALWAYS TRIGGER qc_write_guard_202;
+   ALTER TABLE wardah_internal.quality_inspection_authority_202 ENABLE ALWAYS TRIGGER qc_write_guard_202;
+   COMMIT;
+   ```
+
+   **لا** `DISABLE TRIGGER` شامل (ALL)؛ الاسم محدد فيبقى حارس التغيير التاريخي (`deny_qc_history_change_202`)
+   وحارس TRUNCATE (`deny_history_truncate_202`/`deny_history_truncate_193`) فعّالين طوال الإجراء، ولا
+   يلزم تعطيلهما لاسترجاع INSERT-only. أُثبت حيًا: الصفوف استُرجعت في كلا الجدولين، الرابط الأجنبي بين
+   `quality_inspection_authority_202` و`quality_inspections` سليم بعد ذلك، والحارس يرفض إدخالًا غير
+   مصرَّح به جديدًا فور `ENABLE ALWAYS` (إعادة التسليح تعمل)، وبقيت الـtriggers الأخرى `ENABLED` طوال
+   الإجراء. لم يُفحص أثر هذا الإجراء على مالك الجدولين أو ACL بعد الاستعادة (يُفترض ثباتهما لأن
+   `ALTER TABLE ... DISABLE/ENABLE TRIGGER` لا يلمسهما، لكن ذلك افتراض لا قراءة مباشرة بعد تنفيذ حقيقي).
+   **الاستعادة الفيزيائية/PITR: `UNVERIFIED` — لم تُجرَّب هنا، فلا تُوصَف بأنها سليمة دون تجربة فعلية.**
 4. **الدور على مستوى العنقود:** `CREATE ROLE` لا يتبع قاعدة بيانات؛ وجوده مسبقًا يوقف 202 (`M202_ALREADY_APPLIED`).
    فحوص `pg_shdepend` تُقيَّد بالقاعدة الحالية.
 5. **Fail-closed على عنقود حي:** أي دور إضافي بمنح كتابة على المخازن الأربعة، أو دور يحمل منح SET على
@@ -140,7 +218,8 @@ supersession append-only، وتوثيق هذه السلسلة.
 |---|---|
 | RED قبل 202 | `M202_RED_REPRODUCED`: INSERT مباشر من service_role يفتح البوابة، NULL يحجب FAIL، 999 يحجبه ولا آلية تجاوز |
 | ضوابط preflight/ذرية | 17 ضابطًا: بلا M201، انحراف كل من الدوال الخمس، نص M199 السابق لـ201 لدالتين، انحراف أجسام M199 الثلاثة، بلا USAGE على public، منح جدول لـauthenticated، trigger سابق يفتح الرسم (يُجهض كاملًا)، إعادة تطبيق، دور موجود |
-| قبول 202 | 187 تأكيدًا + `M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS`: سطح الامتيازات، المسار الحقيقي، التزوير (owner/same-owner/different-owner/marker/GUC/nested/replica)، 57 mutant كتالوجي مُلتقَط بسببه المحدد، و26 محاولة تزوير مرفوضة بسببها، و5 ضوابط non-vacuity (تعطيل الحارس أو إعادة المنح يجعل التزوير ينجح)، NULL والـsupersession (FINAL وIN_PROCESS ومرحلتان ودورتان وفساد)، عقد ما بعد 201 |
+| قبول 202 | 192 تأكيدًا + `M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS`: سطح الامتيازات، المسار الحقيقي، التزوير (owner/same-owner/different-owner/marker/GUC/nested/replica)، **62** mutant كتالوجي مُلتقَط بسببه المحدد (يشمل COLUMN_TYPE×2 وOPERATOR_CLASS وREWRITE_RULE وINHERITANCE)، و26 محاولة تزوير مرفوضة بسببها، و5 ضوابط non-vacuity (تعطيل الحارس أو إعادة المنح يجعل التزوير ينجح)، NULL والـsupersession (FINAL وIN_PROCESS ومرحلتان ودورتان وفساد)، عقد ما بعد 201 |
+| تصحيح `search_path` | `type_shadow_regression.sh`: `M202_TYPE_SHADOW_REGRESSION_PASS` — صفر إصابة بهوية مميّزة (GREEN) على مساري hold والكتابة معًا، وإصابة مؤكدة بعد عكس تصحيح `mo_quality_gate_199` عمدًا (RED، non-vacuity)، ثم عودة لصفر بعد الاستعادة |
 | دوال M201 الخمس | المالك والـACL والجسم متطابقة قبل/بعد 202 |
 | انحدار M199 | 70/70 بنسخة معدَّلة بتغييرين موثقين في `run_local.sh` (توقّع `NOT_ORG_ADMIN` القديم بعد 201، وبذر صف legacy بإدخال مباشر يمنعه 202 عمدًا) |
 | انحدار M200/M201 | `GL_EVENT_200_ACCEPTANCE_PASS` و`MFG_SETTINGS_201_ACCEPTANCE_PASS` و`CLAIMS_200_201_PASS` وعقد DEFINER الذاتي على سلسلة تحوي 202 |
@@ -154,3 +233,12 @@ supersession append-only، وتوثيق هذه السلسلة.
 - لا اختبار حمل مستدام، ولا تكلفة فحص الرسم لكل INSERT على بيانات حقيقية (فحوص كتالوج صغيرة).
 - لم تُشغَّل مجموعات القبول الأخرى المبنية على السلسلة الكاملة (غير 199 و200 و201)، ولا الواجهة.
 - المراجعة المستقلة لـ202 لم تحدث بعد.
+- **الاستعادة الفيزيائية/PITR: `UNVERIFIED`** — لم تُجرَّب في هذه الجلسة؛ لا تُستنتج سلامتها من كونها
+  لا تمر عبر SQL (انظر §6 البند 3). الاستعادة المنطقية للجدولين المحروسين **مُثبَتة** (الإجراء وقراءاته
+  في §6 البند 3)، لكن أثرها على مالك/ACL الجدولين بعد التنفيذ لم يُعَد فحصه تحديدًا بعد التشغيل الناجح.
+- **سلسلة `auth.uid()` العابرة:** أُغلقت للمسارات الثلاثة المُثبَتة فعليًا (`wardah_assert_org_member`،
+  `wardah_is_org_admin`، `quality_actor_can_199`) عبر §2أ؛ أي مسار آخر غير مفحوص يستدعي `auth.uid()` أو
+  شيمًا مشابهًا بصياغة `search_path` غير آمنة **يبقى مفتوحًا ولم يُجرَد**.
+- **الحدود البنيوية المضافة في §2 (COLUMN_TYPE/OPERATOR_CLASS/REWRITE_RULE/INHERITANCE):** كل واحدة
+  مُثبَتة بـmutant حي واحد على الأقل؛ لم تُفحص تركيبات متزامنة أو DDL أخرى (مثل EVENT TRIGGER أو
+  PUBLICATION) لم يُطلب فحصها صريحًا.
