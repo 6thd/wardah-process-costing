@@ -211,7 +211,7 @@ removed; QC cycle dropped from the partition key; rank collapsed; page cut ignor
 ### Closed-graph assertion cost (characterized, not changed)
 
 `qc_assert_closed_graph_202()` runs for each guarded INSERT (the inspection and its authority link): 2.28 ms with 22
-roles, 3.67 ms with 122, 5.07 ms with 222 on this machine (≈ linear in the role count, `E6ab_perf.log`). A recording
+roles, 3.67 ms with 122, 5.07 ms with 222 on this machine (grows with the role count over the three points measured, `E6ab_perf.log`; no complexity claim). A recording
 RPC call measured 2.7 ms on the M199 chain and 11.1 ms on the M202 chain with 62 roles (not an identical-data comparison;
 informational). This is the price of the fail-closed design; no change proposed.
 
