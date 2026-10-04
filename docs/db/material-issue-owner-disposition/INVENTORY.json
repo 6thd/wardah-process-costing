@@ -1,0 +1,1024 @@
+{
+  "format_version": 1,
+  "recorded_on": "2026-10-02",
+  "repository": "6thd/wardah-process-costing",
+  "documentation_base": "3acea30d83e182a2651b60b8696a658137bc0c92",
+  "audited_head": "0e462611e49f50d30f888323837d351b03f3acab",
+  "audited_tree": "d73fc628ce9ac1addd3cb844bac51c4f4dd747c2",
+  "scope": "Tracked src/**/*.{ts,tsx,js,jsx}; excludes .test./.spec., __tests__, __mocks__, database.generated.ts. Literal fluent chains scanned with TypeScript AST; named delegates, fallbacks and dynamic wrappers manually traced. No arbitrary data-flow or RPC-body analysis.",
+  "holds": {
+    "live_application": "NO-GO",
+    "release_ready": false,
+    "target_application_verified": false,
+    "merge_client_authorized": false,
+    "production_or_staging_access": false
+  },
+  "counts": {
+    "quarantined_rpc_names": 12,
+    "literal_rpc_calls": 10,
+    "literal_table_write_chains": 10,
+    "resolved_dynamic_write_implementations": 1,
+    "confirmed_write_implementations": 11,
+    "compound_paths": 2,
+    "generic_table_wrapper_boundaries": 4,
+    "dynamic_rpc_boundaries": 4,
+    "route_decision_records": 33
+  },
+  "sources": {
+    "src/hooks/useManufacturingOrders.ts": "4415a5b868e6823f3e4c2df86993b890ae13b3d722ccda95602b73b29b5992de",
+    "src/hooks/useOptimisticUpdates.ts": "267aab97c90a3349d9c9521e3c1aca95e05a9ca32e74eb01bc3fddf029ae3822",
+    "src/services/supabase-service.ts": "94aff2d3b02260756208c9d5a7cbf7a729df8812b93b422e0a8a93588736b1d9",
+    "src/services/manufacturing/createOrder.ts": "3da103898de6b6e3847b7f7d08da33e65ab11a994196a60c4cd8aec51e491d3b",
+    "src/services/manufacturing/updateStatus.ts": "1c2f3afc64e0c3de689606370a11d9eac1b7b6a841934016cf61e93c9420b5cf",
+    "src/services/inventory-transaction-service.ts": "32c7cc52ec5c220469e13d92a12f6973a3531b9fe008ee71cc1b2c3f8ad20abe",
+    "src/services/manufacturing/efficiencyService.ts": "c3f0e265627b4ad9fa174cb16546690b3c340c15ff994ac6e0c3e98447018349",
+    "src/services/manufacturing/mesService.ts": "c06d61973d647e9a518217a44bf814ec54724f69eb470beac99877c1afa7e647",
+    "src/services/manufacturing/helpers.ts": "49392010696a23ba87c37fdbbef8271acc7e88863854f939e51e0d6f6fcf920c",
+    "src/features/manufacturing/services/manufacturingOrderService.ts": "7792b56e771099fb3991f8477d1f57e774e9640b33855c4df5e0ee55bbe68baa",
+    "src/hooks/manufacturing/useEfficiency.ts": "d6382ed66926d4d6e476a3d9e395dc16f358575766d73bd7c8a462af9fdaf7f7",
+    "src/features/manufacturing/mes/WorkCenterDashboard.tsx": "e45ccb2ac42334b3dca4066655b4fdb2f8235b559948d614f36aba60e4c1a92f",
+    "src/core/security.ts": "1fee85a841ed4778c9072bd0b9794ba9cfec46d96b648c047f4d693c8754c9d9",
+    "src/lib/tenant-client.ts": "a61f15c98690c763ac7bd0a110a257634e69469d1bb2a9352ac9c60770d39f0a",
+    "src/lib/tenant-validator.ts": "393e66c37d8bfc4ac7656dabb6408e88473384c3a2caad114ad75e2a245a4fe0",
+    "src/core/supabaseClient.js": "41e409b8787b1248cea94ed49d588ed29fb3b457250f8a9a7ac2ac39b4bf1ce1",
+    "src/modules/core/BaseController.ts": "4e7c656a10264977528b4d61c06258c3997db6915bc4841676c8c5d30ec3011a",
+    "src/modules/purchasing/PurchaseOrderController.ts": "5d9ff9b61e092be559d5814c8f9a7ef2131dccb46c42717bd952196a4d12d937",
+    "src/modules/purchasing/GoodsReceiptController.ts": "248487e34fdc2e44ec08bcb55501f9416524c38d041b9b74ea9a31ec46cc0738",
+    "src/lib/db-transaction.ts": "29c44e1ac33c83748826741455cb22a4dac8a2668312620a315c22057c5bb8c3",
+    "src/ui/events.ts": "9244add160a559640516e2cd9e70bc1d6e02baf0342f54a33863ad11c3439587",
+    "src/services/payment-vouchers-service.ts": "f4f05c33c63fd9e046e41740a95015805414528dc977feff7ab48acab5cf593a",
+    "src/core/security.js": "14abe31785bcd01358c4e3b96436ec3b25de24152afcf9a7ddc01cf9bb540f78",
+    "src/services/manufacturing/capacityService.ts": "8b5ee2cb58973e74f30a54265bd167a2dde25467a2cd8734ff435ff0bb4f8cc8",
+    "src/features/manufacturing/material-issue/gate.ts": "ac6d30a29591a5d5f056d80b0dabcaf9a33b02b30510d68f2134b3ebc44549e5",
+    "sql/migrations/195_material_issue_scope.sql": "d906c72a96468d4869d8341e1cc61c8b20383e5dd43284be0070c876c80987ca",
+    "sql/migrations/198_material_issue_parent_version.sql": "2cf867dfa5c9a473f0e6e05528d0603aa8885736dd31c3210b58030b616240a5",
+    "src/infrastructure/repositories/SupabaseInventoryRepository.ts": "0e5342dd7bca93696bece692daf40c556f3c3221bab31de60842e751ea68a43c",
+    "src/hooks/use-manufacturing.ts": "c91ff96c06943b21c7f0d7b3b200a91621aad48b00d5be932f1a0038f24bdf46",
+    "src/infrastructure/repositories/SupabaseInventoryValuationRepository.ts": "4ada75aef65e9a539aeb13b6b55dad802b5a2a848524aa8e36fe26a474450a3e",
+    "src/database/run-migrations.js": "9f0c28faec8253aec6c2302bb67e4ccd12c382b4023d48959997c69432749658"
+  },
+  "legacy_rpcs": [
+    {
+      "id": "RPC01",
+      "function": "rpc_create_mo_with_reservation",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/createOrder.ts",
+          "line": 183,
+          "text": "const { data: rpcData, error: rpcError } = await supabase.rpc(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/createOrder.ts#L183"
+        }
+      ]
+    },
+    {
+      "id": "RPC02",
+      "function": "create_mo_with_reservation",
+      "literal_source_calls": []
+    },
+    {
+      "id": "RPC03",
+      "function": "release_expired_reservations",
+      "literal_source_calls": []
+    },
+    {
+      "id": "RPC04",
+      "function": "generate_work_orders_from_mo",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/mesService.ts",
+          "line": 279,
+          "text": ".rpc('generate_work_orders_from_mo', { p_mo_id: moId })",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/mesService.ts#L279"
+        }
+      ]
+    },
+    {
+      "id": "RPC05",
+      "function": "schedule_work_order",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/capacityService.ts",
+          "line": 533,
+          "text": ".rpc('schedule_work_order', {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/capacityService.ts#L533"
+        }
+      ]
+    },
+    {
+      "id": "RPC06",
+      "function": "auto_schedule_work_orders",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/capacityService.ts",
+          "line": 552,
+          "text": ".rpc('auto_schedule_work_orders', {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/capacityService.ts#L552"
+        }
+      ]
+    },
+    {
+      "id": "RPC07",
+      "function": "assign_routing_to_mo",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/efficiencyService.ts",
+          "line": 556,
+          "text": ".rpc('assign_routing_to_mo', {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/efficiencyService.ts#L556"
+        }
+      ]
+    },
+    {
+      "id": "RPC08",
+      "function": "release_manufacturing_order",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/efficiencyService.ts",
+          "line": 569,
+          "text": ".rpc('release_manufacturing_order', {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/efficiencyService.ts#L569"
+        }
+      ]
+    },
+    {
+      "id": "RPC09",
+      "function": "start_operation",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/mesService.ts",
+          "line": 294,
+          "text": ".rpc('start_operation', {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/mesService.ts#L294"
+        }
+      ]
+    },
+    {
+      "id": "RPC10",
+      "function": "complete_operation",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/mesService.ts",
+          "line": 314,
+          "text": ".rpc('complete_operation', {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/mesService.ts#L314"
+        }
+      ]
+    },
+    {
+      "id": "RPC11",
+      "function": "rpc_transition_mo_status",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/updateStatus.ts",
+          "line": 227,
+          "text": "const { data: rpcData, error: rpcError } = await supabase.rpc(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/updateStatus.ts#L227"
+        }
+      ]
+    },
+    {
+      "id": "RPC12",
+      "function": "rpc_complete_manufacturing_order",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/updateStatus.ts",
+          "line": 58,
+          "text": "const { data, error } = await supabase.rpc('rpc_complete_manufacturing_order', {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/updateStatus.ts#L58"
+        }
+      ]
+    }
+  ],
+  "direct_writes": [
+    {
+      "id": "DW01",
+      "kind": "literal_table_write",
+      "source": {
+        "path": "src/hooks/useManufacturingOrders.ts",
+        "line": 33,
+        "text": ".from('manufacturing_orders')",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/hooks/useManufacturingOrders.ts#L33"
+      },
+      "operation": "insert",
+      "table": "manufacturing_orders",
+      "entry_point": "useCreateManufacturingOrder",
+      "condition": "Gate false: direct insert; gate true delegates to manufacturingService.create.",
+      "related_sources": []
+    },
+    {
+      "id": "DW02",
+      "kind": "literal_table_write",
+      "source": {
+        "path": "src/hooks/useOptimisticUpdates.ts",
+        "line": 13,
+        "text": ".from('manufacturing_orders')",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/hooks/useOptimisticUpdates.ts#L13"
+      },
+      "operation": "update",
+      "table": "manufacturing_orders",
+      "entry_point": "useOptimisticManufacturingOrderUpdate",
+      "condition": "No gate: mutationFn updates arbitrary caller-supplied fields; optimistic cache edits are separate.",
+      "related_sources": []
+    },
+    {
+      "id": "DW03",
+      "kind": "literal_table_write",
+      "source": {
+        "path": "src/services/supabase-service.ts",
+        "line": 397,
+        "text": ".from('manufacturing_orders')",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/supabase-service.ts#L397"
+      },
+      "operation": "update",
+      "table": "manufacturing_orders",
+      "entry_point": "processCostService.updateOrderTotalCost",
+      "condition": "No gate: writes total_cost/updated_at, including after process_costs INSERT; ignores the returned UPDATE error.",
+      "related_sources": [
+        {
+          "path": "src/services/supabase-service.ts",
+          "line": 368,
+          "end_line": 403,
+          "text": "create: async (processCost: ProcessCostInput) => {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/supabase-service.ts#L368-L403"
+        }
+      ]
+    },
+    {
+      "id": "DW04",
+      "kind": "literal_table_write",
+      "source": {
+        "path": "src/services/manufacturing/createOrder.ts",
+        "line": 128,
+        "text": ".from('manufacturing_orders')",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/createOrder.ts#L128"
+      },
+      "operation": "insert",
+      "table": "manufacturing_orders",
+      "entry_point": "insertOrder / createManufacturingOrder",
+      "condition": "Gate false: no materials, including production; or missing atomic RPC with materials outside production. Gate true returns create_order first.",
+      "related_sources": [
+        {
+          "path": "src/services/manufacturing/createOrder.ts",
+          "line": 65,
+          "end_line": 86,
+          "text": "async function reserveMaterials(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/createOrder.ts#L65-L86"
+        },
+        {
+          "path": "src/services/manufacturing/createOrder.ts",
+          "line": 164,
+          "end_line": 256,
+          "text": "export async function createManufacturingOrder(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/createOrder.ts#L164-L256"
+        },
+        {
+          "path": "src/features/manufacturing/services/manufacturingOrderService.ts",
+          "line": 18,
+          "end_line": 52,
+          "text": "export async function createManufacturingOrder(data: CreateOrderData, t: any): Promise<boolean> {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/features/manufacturing/services/manufacturingOrderService.ts#L18-L52"
+        }
+      ]
+    },
+    {
+      "id": "DW05",
+      "kind": "literal_table_write",
+      "source": {
+        "path": "src/services/manufacturing/createOrder.ts",
+        "line": 136,
+        "text": ".from('manufacturing_orders')",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/createOrder.ts#L136"
+      },
+      "operation": "insert",
+      "table": "manufacturing_orders",
+      "entry_point": "insertOrder relationship retry",
+      "condition": "DW04 returns PGRST200 or a relationship-error message: second insert request with same payload.",
+      "related_sources": [
+        {
+          "path": "src/services/manufacturing/createOrder.ts",
+          "line": 115,
+          "end_line": 148,
+          "text": "*/",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/createOrder.ts#L115-L148"
+        }
+      ]
+    },
+    {
+      "id": "DW06",
+      "kind": "literal_table_write",
+      "source": {
+        "path": "src/services/manufacturing/updateStatus.ts",
+        "line": 251,
+        "text": ".from('manufacturing_orders')",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/updateStatus.ts#L251"
+      },
+      "operation": "update",
+      "table": "manufacturing_orders",
+      "entry_point": "updateManufacturingOrderStatus fallback",
+      "condition": "Gate false: transition RPC missing, or no error/no success. No production guard on transition fallback. Gate true returns outside legacy catch.",
+      "related_sources": [
+        {
+          "path": "src/services/manufacturing/updateStatus.ts",
+          "line": 199,
+          "end_line": 269,
+          "text": "export async function updateManufacturingOrderStatus(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/updateStatus.ts#L199-L269"
+        },
+        {
+          "path": "src/services/manufacturing/updateStatus.ts",
+          "line": 41,
+          "end_line": 86,
+          "text": "async function attemptAtomicCompletion(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/updateStatus.ts#L41-L86"
+        }
+      ]
+    },
+    {
+      "id": "DW07",
+      "kind": "literal_table_write",
+      "source": {
+        "path": "src/services/inventory-transaction-service.ts",
+        "line": 174,
+        "text": ".from('material_reservations')",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/inventory-transaction-service.ts#L174"
+      },
+      "operation": "insert",
+      "table": "material_reservations",
+      "entry_point": "InventoryTransactionService.reserveMaterials",
+      "condition": "Gate false: availability read then sequential per-material inserts. Gate true: one material, no expiry, displayed parent version and guarded reserve.",
+      "related_sources": [
+        {
+          "path": "src/services/inventory-transaction-service.ts",
+          "line": 135,
+          "end_line": 198,
+          "text": "async reserveMaterials(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/inventory-transaction-service.ts#L135-L198"
+        }
+      ]
+    },
+    {
+      "id": "DW08",
+      "kind": "literal_table_write",
+      "source": {
+        "path": "src/services/inventory-transaction-service.ts",
+        "line": 251,
+        "text": ".from('material_reservations')",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/inventory-transaction-service.ts#L251"
+      },
+      "operation": "update",
+      "table": "material_reservations",
+      "entry_point": "InventoryTransactionService.releaseReservation",
+      "condition": "Gate false: read/compute/write quantity_released/status/released_at. Gate true: guarded release_reservation with reservation version.",
+      "related_sources": [
+        {
+          "path": "src/services/inventory-transaction-service.ts",
+          "line": 207,
+          "end_line": 269,
+          "text": "async releaseReservation(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/inventory-transaction-service.ts#L207-L269"
+        }
+      ]
+    },
+    {
+      "id": "DW09",
+      "kind": "literal_table_write",
+      "source": {
+        "path": "src/services/manufacturing/efficiencyService.ts",
+        "line": 587,
+        "text": ".from('manufacturing_orders')",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/efficiencyService.ts#L587"
+      },
+      "operation": "update",
+      "table": "manufacturing_orders",
+      "entry_point": "updateBackflushSettings",
+      "condition": "No gate: writes auto_backflush/backflush_timing/updated_at; no pilot replacement for those fields.",
+      "related_sources": [
+        {
+          "path": "src/hooks/manufacturing/useEfficiency.ts",
+          "line": 243,
+          "end_line": 260,
+          "text": "export function useUpdateBackflushSettings() {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/hooks/manufacturing/useEfficiency.ts#L243-L260"
+        }
+      ]
+    },
+    {
+      "id": "DW10",
+      "kind": "literal_table_write",
+      "source": {
+        "path": "src/services/manufacturing/mesService.ts",
+        "line": 340,
+        "text": ".from('work_orders')",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/mesService.ts#L340"
+      },
+      "operation": "update",
+      "table": "work_orders",
+      "entry_point": "updateWorkOrderStatus",
+      "condition": "Gate false: writes status/notes/updated_at. Gate true: rejects truthy notes and uses eligibility-only set_work_order_status.",
+      "related_sources": [
+        {
+          "path": "src/services/manufacturing/mesService.ts",
+          "line": 328,
+          "end_line": 353,
+          "text": "export async function updateWorkOrderStatus(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/mesService.ts#L328-L353"
+        },
+        {
+          "path": "src/features/manufacturing/mes/WorkCenterDashboard.tsx",
+          "line": 45,
+          "end_line": 56,
+          "text": "// \u0644\u0627 \u0645\u0641\u062a\u0627\u062d \u0635\u0644\u0627\u062d\u064a\u0629 \u0645\u0637\u0627\u0628\u0642 \u0644\u0639\u0645\u0644\u064a\u0627\u062a \u0623\u0648\u0627\u0645\u0631 \u0627\u0644\u0639\u0645\u0644 (work_orders: \u0628\u062f\u0621/\u0625\u064a\u0642\u0627\u0641 \u0645\u0624\u0642\u062a/",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/features/manufacturing/mes/WorkCenterDashboard.tsx#L45-L56"
+        }
+      ]
+    },
+    {
+      "id": "DW11",
+      "kind": "resolved_dynamic_table_write",
+      "source": {
+        "path": "src/services/manufacturing/helpers.ts",
+        "line": 121,
+        "text": ".from(tableName)",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/helpers.ts#L121"
+      },
+      "operation": "update",
+      "table": "manufacturing_orders",
+      "entry_point": "performSimpleUpdate / status relationship retries",
+      "condition": "Dynamic tableName resolves to manufacturing_orders at the two calls in updateStatus.ts:142 and :169; isolated status path is outside legacy catch.",
+      "related_sources": [
+        {
+          "path": "src/services/manufacturing/updateStatus.ts",
+          "line": 137,
+          "end_line": 173,
+          "text": "async function handleRelationshipError(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/updateStatus.ts#L137-L173"
+        },
+        {
+          "path": "src/services/manufacturing/helpers.ts",
+          "line": 104,
+          "end_line": 136,
+          "text": "export function isRelationshipNotFoundError(error: { code?: string; message?: string } | null | undefined): boolean {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/helpers.ts#L104-L136"
+        }
+      ]
+    }
+  ],
+  "compound_paths": [
+    {
+      "id": "CP01",
+      "entry_point": "pauseWorkOrder",
+      "source": {
+        "path": "src/services/manufacturing/mesService.ts",
+        "line": 357,
+        "end_line": 384,
+        "text": "export async function pauseWorkOrder(workOrderId: string, reason?: string): Promise<WorkOrder> {",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/mesService.ts#L357-L384"
+      },
+      "target_write": "DW10",
+      "condition": "Gate false; gate true refuses before any write.",
+      "notes": "Separate operation_execution_logs INSERT and labor_time_tracking UPDATE precede DW10. Earlier effects may persist on final denial; first two response errors are not checked. Dashboard action/read constants are false."
+    },
+    {
+      "id": "CP02",
+      "entry_point": "releaseAllReservations",
+      "source": {
+        "path": "src/services/inventory-transaction-service.ts",
+        "line": 271,
+        "end_line": 289,
+        "text": "async releaseAllReservations(moId: string): Promise<void> {",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/inventory-transaction-service.ts#L271-L289"
+      },
+      "target_write": "DW08",
+      "condition": "Gate false; gate true refuses batch.",
+      "notes": "Sequential per-reservation release, not atomic batch and not automatic expiry. No runtime caller found in audited corpus."
+    }
+  ],
+  "generic_table_boundaries": [
+    {
+      "id": "GW01",
+      "entry_point": "getTenantQuery",
+      "source": {
+        "path": "src/core/security.ts",
+        "line": 193,
+        "end_line": 210,
+        "text": "export const getTenantQuery = async (tableName: string) => {",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/core/security.ts#L193-L210"
+      },
+      "operations": [
+        "insert",
+        "update",
+        "delete",
+        "upsert"
+      ],
+      "finding": "Generic tableName writer; no runtime caller found."
+    },
+    {
+      "id": "GW02",
+      "entry_point": "TenantAwareSupabaseClient.createQueryBuilder / fromTenant",
+      "source": {
+        "path": "src/lib/tenant-client.ts",
+        "line": 124,
+        "end_line": 204,
+        "text": "private createQueryBuilder<T>(",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/lib/tenant-client.ts#L124-L204"
+      },
+      "operations": [
+        "insert",
+        "update",
+        "delete",
+        "upsert"
+      ],
+      "finding": "Generic proxy; observed tenant-validator consumer uses SELECT. No runtime caller of fromTenant found.",
+      "related_sources": [
+        {
+          "path": "src/lib/tenant-validator.ts",
+          "line": 33,
+          "end_line": 69,
+          "text": "return tenantId;",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/lib/tenant-validator.ts#L33-L69"
+        }
+      ]
+    },
+    {
+      "id": "GW03",
+      "entry_point": "withTenant (JavaScript)",
+      "source": {
+        "path": "src/core/supabaseClient.js",
+        "line": 124,
+        "end_line": 160,
+        "text": "export const withTenant = async (tableName) => {",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/core/supabaseClient.js#L124-L160"
+      },
+      "operations": [
+        "insert",
+        "update",
+        "delete",
+        "upsert",
+        "raw from"
+      ],
+      "finding": "Generic mapped/raw table wrapper; no runtime caller found."
+    },
+    {
+      "id": "GW04",
+      "entry_point": "BaseController",
+      "source": {
+        "path": "src/modules/core/BaseController.ts",
+        "line": 113,
+        "end_line": 253,
+        "text": "async save(): Promise<T> {",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/modules/core/BaseController.ts#L113-L253"
+      },
+      "operations": [
+        "insert",
+        "update",
+        "delete"
+      ],
+      "finding": "Observed concrete subclasses bind purchase_orders or goods_receipts, not an affected table; not a confirmed affected writer.",
+      "related_sources": [
+        {
+          "path": "src/modules/purchasing/PurchaseOrderController.ts",
+          "line": 30,
+          "end_line": 35,
+          "text": "export class PurchaseOrderController extends BuyingController<PurchaseOrder> {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/modules/purchasing/PurchaseOrderController.ts#L30-L35"
+        },
+        {
+          "path": "src/modules/purchasing/GoodsReceiptController.ts",
+          "line": 37,
+          "end_line": 43,
+          "text": "export class GoodsReceiptController extends StockController<GoodsReceipt> {",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/modules/purchasing/GoodsReceiptController.ts#L37-L43"
+        }
+      ]
+    }
+  ],
+  "dynamic_rpc_boundaries": [
+    {
+      "id": "DR01",
+      "entry_point": "TransactionManager.executeRPC / executeRPCTransaction",
+      "source": {
+        "path": "src/lib/db-transaction.ts",
+        "line": 108,
+        "end_line": 137,
+        "text": "async executeRPC<T>(",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/lib/db-transaction.ts#L108-L137"
+      },
+      "finding": "Unconstrained string; no runtime call of executeRPCTransaction or transactionManager.executeRPC found."
+    },
+    {
+      "id": "DR02",
+      "entry_point": "createSecureRPC (TypeScript)",
+      "source": {
+        "path": "src/core/security.ts",
+        "line": 167,
+        "end_line": 189,
+        "text": "export const createSecureRPC = (functionName: string) => {",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/core/security.ts#L167-L189"
+      },
+      "finding": "ui/events.ts passes six different RPC names, none in the M195 list. Different-name RPC bodies/dependencies are outside this inventory.",
+      "related_sources": [
+        {
+          "path": "src/ui/events.ts",
+          "line": 317,
+          "text": "const createMO = createSecureRPC('create_manufacturing_order')",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/ui/events.ts#L317"
+        },
+        {
+          "path": "src/ui/events.ts",
+          "line": 425,
+          "text": "const completeMO = createSecureRPC('complete_manufacturing_order')",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/ui/events.ts#L425"
+        }
+      ]
+    },
+    {
+      "id": "DR03",
+      "entry_point": "resetVoucherToDraft",
+      "source": {
+        "path": "src/services/payment-vouchers-service.ts",
+        "line": 389,
+        "end_line": 407,
+        "text": "async function resetVoucherToDraft(",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/payment-vouchers-service.ts#L389-L407"
+      },
+      "finding": "Type union and both observed calls name only customer-receipt/supplier-payment reset RPCs, neither in M195.",
+      "related_sources": [
+        {
+          "path": "src/services/payment-vouchers-service.ts",
+          "line": 410,
+          "end_line": 423,
+          "text": "export async function resetCustomerReceiptToDraft(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/payment-vouchers-service.ts#L410-L423"
+        },
+        {
+          "path": "src/services/payment-vouchers-service.ts",
+          "line": 627,
+          "end_line": 640,
+          "text": "export async function resetSupplierPaymentToDraft(",
+          "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/payment-vouchers-service.ts#L627-L640"
+        }
+      ]
+    },
+    {
+      "id": "DR04",
+      "entry_point": "createSecureRPC (JavaScript companion)",
+      "source": {
+        "path": "src/core/security.js",
+        "line": 180,
+        "end_line": 205,
+        "text": "export const createSecureRPC = (functionName) => {",
+        "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/core/security.js#L180-L205"
+      },
+      "finding": "Generic exported string wrapper; no direct runtime import of this .js companion found."
+    }
+  ],
+  "supporting_sources": [
+    {
+      "path": "src/features/manufacturing/material-issue/gate.ts",
+      "line": 2,
+      "end_line": 4,
+      "text": "export function isolatedMaterialIssueEnabled(): boolean {",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/features/manufacturing/material-issue/gate.ts#L2-L4"
+    },
+    {
+      "path": "sql/migrations/195_material_issue_scope.sql",
+      "line": 87,
+      "end_line": 110,
+      "text": "END IF;",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/sql/migrations/195_material_issue_scope.sql#L87-L110"
+    },
+    {
+      "path": "sql/migrations/198_material_issue_parent_version.sql",
+      "line": 153,
+      "end_line": 187,
+      "text": "IF op='set_order_status' THEN",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/sql/migrations/198_material_issue_parent_version.sql#L153-L187"
+    },
+    {
+      "path": "src/services/manufacturing/mesService.ts",
+      "line": 614,
+      "end_line": 631,
+      "text": "export async function backflushMaterials(",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/manufacturing/mesService.ts#L614-L631"
+    },
+    {
+      "path": "src/services/inventory-transaction-service.ts",
+      "line": 200,
+      "end_line": 205,
+      "text": "async consumeReservedMaterials(",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/inventory-transaction-service.ts#L200-L205"
+    },
+    {
+      "path": "src/infrastructure/repositories/SupabaseInventoryRepository.ts",
+      "line": 370,
+      "end_line": 402,
+      "text": "const { data, error } = await supabase",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/infrastructure/repositories/SupabaseInventoryRepository.ts#L370-L402"
+    },
+    {
+      "path": "src/features/manufacturing/services/manufacturingOrderService.ts",
+      "line": 55,
+      "end_line": 77,
+      "text": "orderId: string,",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/features/manufacturing/services/manufacturingOrderService.ts#L55-L77"
+    },
+    {
+      "path": "src/hooks/use-manufacturing.ts",
+      "line": 21,
+      "end_line": 45,
+      "text": "export function useCreateManufacturingOrder() {",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/hooks/use-manufacturing.ts#L21-L45"
+    },
+    {
+      "path": "src/infrastructure/repositories/SupabaseInventoryValuationRepository.ts",
+      "line": 148,
+      "text": ".from(this.config.TABLE_NAMES.inventory_ledger)",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/infrastructure/repositories/SupabaseInventoryValuationRepository.ts#L148"
+    },
+    {
+      "path": "src/infrastructure/repositories/SupabaseInventoryValuationRepository.ts",
+      "line": 189,
+      "text": ".from(this.config.TABLE_NAMES.items)",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/infrastructure/repositories/SupabaseInventoryValuationRepository.ts#L189"
+    },
+    {
+      "path": "src/services/supabase-service.ts",
+      "line": 103,
+      "text": ".from(config.TABLE_NAMES.categories)",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/services/supabase-service.ts#L103"
+    },
+    {
+      "path": "src/database/run-migrations.js",
+      "line": 26,
+      "end_line": 45,
+      "text": "",
+      "url": "https://github.com/6thd/wardah-process-costing/blob/0e462611e49f50d30f888323837d351b03f3acab/src/database/run-migrations.js#L26-L45"
+    }
+  ],
+  "owner_decisions": [
+    {
+      "id": "RPC01",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC02",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC03",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC04",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC05",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC06",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC07",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC08",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC09",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC10",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC11",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "RPC12",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW01",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW02",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW03",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW04",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW05",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW06",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW07",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW08",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW09",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW10",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DW11",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "CP01",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "CP02",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "GW01",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "GW02",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "GW03",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "GW04",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DR01",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DR02",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DR03",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    },
+    {
+      "id": "DR04",
+      "status": "PENDING",
+      "owner": null,
+      "decision": null,
+      "approval_evidence": null,
+      "verification_evidence": []
+    }
+  ]
+}
