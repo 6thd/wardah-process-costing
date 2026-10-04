@@ -252,7 +252,6 @@ raise sites; the condition is equivalent for both thread-alive states. Ruff
 and whitespace pass; all 44 hashes match. M200 source/runbook were read from
 the live-main anchor, not executed. No new PG17 run or target access is claimed.
 
-
 ## Round 5 focused contract correction
 
 The owner's supplied Round 4 report at `7041dd0d` returned bounded PASS for
@@ -286,3 +285,16 @@ Round 5 executor validation: all four proof files compare byte-identical to
 Round 4, all 44 locked hashes match, Bash syntax and whitespace pass. Document
 checks confirm the four correction topics and selected-chain wording are
 present; these are text checks, not runtime role, namespace or selector proofs.
+
+
+Round 5 independent text review at `85bd4f09` passed all four corrections;
+proof files stayed identical and no new PG17 run was claimed. Round 6 clarifies
+remaining execution-graph wording (including different-owner INVOKER paths),
+fail-closed occupancy for BOTH advisory classes, and removes the stale literal-
+identity helper sentence. These are wording corrections, not new acceptance.
+#315 was observed still Open/Draft/Unmerged at
+`b104e3717717cbbe539e9493030ca8458da9126f`, newer than the review's
+`3819a3f3387d7fe577491426e9a1b79b971885c5`. No #315 delta is absorbed or accepted
+here. If M201 merges, reconcile any future fence against its post-201 function
+bodies; pre-201 replacements must not erase or bypass either layer. Existing
+pair-order/simulated-fence tests are not proof of an implemented pause.

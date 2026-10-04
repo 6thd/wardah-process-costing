@@ -208,7 +208,8 @@ They are requirements for future implementation, not implemented protections.
    ascending order -> pause rows -> business locks. A global controller takes
    the global exclusive barrier before org enumeration/state transitions, so it
    need not hold N org exclusive advisory locks. Every writer, org controller and new-org
-   provisioning must take the global shared prefix before any org lock. A writer without a server-resolved
+   provisioning must take the global shared prefix before any org lock.
+   A writer without a server-resolved
    org refuses before org/business locks; no caller-supplied org is trusted.
    Review global controller overlap with org controllers and provisioning.
    Read back max_locks_per_transaction and budget the remaining locks under
@@ -222,8 +223,9 @@ They are requirements for future implementation, not implemented protections.
    ordinary triggers including M193/M199 and the proposed F1 guard. No target
    guarantee is accepted until bypass-capable credentials are closed or covered
    by reviewed external controls; owner/superuser limitations remain explicit.
-6. RECOVERY identity requires a helper clients cannot execute directly, invoked
-   with a literal function identity only by allowlisted DEFINER entrypoints.
+6. RECOVERY identity requires a helper clients cannot execute directly; it
+   derives identity from the isolated execution-role mapping below, never from
+   a caller-supplied function identity.
    Protect helper owner/search_path/grants and validate caller/marker provenance.
    A literal argument or session marker alone proves nothing. Reconciliation
    only closes unknown events; ordinary writer admission stays closed.
@@ -326,6 +328,16 @@ while any grants arbitrary privileged execution or entry-role access. A trusted
 fixed postgres-owned routine is not automatically an arbitrary-code exploit,
 but an unresolved reachability edge is a blocker.
 
+The graph is evaluated by effective execution identity, NOT proowner equality.
+Traverse every reachable SECURITY INVOKER routine regardless of its owner,
+including PUBLIC/default/inherited EXECUTE, nested calls, operators/casts,
+triggers and dynamic dispatch; INVOKER retains the entry role's authority. Such
+code must be an explicitly frozen reviewed helper or be unreachable/revoked.
+Unknown or write-capable unreviewed INVOKER code blocks acceptance even when
+owned by postgres or by a different role. Mutants must cover a different-owner
+INVOKER that forges context, not just a same-owner DEFINER. No blanket trusted-
+postgres disposition can exempt an effective entry-role execution path.
+
 Adding a same-owner rogue function or a forged-context helper in a local mutant
 must fail the catalog/role binding gate even if it can forge a row at runtime.
 This is not a claim that SQL can distinguish two arbitrary functions running as
@@ -371,7 +383,8 @@ Select two-int4 class ID `1463898704` for this proposed fence; it is NOT yet a
 proven reservation. Global key is `(1463898704, 0)`. Registry allocation uses
 transaction exclusive `(1463898704, -1)` after global shared; provisioning never
 upgrades key 0. The allocator runs before the new org key, never after existing
-org/business/pause-row locks. Positive org IDs cannot collide with 0 or -1. Org keys are `(1463898704, org_lock_id)`, where an immutable,
+org/business/pause-row locks. Positive org IDs cannot collide with 0 or -1.
+Org keys are `(1463898704, org_lock_id)`, where an immutable,
 server-owned registry assigns UNIQUE positive int4 IDs monotonically, never
 reuses deleted-org IDs and refuses on exhaustion. No UUID hash or modulo mapping:
 distinct orgs cannot collide. Registry protection/provisioning is part of the
@@ -389,7 +402,8 @@ verified drain of old M171 calls with admission closed, not a rolling mixture of
 old and new lock keys. No M171 modification or rekey proof is made here.
 Every other dynamic/external two-int caller must likewise use a disjoint fixed
 class or be disabled/drained under explicit policy. If its range may include the
-fence class and disposition is unresolved, namespace acceptance fails closed;
+fence class `1463898704` OR rekey class `1463898705` and disposition is
+unresolved, namespace acceptance fails closed;
 do not treat timeout as proof of reservation. Single-bigint business locks such
 as M200 use PostgreSQL's separate key space. Namespace registration and old-call
 drain are prerequisites of P04/P12, with collision and allocator-upgrade mutants.

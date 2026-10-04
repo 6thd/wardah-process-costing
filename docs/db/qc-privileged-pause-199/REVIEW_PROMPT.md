@@ -1,10 +1,32 @@
-# Independent Round 5 focused contract-defect closure review
+# Independent Round 6 wording closure review
+
+Round 5 reviewed parent: `85bd4f09e7f2f8cfe2084042a29e530e22577709`, tree
+`b9b1d6d563b25a0ac7689705536f8181fbdf6546`. All four Round 5 text corrections
+passed. Review ONLY the three-document wording delta against this parent:
+
+- Effective execution graph includes different-owner SECURITY INVOKER routines
+  (PUBLIC/default/inherited EXECUTE, nested calls/operators/triggers/dispatch),
+  never merely proowner equality or blanket trusted-postgres classification.
+- Unknown occupancy of EITHER class 1463898704 or 1463898705 fails closed.
+- Round 3 helper wording now agrees with the execution-role mapping; no arbitrary
+  literal function-name argument establishes identity. Formatting is cleaned.
+- #315 drift is observed, not absorbed: current readback head
+  b104e3717717cbbe539e9493030ca8458da9126f remains open/draft/unmerged; the supplied
+  Round 5 review saw 3819a3f3387d7fe577491426e9a1b79b971885c5. If M201 merges,
+  require post-201 function-body reconciliation; no simulated fence proves pause.
+
+The older four questions below are context, not a request to redesign or repeat
+all reviews. Return PASS/FAIL for these residual wording corrections and list
+implementation dependencies separately. Report only concrete new defects; do
+not convert an unperformed acceptance probe into a new document defect.
+No new PG17 run required for unchanged proof files; verify their byte identity
+and the 44 hashes. No merge/implementation/rollout approval.
 
 READ ONLY. Freeze the owner-supplied #313 head/tree at start and end. No edits,
 commits, push, comments/reviews, Ready/merge, migration allocation/application,
 Production/Staging access, pause implementation or rollout.
 
-Prior Round 4: `7041dd0dd2e697ef8f22408688b6d90d80a5a37f`, tree
+Earlier Round 4: `7041dd0dd2e697ef8f22408688b6d90d80a5a37f`, tree
 `7f2dc170b765e8268af27eda3b67c7d63fb0b4f6`.
 Frozen proof base: `3d01f99fae2fb294fa0586084c32f0cd6bdf21fe`, tree
 `ad60355c42a0e725bbe431ff3032f95ac5f05d35`.
@@ -14,7 +36,7 @@ Live-main readback: `1fe5eccc8e52874bc6038f26ffd4366628c46ca1`, tree
 not merged into that main. Report new drift; do not silently absorb it.
 #308/#310/#311 references remain the same as README.
 
-Verify only contract, README and this prompt change against Round 4; all proof
+Verify only contract, README and this prompt change against the Round 5 parent; all proof
 code and the 44-source lock remain byte-identical. Total PR is seven additions
 against frozen base. Main-only M200 files are not PR deletions. No rebase/relock.
 This is four specific contract defects, not a repeat of all RED reproductions.
