@@ -1,0 +1,19 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: INFORMATIONAL, UNCONTROLLED. Closed-graph assertion cost versus role count (62 cluster roles in the first block) and a single-client recording-RPC latency on the M199 chain versus the M202 chain; the two databases did not hold the same number of rows, so the latency comparison is not a controlled before/after. Cited only as characterization.
+----------------------------------------------------------------------------------------------------
+######## E6a closed-graph assertion cost (cluster roles: 62)
+NOTICE:  qc_assert_closed_graph_202: 2.762 ms per call (avg of 2000)
+DO
+######## E6b genuine RPC latency, 1 client, 15 s, M199-only chain vs M202 chain (same fixture, same machine)
+-- exp_p_pre
+number of transactions actually processed: 5536
+latency average = 2.710 ms
+tps = 369.058818 (without initial connection time)
+-- exp_p_post
+number of transactions actually processed: 1349
+latency average = 11.125 ms
+tps = 89.885951 (without initial connection time)
+######## E6a' assertion cost vs role count (linear?)
+22 roles: 2.284 ms/call
+122 roles: 3.674 ms/call
+222 roles: 5.069 ms/call

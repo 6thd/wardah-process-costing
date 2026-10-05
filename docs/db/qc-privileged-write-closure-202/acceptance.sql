@@ -1005,9 +1005,11 @@ ALTER TABLE public.quality_inspections ENABLE ALWAYS TRIGGER qc_write_guard_202;
 CREATE FUNCTION pg_temp.listcall(p_fn text, p_org uuid, p_mo uuid, p_lim integer) RETURNS jsonb LANGUAGE sql AS $fn$
   SELECT pg_temp.try_as(pg_temp.inspector(), format('SELECT public.%s(%L::uuid, %L::uuid, %s)',
     p_fn, p_org, p_mo, COALESCE(p_lim::text, 'NULL'))) $fn$;
--- Compare p_fn against the frozen reference over the whole parameter grid; returns {combos, mismatches, first}.
+-- Compare p_fn against the frozen reference over the SELECTED parameter grid below; returns {combos, mismatches, first}.
 CREATE FUNCTION pg_temp.list_equiv(p_fn text) RETURNS jsonb LANGUAGE plpgsql AS $fn$
 DECLARE
+  -- SELECTED limit values, not every integer 1..500: org-wide NULL,0,-5,1,2,3,4,5,7,8,11,13,17,25,50,100,499,500,501,100000;
+  -- MO-scoped NULL,0,1,2,3,100 (for every fixture MO and one unknown MO); plus one call for another tenant's org.
   v_lims integer[] := ARRAY[NULL,0,-5,1,2,3,4,5,7,8,11,13,17,25,50,100,499,500,501,100000];
   v_mo_lims integer[] := ARRAY[NULL,0,1,2,3,100];
   v_mos uuid[];
@@ -1025,7 +1027,7 @@ BEGIN
       END IF;
     END LOOP;
   END LOOP;
-  -- another tenant's org id and an unknown org: same refusal text
+  -- another tenant's org id (org2; the caller is not a member there): same refusal text
   FOREACH v_mo IN ARRAY ARRAY[NULL::uuid] LOOP
     a := pg_temp.listcall(p_fn, pg_temp.org2(), NULL, 100); b := pg_temp.listcall('zz_list_ref_8babdd6f', pg_temp.org2(), NULL, 100);
     v_n := v_n + 1; IF a IS DISTINCT FROM b THEN v_bad := v_bad + 1; v_first := COALESCE(v_first, 'org2'); END IF;

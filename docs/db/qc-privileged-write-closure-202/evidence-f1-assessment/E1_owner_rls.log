@@ -1,0 +1,51 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: CITED. Owner / SELECT policy / FORCE RLS facts (E1a) and the three-variant predicate probe (E1b; the pre-existing SELECT policy is dropped in the scratch DB only to isolate the probe).
+----------------------------------------------------------------------------------------------------
+######## E1 owner / SELECT policy / FORCE RLS boundary (exp_post, committed 202 state)
+table owner=postgres rls=true force=false
+policy quality_inspections_entry_insert_202 cmd=a roles={wardah_qc_entry_202} qual=- check=true
+policy quality_inspections_select_policy cmd=r roles={-} qual=(org_id IN ( SELECT user_organizations.org_id    FROM user_organizations   WHERE (user_organizations.user_id = ( SELECT auth.uid() AS uid)))) check=-
+role anon super=false bypassrls=false createrole=false
+role authenticated super=false bypassrls=false createrole=false
+role postgres super=true bypassrls=true createrole=true
+role service_role super=false bypassrls=true createrole=false
+role wardah_qc_entry_202 super=false bypassrls=false createrole=false
+SELECT priv anon=false
+SELECT priv authenticated=false
+SELECT priv service_role=false
+SELECT priv wardah_qc_entry_202=false
+owns policy-DDL capability (is owner or member of owner): (none besides postgres/superusers)
+-- mechanism proof: when does a SELECT-policy predicate execute inside a definer function owned by the table owner?
+variant A: owner NOBYPASSRLS, FORCE RLS off
+ predicate_ran
+---------------
+ t
+(1 row)
+
+variant B: owner NOBYPASSRLS, FORCE RLS on
+ERROR:  permission denied for table user_organizations
+CONTEXT:  SQL function "zz_probe" statement 1
+######## E1b mechanism proof (scratch DB; the pre-existing quality_inspections_select_policy is dropped ONLY to isolate the probe predicate)
+rows visible to the owner-run probe:
+ zz_probe
+----------
+        1
+(1 row)
+
+variant A: owner NOBYPASSRLS, FORCE RLS off
+      ?column?
+---------------------
+ predicate_ran=false
+(1 row)
+
+variant B: owner NOBYPASSRLS, FORCE RLS ON
+      ?column?
+--------------------
+ predicate_ran=true
+(1 row)
+
+variant C: owner BYPASSRLS, FORCE RLS ON
+      ?column?
+---------------------
+ predicate_ran=false
+(1 row)

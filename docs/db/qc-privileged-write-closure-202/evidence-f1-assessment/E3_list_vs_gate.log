@@ -1,0 +1,19 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: CITED. Listing versus gate for NULL qc_cycle, prior cycle and corrupt authority links (measured on the 202 chain).
+----------------------------------------------------------------------------------------------------
+######## E3 listing vs gate under corrupt / NULL-cycle / prior-cycle data (exp_e3 = 202 applied)
+NOTICE:  SCENARIO a: legacy FINAL with NULL qc_cycle (cycle 1 is current) | gate: ready=false reason=QUALITY_RELEASE_REQUIRED qc_cycle=1 auth_rev=0 final=<NULL>
+NOTICE:     list: X-A-NULLCYC type=FINAL cycle=<NULL> rev=0 part_rev=0 status=CURRENT awaiting=false
+NOTICE:  SCENARIO b1: cycle 1 superseded, no replacement | gate: ready=false reason=QUALITY_RELEASE_REQUIRED qc_cycle=1 auth_rev=1 final=<NULL>
+NOTICE:     list: X-B-C1 type=FINAL cycle=1 rev=0 part_rev=1 status=SUPERSEDED_AWAITING_REPLACEMENT awaiting=true
+NOTICE:  SCENARIO b2: now cycle 2 with a genuine PASS | gate: ready=true reason=<NULL> qc_cycle=2 auth_rev=0 final=QI-000002
+NOTICE:     list: X-B-C1 type=FINAL cycle=1 rev=0 part_rev=1 status=SUPERSEDED_AWAITING_REPLACEMENT awaiting=true
+NOTICE:     list: QI-000002 type=FINAL cycle=2 rev=0 part_rev=0 status=CURRENT awaiting=false
+NOTICE:  SCENARIO c1: authority revision 5 on a partition that never passed revision 0 | gate: ready=false reason=QUALITY_AUTHORITY_CORRUPT qc_cycle=1 auth_rev=0 final=QI-000003
+NOTICE:     list: X-C1-REV5 type=FINAL cycle=1 rev=5 part_rev=0 status=CURRENT awaiting=false
+NOTICE:     list: QI-000003 type=FINAL cycle=1 rev=0 part_rev=0 status=CURRENT awaiting=false
+NOTICE:  SCENARIO c2: authority link with another org_id | gate: ready=false reason=QUALITY_AUTHORITY_CORRUPT qc_cycle=1 auth_rev=0 final=X-C2-ORG2
+NOTICE:     list: X-C2-ORG2 type=FINAL cycle=1 rev=0 part_rev=0 status=CURRENT awaiting=false
+NOTICE:  SCENARIO e: stage link rev 4 beyond partition, scope final_only | gate: ready=true reason=<NULL> qc_cycle=1 auth_rev=0 final=QI-000004
+NOTICE:     list: QI-000004 type=FINAL cycle=1 rev=0 part_rev=0 status=CURRENT awaiting=false
+NOTICE:     list: X-C3-S type=IN_PROCESS cycle=<NULL> rev=4 part_rev=0 status=CURRENT awaiting=false

@@ -1,0 +1,15 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: CITED. INSERT-only restore of inspections + authority + supersessions (+/- counters): gate and list JSON parity with the source, next number, audit row counts.
+----------------------------------------------------------------------------------------------------
+######## E5 whole-QC-family INSERT-only restore: parity of gate + list with the source
+ fresh RPC after restore (nocounters): QI-000004
+ tgt rows (nocounters): qi=4 auth=4 sup=2 counters=1 audit(quality)=5
+ fresh RPC after restore (withcounters): QI-000004
+ tgt rows (withcounters): qi=4 auth=4 sup=2 counters=1 audit(quality)=5
+-- parity (source vs restored target), gate JSON and list JSON:
+gate parity (nocounters): IDENTICAL
+list parity (nocounters): IDENTICAL
+gate parity (withcounters): IDENTICAL
+list parity (withcounters): IDENTICAL
+-- source fresh number for comparison:
+src next number would be QI-000004

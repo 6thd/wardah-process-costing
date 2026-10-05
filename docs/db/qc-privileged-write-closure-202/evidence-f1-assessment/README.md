@@ -20,3 +20,7 @@ so the history of the measurement work is visible (each file's reason is in its 
 
 Git hygiene: trailing whitespace and trailing blank lines were stripped from these files (whitespace only; no content change) so
 that `git diff --check` is clean. The raw `auto_explain` captures are the unmodified server-log excerpts apart from that.
+
+Packaging note: the repository's global `.gitignore` ignores `*.log`; the reviewed `.log` files in this folder were force-added
+individually (`git add -f`). The global ignore rule was not changed, and no other ignored file was added. Each superseded or
+informational log carries a `NOTE:` header (added at commit time) saying why it is superseded, invalid or uncontrolled.

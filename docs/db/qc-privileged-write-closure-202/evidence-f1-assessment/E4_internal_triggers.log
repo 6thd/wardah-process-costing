@@ -1,0 +1,20 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: CITED. Fingerprint blind spot for internal FK triggers. The first block (DISABLE TRIGGER ALL) also disables the guard and so changes the fingerprint; the second block (E4b) disables only the internal RI triggers. Note: the orphan refusal in E4b is by the provenance guard, not FK enforcement; FK enforcement is proven by the dedicated check in history_rehearsal.sql.
+----------------------------------------------------------------------------------------------------
+######## E4 internal FK-trigger blind spot of the structural fingerprint
+                                                                                     ?column?
+ internal (FK) triggers on the authority table: RI_ConstraintTrigger_c_120363=O, RI_ConstraintTrigger_c_120364=O, RI_ConstraintTrigger_c_120368=O, RI_ConstraintTrigger_c_120369=O
+                     ?column?
+ after DISABLE TRIGGER ALL: internal states = DDDD
+                              blind_spot
+ fingerprint unchanged by disabling the FK-enforcement triggers: false
+                   consequence
+ orphan link accepted while triggers disabled: 1
+NOTICE:  non-superuser owner DISABLE TRIGGER ALL: refused (permission denied: "RI_ConstraintTrigger_c_120722" is a system trigger)
+DO
+######## E4b isolate INTERNAL RI triggers only (superuser)
+                               ?column?
+ internal RI trigger states now: DDDD; non-internal guard states: OOA
+                                      blind_spot
+ fingerprint UNCHANGED after disabling only the internal FK-enforcement triggers: true
+NOTICE:  ok  orphan link: guard still refuses (so the FK blind spot alone does not open the write path) (QC_WRITE_PROVENANCE_REQUIRED_202)

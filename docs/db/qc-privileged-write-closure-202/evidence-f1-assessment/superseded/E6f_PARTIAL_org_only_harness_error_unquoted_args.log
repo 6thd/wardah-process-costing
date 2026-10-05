@@ -1,0 +1,42 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: SUPERSEDED / PARTIAL. A harness bug (shell arguments containing spaces were passed unquoted) made the MO-scoped queries fail with psql errors; only the org-wide rows are valid samples. The complete corrected run is E6k. Not cited.
+----------------------------------------------------------------------------------------------------
+NOTE: PARTIAL / INVALID run: unquoted shell arguments broke the MO-scoped query (psql errors), the org-wide timings above are valid samples only. Not a complete evidence set.
+### shape=realistic  A=exp_bm_r_base_a (M199 body)  B=exp_bm_r_base_b (M202 body)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   430.26 p50=   439.60 p90=   455.84 max=   501.95 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   678.80 p50=  1815.40 p90=  1878.42 max=  1905.84 ms
+                                       ratio p50 B/A =    4.1x
+  org-wide limit 500                   A M199: n=25 min=   436.85 p50=   459.96 p90=   501.17 max=   610.52 ms
+  org-wide limit 500                   B M202: n=25 min=   658.33 p50=  1793.79 p90=  1878.60 max=  1915.06 ms
+                                       ratio p50 B/A =    3.9x
+ERROR:  invalid input syntax for type uuid: "10,000"
+LINE 1: ...ons('ed000000-0000-4000-8000-000000000001'::uuid, '10,000'::...
+                                                             ^
+QUERY:  SELECT public.rpc_list_quality_inspections('ed000000-0000-4000-8000-000000000001'::uuid, '10,000'::uuid, 100)
+CONTEXT:  PL/pgSQL function inline_code_block line 6 at PERFORM
+
+### shape=small  A=exp_bm_s_base_a (M199 body)  B=exp_bm_s_base_b (M202 body)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=    45.52 p50=    53.82 p90=    74.91 max=    76.74 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=    68.45 p50=   130.86 p90=   155.73 max=   197.82 ms
+                                       ratio p50 B/A =    2.4x
+  org-wide limit 500                   A M199: n=25 min=    48.37 p50=    51.89 p90=    75.01 max=    79.64 ms
+  org-wide limit 500                   B M202: n=25 min=    71.28 p50=   136.43 p90=   141.38 max=   147.00 ms
+                                       ratio p50 B/A =    2.6x
+ERROR:  invalid input syntax for type uuid: "org"
+LINE 1: ...ons('ed000000-0000-4000-8000-000000000001'::uuid, 'org'::uui...
+                                                             ^
+QUERY:  SELECT public.rpc_list_quality_inspections('ed000000-0000-4000-8000-000000000001'::uuid, 'org'::uuid, 100)
+CONTEXT:  PL/pgSQL function inline_code_block line 6 at PERFORM
+
+### shape=heavy  A=exp_bm_h_base_a (M199 body)  B=exp_bm_h_base_b (M202 body)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   428.06 p50=   437.04 p90=   446.24 max=   456.82 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   754.79 p50=  1794.93 p90=  1881.24 max=  1946.80 ms
+                                       ratio p50 B/A =    4.1x
+  org-wide limit 500                   A M199: n=25 min=   434.90 p50=   448.26 p90=   462.19 max=   516.26 ms
+  org-wide limit 500                   B M202: n=25 min=   769.21 p50=  1830.66 p90=  1946.40 max=  1993.91 ms
+                                       ratio p50 B/A =    4.1x
+ERROR:  invalid input syntax for type uuid: "200"
+LINE 1: ...ons('ed000000-0000-4000-8000-000000000001'::uuid, '200'::uui...
+                                                             ^
+QUERY:  SELECT public.rpc_list_quality_inspections('ed000000-0000-4000-8000-000000000001'::uuid, '200'::uuid, 100)
+CONTEXT:  PL/pgSQL function inline_code_block line 6 at PERFORM

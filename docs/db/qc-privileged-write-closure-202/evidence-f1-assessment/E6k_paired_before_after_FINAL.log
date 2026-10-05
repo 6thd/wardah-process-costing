@@ -1,0 +1,125 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: CITED CONTROLLED RUN. Paired A (M199) / B (variant) clones with identical row counts; before timing the installed public.rpc_list_quality_inspections is read back from pg_proc for A and B (digest, security mode, search_path, owner) and the run aborts unless B matches the expected digest (old = frozen 8babdd6f body bb2432f5..., new = optimized source 3ef747d9...) and A differs from B. 25 warm samples per variant/query; raw samples are in E6k_raw_samples/. The jit=off rows are a diagnostic only.
+----------------------------------------------------------------------------------------------------
+driver check: old digest bb2432f528a97ebb7f4d75a3e5b2f585 (frozen 8babdd6f) != new digest 3ef747d991d0f1efe10c67c292697037 (source digest of the working-tree migration)
+################ VARIANT: OLD = frozen 8babdd6f M202 listing vs M199, default JIT
+B installed public.rpc_list_quality_inspections: md5(prosrc)=bb2432f528a97ebb7f4d75a3e5b2f585 expected=bb2432f528a97ebb7f4d75a3e5b2f585 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+A installed public.rpc_list_quality_inspections (M199): md5(prosrc)=159090c0b1f4e060cf218d026a0169c3 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+row counts: A=50000 B=50000
+### shape=realistic 10,000 MOs x 5 rows (50,000 rows)  A=exp_bm_r_base_a (M199 body)  B=exp_bm_r_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   369.02 p50=   393.77 p90=   421.01 max=   428.86 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   589.14 p50=  1568.94 p90=  1643.24 max=  1665.97 ms
+                                       ratio p50 B/A =    4.0x
+  org-wide limit 500                   A M199: n=25 min=   366.28 p50=   399.50 p90=   444.05 max=   451.50 ms
+  org-wide limit 500                   B M202: n=25 min=   587.57 p50=  1559.32 p90=  1637.36 max=  1718.12 ms
+                                       ratio p50 B/A =    3.9x
+  MO-scoped limit 100                  A M199: n=25 min=     1.00 p50=     1.23 p90=     1.58 max=     1.65 ms
+  MO-scoped limit 100                  B M202: n=25 min=     1.75 p50=     2.12 p90=     3.74 max=     4.59 ms
+                                       ratio p50 B/A =    1.7x
+B installed public.rpc_list_quality_inspections: md5(prosrc)=bb2432f528a97ebb7f4d75a3e5b2f585 expected=bb2432f528a97ebb7f4d75a3e5b2f585 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+A installed public.rpc_list_quality_inspections (M199): md5(prosrc)=159090c0b1f4e060cf218d026a0169c3 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+row counts: A=5000 B=5000
+### shape=small org 1,000 MOs x 5 rows (5,000 rows)  A=exp_bm_s_base_a (M199 body)  B=exp_bm_s_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=    37.84 p50=    40.99 p90=    44.41 max=    46.53 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=    56.65 p50=   111.14 p90=   116.05 max=   121.99 ms
+                                       ratio p50 B/A =    2.7x
+  org-wide limit 500                   A M199: n=25 min=    40.68 p50=    42.94 p90=    47.43 max=    75.23 ms
+  org-wide limit 500                   B M202: n=25 min=    61.65 p50=   112.11 p90=   118.94 max=   134.36 ms
+                                       ratio p50 B/A =    2.6x
+  MO-scoped limit 100                  A M199: n=25 min=     1.04 p50=     1.27 p90=     1.70 max=     2.15 ms
+  MO-scoped limit 100                  B M202: n=25 min=     1.69 p50=     2.04 p90=     3.42 max=     3.89 ms
+                                       ratio p50 B/A =    1.6x
+B installed public.rpc_list_quality_inspections: md5(prosrc)=bb2432f528a97ebb7f4d75a3e5b2f585 expected=bb2432f528a97ebb7f4d75a3e5b2f585 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+A installed public.rpc_list_quality_inspections (M199): md5(prosrc)=159090c0b1f4e060cf218d026a0169c3 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+row counts: A=50000 B=50000
+### shape=heavy 200 MOs x 250 rows (50,000 rows)  A=exp_bm_h_base_a (M199 body)  B=exp_bm_h_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   364.79 p50=   379.52 p90=   401.39 max=   410.31 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   646.71 p50=  1571.02 p90=  1651.80 max=  1723.59 ms
+                                       ratio p50 B/A =    4.1x
+  org-wide limit 500                   A M199: n=25 min=   371.40 p50=   388.37 p90=   434.74 max=   467.04 ms
+  org-wide limit 500                   B M202: n=25 min=   664.89 p50=  1610.37 p90=  1718.93 max=  1776.39 ms
+                                       ratio p50 B/A =    4.1x
+  MO-scoped limit 100                  A M199: n=25 min=     3.51 p50=     3.92 p90=     4.38 max=     4.46 ms
+  MO-scoped limit 100                  B M202: n=25 min=    53.67 p50=    58.15 p90=    60.47 max=    65.67 ms
+                                       ratio p50 B/A =   14.8x
+################ VARIANT: OLD = frozen 8babdd6f M202 listing vs M199, jit=off for OLD sessions (DIAGNOSTIC ONLY, not a fix)
+B installed public.rpc_list_quality_inspections: md5(prosrc)=bb2432f528a97ebb7f4d75a3e5b2f585 expected=bb2432f528a97ebb7f4d75a3e5b2f585 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+A installed public.rpc_list_quality_inspections (M199): md5(prosrc)=159090c0b1f4e060cf218d026a0169c3 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+row counts: A=50000 B=50000
+### shape=realistic 10,000 MOs x 5 rows (50,000 rows)  A=exp_bm_r_base_a (M199 body)  B=exp_bm_r_base_b (B body; jit off for B sessions: True)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   362.79 p50=   393.51 p90=   432.12 max=   451.58 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   557.91 p50=   591.78 p90=   626.02 max=   649.00 ms
+                                       ratio p50 B/A =    1.5x
+  org-wide limit 500                   A M199: n=25 min=   368.09 p50=   380.92 p90=   402.73 max=   408.80 ms
+  org-wide limit 500                   B M202: n=25 min=   566.36 p50=   586.89 p90=   631.37 max=   648.77 ms
+                                       ratio p50 B/A =    1.5x
+  MO-scoped limit 100                  A M199: n=25 min=     1.02 p50=     1.18 p90=     1.62 max=     1.74 ms
+  MO-scoped limit 100                  B M202: n=25 min=     1.74 p50=     2.02 p90=     3.73 max=     3.78 ms
+                                       ratio p50 B/A =    1.7x
+B installed public.rpc_list_quality_inspections: md5(prosrc)=bb2432f528a97ebb7f4d75a3e5b2f585 expected=bb2432f528a97ebb7f4d75a3e5b2f585 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+A installed public.rpc_list_quality_inspections (M199): md5(prosrc)=159090c0b1f4e060cf218d026a0169c3 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+row counts: A=5000 B=5000
+### shape=small org 1,000 MOs x 5 rows (5,000 rows)  A=exp_bm_s_base_a (M199 body)  B=exp_bm_s_base_b (B body; jit off for B sessions: True)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=    38.30 p50=    41.41 p90=    43.81 max=    49.69 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=    59.24 p50=    64.31 p90=    70.08 max=    94.24 ms
+                                       ratio p50 B/A =    1.6x
+  org-wide limit 500                   A M199: n=25 min=    40.45 p50=    43.13 p90=    46.40 max=    47.14 ms
+  org-wide limit 500                   B M202: n=25 min=    60.35 p50=    63.50 p90=    66.68 max=    68.62 ms
+                                       ratio p50 B/A =    1.5x
+  MO-scoped limit 100                  A M199: n=25 min=     0.98 p50=     1.10 p90=     1.54 max=     1.74 ms
+  MO-scoped limit 100                  B M202: n=25 min=     1.69 p50=     1.96 p90=     3.40 max=     3.51 ms
+                                       ratio p50 B/A =    1.8x
+B installed public.rpc_list_quality_inspections: md5(prosrc)=bb2432f528a97ebb7f4d75a3e5b2f585 expected=bb2432f528a97ebb7f4d75a3e5b2f585 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+A installed public.rpc_list_quality_inspections (M199): md5(prosrc)=159090c0b1f4e060cf218d026a0169c3 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+row counts: A=50000 B=50000
+### shape=heavy 200 MOs x 250 rows (50,000 rows)  A=exp_bm_h_base_a (M199 body)  B=exp_bm_h_base_b (B body; jit off for B sessions: True)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   376.14 p50=   392.36 p90=   420.71 max=   439.19 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   574.12 p50=   617.73 p90=   634.52 max=   679.61 ms
+                                       ratio p50 B/A =    1.6x
+  org-wide limit 500                   A M199: n=25 min=   370.04 p50=   387.49 p90=   408.33 max=   451.32 ms
+  org-wide limit 500                   B M202: n=25 min=   592.71 p50=   621.29 p90=   661.44 max=   670.28 ms
+                                       ratio p50 B/A =    1.6x
+  MO-scoped limit 100                  A M199: n=25 min=     3.40 p50=     3.70 p90=     3.90 max=     4.39 ms
+  MO-scoped limit 100                  B M202: n=25 min=     5.44 p50=     6.04 p90=     7.58 max=     8.02 ms
+                                       ratio p50 B/A =    1.6x
+################ VARIANT: NEW = optimized M202 listing vs M199, default JIT
+B installed public.rpc_list_quality_inspections: md5(prosrc)=3ef747d991d0f1efe10c67c292697037 expected=3ef747d991d0f1efe10c67c292697037 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+A installed public.rpc_list_quality_inspections (M199): md5(prosrc)=159090c0b1f4e060cf218d026a0169c3 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+row counts: A=50000 B=50000
+### shape=realistic 10,000 MOs x 5 rows (50,000 rows)  A=exp_bm_r_base_a (M199 body)  B=exp_bm_r_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   371.10 p50=   397.73 p90=   437.90 max=   479.36 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=    75.78 p50=    82.12 p90=    87.78 max=    94.21 ms
+                                       ratio p50 B/A =    0.2x
+  org-wide limit 500                   A M199: n=25 min=   374.64 p50=   398.48 p90=   430.18 max=   449.60 ms
+  org-wide limit 500                   B M202: n=25 min=    86.43 p50=    92.69 p90=   101.51 max=   104.57 ms
+                                       ratio p50 B/A =    0.2x
+  MO-scoped limit 100                  A M199: n=25 min=     0.95 p50=     1.07 p90=     1.48 max=     1.63 ms
+  MO-scoped limit 100                  B M202: n=25 min=     1.79 p50=     2.36 p90=     3.38 max=     3.63 ms
+                                       ratio p50 B/A =    2.2x
+B installed public.rpc_list_quality_inspections: md5(prosrc)=3ef747d991d0f1efe10c67c292697037 expected=3ef747d991d0f1efe10c67c292697037 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+A installed public.rpc_list_quality_inspections (M199): md5(prosrc)=159090c0b1f4e060cf218d026a0169c3 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+row counts: A=5000 B=5000
+### shape=small org 1,000 MOs x 5 rows (5,000 rows)  A=exp_bm_s_base_a (M199 body)  B=exp_bm_s_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=    37.72 p50=    40.34 p90=    46.56 max=    50.45 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=    11.48 p50=    12.36 p90=    14.11 max=    15.21 ms
+                                       ratio p50 B/A =    0.3x
+  org-wide limit 500                   A M199: n=25 min=    40.82 p50=    46.48 p90=    51.04 max=    72.23 ms
+  org-wide limit 500                   B M202: n=25 min=    18.69 p50=    21.10 p90=    25.13 max=    31.94 ms
+                                       ratio p50 B/A =    0.5x
+  MO-scoped limit 100                  A M199: n=25 min=     1.07 p50=     1.28 p90=     1.72 max=     1.88 ms
+  MO-scoped limit 100                  B M202: n=25 min=     2.04 p50=     2.39 p90=     4.04 max=     4.66 ms
+                                       ratio p50 B/A =    1.9x
+B installed public.rpc_list_quality_inspections: md5(prosrc)=3ef747d991d0f1efe10c67c292697037 expected=3ef747d991d0f1efe10c67c292697037 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+A installed public.rpc_list_quality_inspections (M199): md5(prosrc)=159090c0b1f4e060cf218d026a0169c3 secdef=t config={"search_path=public, pg_temp"} owner=postgres args=3
+row counts: A=50000 B=50000
+### shape=heavy 200 MOs x 250 rows (50,000 rows)  A=exp_bm_h_base_a (M199 body)  B=exp_bm_h_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   363.80 p50=   378.89 p90=   394.20 max=   400.94 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   100.56 p50=   105.93 p90=   115.55 max=   127.20 ms
+                                       ratio p50 B/A =    0.3x
+  org-wide limit 500                   A M199: n=25 min=   367.82 p50=   388.22 p90=   428.00 max=   466.80 ms
+  org-wide limit 500                   B M202: n=25 min=   126.20 p50=   181.49 p90=   196.63 max=   202.12 ms
+                                       ratio p50 B/A =    0.5x
+  MO-scoped limit 100                  A M199: n=25 min=     3.50 p50=     3.96 p90=     4.39 max=     4.79 ms
+  MO-scoped limit 100                  B M202: n=25 min=     4.66 p50=     5.13 p90=    10.62 max=    16.95 ms
+                                       ratio p50 B/A =    1.3x
+HARNESS_RC=0

@@ -1,0 +1,115 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: SUPERSEDED. Correctly labelled variants (the installed md5(prosrc) was read back and matched: old bb2432f5..., new 3ef747d9...) but security mode and search_path were not read back. Its timings agree with E6k; E6k is the cited final run.
+----------------------------------------------------------------------------------------------------
+################ VARIANT: OLD = frozen 8babdd6f M202 listing (md5 bb2432f528a97ebb7f4d75a3e5b2f585) vs M199, default JIT
+B listing body md5: bb2432f528a97ebb7f4d75a3e5b2f585 (expected bb2432f528a97ebb7f4d75a3e5b2f585)
+row counts: A=50000 B=50000
+### shape=realistic 10,000 MOs x 5 rows (50,000 rows)  A=exp_bm_r_base_a (M199 body)  B=exp_bm_r_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   414.55 p50=   434.42 p90=   482.99 max=   544.33 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   638.62 p50=  1743.64 p90=  1779.65 max=  1805.40 ms
+                                       ratio p50 B/A =    4.0x
+  org-wide limit 500                   A M199: n=25 min=   423.43 p50=   441.79 p90=   472.60 max=   479.94 ms
+  org-wide limit 500                   B M202: n=25 min=   644.50 p50=  1755.11 p90=  1788.37 max=  1882.26 ms
+                                       ratio p50 B/A =    4.0x
+  MO-scoped limit 100                  A M199: n=25 min=     1.14 p50=     1.24 p90=     1.75 max=     1.83 ms
+  MO-scoped limit 100                  B M202: n=25 min=     1.97 p50=     2.14 p90=     3.99 max=     4.08 ms
+                                       ratio p50 B/A =    1.7x
+B listing body md5: bb2432f528a97ebb7f4d75a3e5b2f585 (expected bb2432f528a97ebb7f4d75a3e5b2f585)
+row counts: A=5000 B=5000
+### shape=small org 1,000 MOs x 5 rows (5,000 rows)  A=exp_bm_s_base_a (M199 body)  B=exp_bm_s_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=    43.79 p50=    44.50 p90=    45.76 max=    46.57 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=    64.25 p50=   121.00 p90=   130.25 max=   141.81 ms
+                                       ratio p50 B/A =    2.7x
+  org-wide limit 500                   A M199: n=25 min=    45.82 p50=    47.75 p90=    49.50 max=    54.61 ms
+  org-wide limit 500                   B M202: n=25 min=    67.48 p50=   124.85 p90=   129.16 max=   143.09 ms
+                                       ratio p50 B/A =    2.6x
+  MO-scoped limit 100                  A M199: n=25 min=     1.11 p50=     1.38 p90=     1.80 max=     1.86 ms
+  MO-scoped limit 100                  B M202: n=25 min=     1.92 p50=     2.73 p90=     4.01 max=     4.97 ms
+                                       ratio p50 B/A =    2.0x
+B listing body md5: bb2432f528a97ebb7f4d75a3e5b2f585 (expected bb2432f528a97ebb7f4d75a3e5b2f585)
+row counts: A=50000 B=50000
+### shape=heavy 200 MOs x 250 rows (50,000 rows)  A=exp_bm_h_base_a (M199 body)  B=exp_bm_h_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   410.72 p50=   428.85 p90=   444.14 max=   494.76 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   733.59 p50=  1728.73 p90=  1748.98 max=  1771.91 ms
+                                       ratio p50 B/A =    4.0x
+  org-wide limit 500                   A M199: n=25 min=   417.54 p50=   428.66 p90=   441.83 max=   461.63 ms
+  org-wide limit 500                   B M202: n=25 min=   736.67 p50=  1744.61 p90=  1770.73 max=  1839.97 ms
+                                       ratio p50 B/A =    4.1x
+  MO-scoped limit 100                  A M199: n=25 min=     3.97 p50=     4.31 p90=     4.67 max=     5.02 ms
+  MO-scoped limit 100                  B M202: n=25 min=    58.36 p50=    63.91 p90=    69.46 max=    74.05 ms
+                                       ratio p50 B/A =   14.8x
+################ VARIANT: OLD = frozen 8babdd6f M202 listing vs M199, jit=off for the OLD sessions (DIAGNOSTIC ONLY, not a fix)
+B listing body md5: bb2432f528a97ebb7f4d75a3e5b2f585 (expected bb2432f528a97ebb7f4d75a3e5b2f585)
+row counts: A=50000 B=50000
+### shape=realistic 10,000 MOs x 5 rows (50,000 rows)  A=exp_bm_r_base_a (M199 body)  B=exp_bm_r_base_b (B body; jit off for B sessions: True)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   404.97 p50=   425.41 p90=   444.65 max=   454.36 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   626.52 p50=   645.44 p90=   676.01 max=   701.63 ms
+                                       ratio p50 B/A =    1.5x
+  org-wide limit 500                   A M199: n=25 min=   413.77 p50=   422.91 p90=   443.10 max=   455.96 ms
+  org-wide limit 500                   B M202: n=25 min=   632.59 p50=   650.71 p90=   665.73 max=   718.83 ms
+                                       ratio p50 B/A =    1.5x
+  MO-scoped limit 100                  A M199: n=25 min=     1.12 p50=     1.22 p90=     1.72 max=     1.79 ms
+  MO-scoped limit 100                  B M202: n=25 min=     1.96 p50=     2.07 p90=     3.81 max=     3.90 ms
+                                       ratio p50 B/A =    1.7x
+B listing body md5: bb2432f528a97ebb7f4d75a3e5b2f585 (expected bb2432f528a97ebb7f4d75a3e5b2f585)
+row counts: A=5000 B=5000
+### shape=small org 1,000 MOs x 5 rows (5,000 rows)  A=exp_bm_s_base_a (M199 body)  B=exp_bm_s_base_b (B body; jit off for B sessions: True)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=    42.14 p50=    44.17 p90=    45.97 max=    48.68 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=    64.15 p50=    66.29 p90=    67.83 max=    69.28 ms
+                                       ratio p50 B/A =    1.5x
+  org-wide limit 500                   A M199: n=25 min=    45.55 p50=    47.00 p90=    50.12 max=    55.20 ms
+  org-wide limit 500                   B M202: n=25 min=    65.84 p50=    70.33 p90=    74.36 max=   118.85 ms
+                                       ratio p50 B/A =    1.5x
+  MO-scoped limit 100                  A M199: n=25 min=     1.10 p50=     1.19 p90=     1.68 max=     1.81 ms
+  MO-scoped limit 100                  B M202: n=25 min=     1.89 p50=     2.03 p90=     3.73 max=     3.95 ms
+                                       ratio p50 B/A =    1.7x
+B listing body md5: bb2432f528a97ebb7f4d75a3e5b2f585 (expected bb2432f528a97ebb7f4d75a3e5b2f585)
+row counts: A=50000 B=50000
+### shape=heavy 200 MOs x 250 rows (50,000 rows)  A=exp_bm_h_base_a (M199 body)  B=exp_bm_h_base_b (B body; jit off for B sessions: True)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   407.83 p50=   416.76 p90=   428.04 max=   441.38 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   628.03 p50=   652.72 p90=   672.31 max=   690.58 ms
+                                       ratio p50 B/A =    1.6x
+  org-wide limit 500                   A M199: n=25 min=   417.59 p50=   428.32 p90=   437.53 max=   449.73 ms
+  org-wide limit 500                   B M202: n=25 min=   664.12 p50=   679.32 p90=   704.54 max=   726.42 ms
+                                       ratio p50 B/A =    1.6x
+  MO-scoped limit 100                  A M199: n=25 min=     3.83 p50=     4.07 p90=     4.42 max=     4.45 ms
+  MO-scoped limit 100                  B M202: n=25 min=     6.08 p50=     6.52 p90=     7.94 max=     8.11 ms
+                                       ratio p50 B/A =    1.6x
+################ VARIANT: NEW = optimized M202 listing (md5 3ef747d991d0f1efe10c67c292697037) vs M199, default JIT
+B listing body md5: 3ef747d991d0f1efe10c67c292697037 (expected 3ef747d991d0f1efe10c67c292697037)
+row counts: A=50000 B=50000
+### shape=realistic 10,000 MOs x 5 rows (50,000 rows)  A=exp_bm_r_base_a (M199 body)  B=exp_bm_r_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   400.41 p50=   423.14 p90=   483.43 max=   553.67 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=    80.76 p50=    85.12 p90=   111.95 max=   142.50 ms
+                                       ratio p50 B/A =    0.2x
+  org-wide limit 500                   A M199: n=25 min=   393.61 p50=   412.44 p90=   435.35 max=   480.77 ms
+  org-wide limit 500                   B M202: n=25 min=    89.10 p50=    93.33 p90=    98.71 max=   102.70 ms
+                                       ratio p50 B/A =    0.2x
+  MO-scoped limit 100                  A M199: n=25 min=     1.01 p50=     1.21 p90=     1.71 max=     1.78 ms
+  MO-scoped limit 100                  B M202: n=25 min=     2.01 p50=     2.20 p90=     3.77 max=     4.87 ms
+                                       ratio p50 B/A =    1.8x
+B listing body md5: 3ef747d991d0f1efe10c67c292697037 (expected 3ef747d991d0f1efe10c67c292697037)
+row counts: A=5000 B=5000
+### shape=small org 1,000 MOs x 5 rows (5,000 rows)  A=exp_bm_s_base_a (M199 body)  B=exp_bm_s_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=    38.21 p50=    41.53 p90=    43.29 max=    47.28 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=    10.96 p50=    12.34 p90=    13.15 max=    13.52 ms
+                                       ratio p50 B/A =    0.3x
+  org-wide limit 500                   A M199: n=25 min=    40.96 p50=    44.03 p90=    46.64 max=    47.52 ms
+  org-wide limit 500                   B M202: n=25 min=    17.64 p50=    19.76 p90=    21.28 max=    22.34 ms
+                                       ratio p50 B/A =    0.4x
+  MO-scoped limit 100                  A M199: n=25 min=     1.09 p50=     1.25 p90=     1.67 max=     1.79 ms
+  MO-scoped limit 100                  B M202: n=25 min=     2.00 p50=     2.20 p90=     3.77 max=     3.86 ms
+                                       ratio p50 B/A =    1.8x
+B listing body md5: 3ef747d991d0f1efe10c67c292697037 (expected 3ef747d991d0f1efe10c67c292697037)
+row counts: A=50000 B=50000
+### shape=heavy 200 MOs x 250 rows (50,000 rows)  A=exp_bm_h_base_a (M199 body)  B=exp_bm_h_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   381.11 p50=   404.80 p90=   416.63 max=   427.14 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   107.62 p50=   115.40 p90=   124.15 max=   139.84 ms
+                                       ratio p50 B/A =    0.3x
+  org-wide limit 500                   A M199: n=25 min=   394.03 p50=   411.62 p90=   427.09 max=   437.60 ms
+  org-wide limit 500                   B M202: n=25 min=   134.19 p50=   187.11 p90=   196.15 max=   198.77 ms
+                                       ratio p50 B/A =    0.5x
+  MO-scoped limit 100                  A M199: n=25 min=     3.94 p50=     4.19 p90=     4.58 max=     5.05 ms
+  MO-scoped limit 100                  B M202: n=25 min=     4.91 p50=     5.29 p90=    11.05 max=    15.79 ms
+                                       ratio p50 B/A =    1.3x
+HARNESS_RC=0

@@ -201,8 +201,10 @@ semantics, clamps and error behaviour are unchanged. The `LIMIT` is applied afte
 
 **Equivalence proof** (`acceptance.sql` section F): the verbatim frozen `8babdd6f` body (digest
 `bb2432f528a97ebb7f4d75a3e5b2f585`, installed under another name) is compared with the new function through the
-same authenticated entry point for 117 org-wide / MO-scoped / unknown-MO / other-org × limit combinations
-(`NULL, 0, -5, 1…500, 501, 100000`) on a dataset with >640 rows, NULL and 999 sequences, equal-sequence ties,
+same authenticated entry point for 117 org-wide / MO-scoped / unknown-MO / other-org calls. The limits are **selected values, not every
+integer from 1 to 500**: org-wide `NULL, 0, -5, 1, 2, 3, 4, 5, 7, 8, 11, 13, 17, 25, 50, 100, 499, 500, 501, 100000` (20 values); MO-scoped
+`NULL, 0, 1, 2, 3, 100` (6 values) for each fixture MO and for one unknown MO; and one call for another tenant's org (same refusal text expected).
+The dataset has >640 rows, NULL and 999 sequences, equal-sequence ties,
 cross-partition head ties, interleaved stage/final partitions, superseded/awaiting rows and corrupt links.
 Result: 0 mismatches (exact JSON, order and error text). Eight wrong-order / wrong-limit variants of the new function
 (authority revision removed from the order; LIMIT before ranking; oldest-head-first; lower clamp removed; upper clamp

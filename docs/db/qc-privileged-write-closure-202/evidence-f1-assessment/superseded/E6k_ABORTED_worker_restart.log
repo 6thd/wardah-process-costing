@@ -1,0 +1,8 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: ABORTED. The worker process restarted while this attempt was running; the harness was killed and this partial log was kept. The complete run is E6k_paired_before_after_FINAL.log in the parent folder.
+----------------------------------------------------------------------------------------------------
+driver check: old digest bb2432f528a97ebb7f4d75a3e5b2f585 != new digest 3ef747d991d0f1efe10c67c292697037 (old = frozen 8babdd6f; new = source digest of the working-tree migration)
+################ VARIANT: OLD = frozen 8babdd6f M202 listing vs M199, default JIT
+B listing body md5: bb2432f528a97ebb7f4d75a3e5b2f585 (expected bb2432f528a97ebb7f4d75a3e5b2f585)
+row counts: A=50000 B=50000
+### shape=realistic 10,000 MOs x 5 rows (50,000 rows)  A=exp_bm_r_base_a (M199 body)  B=exp_bm_r_base_b (B body; jit off for B sessions: False)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
