@@ -239,6 +239,18 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   (`md5(prosrc)`) لأجسامها من 192 و199 و200، فأي استبدال بينها يوقفها مغلقة. **العقد والبصمات
   قبل 201 وبعدها وتنسيق #313 (مثبت بالترتيبين) في §4 من الـrunbook — اقرأه قبل أي
   `CREATE OR REPLACE` عليها**.
+- `sql/migrations/202_qc_privileged_write_closure.sql` +
+  `docs/db/QC_PRIVILEGED_WRITE_CLOSURE_202_RUNBOOK.md` +
+  `docs/db/qc-privileged-write-closure-202/` +
+  `.github/workflows/qc-privileged-write-202-acceptance.yml` — **Migration 202 (مستودع
+  فقط، غير مطبّقة؛ تتطلب 195–201 أولًا ولا تُطبَّق على أي بيئة دون موافقة منفصلة)**: تصحيح F1 من
+  #313. تسحب كل امتياز مباشر على `quality_inspections` من `service_role` وغيره؛ الكاتب الوحيد هو
+  `rpc_record_quality_inspection` المملوكة لدور NOLOGIN مخصص يملك دالة واحدة، بحارس
+  `SECURITY INVOKER` (`ENABLE ALWAYS`) يشترط دور المدخل وmarker مربوطًا بـ`xid8` ورسمًا تنفيذيًا مغلقًا
+  (`qc_assert_closed_graph_202`)، مع اختيار NULL-safe وsupersession append-only لا يحذف التاريخ. لا تستبدل
+  أيًا من دوال 201 الخمس (بصماتها بعد 201 مثبتة في preflight)، وتستبدل ثلاثًا من M199 بعد تثبيت أجسامها.
+  **قبل أي Baseline يطوي 202 ولأي استعادة منطقية اقرأ §6 من الـrunbook** (المالك والدور لا يظهران في
+  `pg_dump --no-owner`). لا يغلق سياج الإيقاف G05 ولا تدريب Supabase المستضاف.
 
 ## Baseline
 

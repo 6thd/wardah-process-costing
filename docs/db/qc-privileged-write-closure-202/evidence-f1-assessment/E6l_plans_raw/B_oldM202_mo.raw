@@ -1,0 +1,771 @@
+2026-10-04 21:24:46.555 UTC [3001] LOG:  duration: 0.013 ms  plan:
+	Query Text: SELECT set_config('request.jwt.claim.sub','ed000000-0000-4000-8000-0000000000a4',false), set_config('request.jwt.claims','{"sub":"ed000000-0000-4000-8000-0000000000a4","role":"authenticated"}',false)
+	Result  (cost=0.00..0.01 rows=1 width=64) (actual time=0.008..0.008 rows=1 loops=1)
+2026-10-04 21:24:46.557 UTC [3001] LOG:  duration: 0.014 ms  plan:
+	Query Text: NOT EXISTS (
+	    SELECT 1
+	    FROM public.user_organizations
+	    WHERE user_id = auth.uid()
+	      AND org_id = p_org
+	      AND is_active IS TRUE
+	  )
+	Result  (cost=1.10..1.11 rows=1 width=1) (actual time=0.011..0.012 rows=1 loops=1)
+	  Buffers: shared hit=1
+	  InitPlan 1
+	    ->  Seq Scan on user_organizations  (cost=0.00..1.10 rows=1 width=0) (actual time=0.010..0.010 rows=1 loops=1)
+	          Filter: ((is_active IS TRUE) AND (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid) AND (user_id = (NULLIF(current_setting('request.jwt.claim.sub'::text, true), ''::text))::uuid))
+	          Rows Removed by Filter: 3
+	          Buffers: shared hit=1
+2026-10-04 21:24:46.557 UTC [3001] CONTEXT:  SQL expression "NOT EXISTS (
+	    SELECT 1
+	    FROM public.user_organizations
+	    WHERE user_id = auth.uid()
+	      AND org_id = p_org
+	      AND is_active IS TRUE
+	  )"
+	PL/pgSQL function wardah_assert_org_member(uuid) line 9 at IF
+	SQL statement "SELECT public.wardah_assert_org_member(p_org_id)"
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 3 at PERFORM
+2026-10-04 21:24:46.557 UTC [3001] LOG:  duration: 1.030 ms  plan:
+	Query Text: SELECT public.wardah_assert_org_member(p_org_id)
+	Result  (cost=0.00..0.26 rows=1 width=4) (actual time=1.028..1.029 rows=1 loops=1)
+	  Buffers: shared hit=298
+2026-10-04 21:24:46.557 UTC [3001] CONTEXT:  SQL statement "SELECT public.wardah_assert_org_member(p_org_id)"
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 3 at PERFORM
+2026-10-04 21:24:46.557 UTC [3001] LOG:  duration: 0.003 ms  plan:
+	Query Text:
+	  SELECT p_permission_key IN (
+	    'accounting.vouchers.unpost',
+	    'accounting.vouchers.cancel',
+	    'accounting.journals.reverse'
+	  );
+
+	Query Parameters: $1 = 'manufacturing.quality_inspections.read'
+	Result  (cost=0.00..0.01 rows=1 width=1) (actual time=0.001..0.001 rows=1 loops=1)
+2026-10-04 21:24:46.557 UTC [3001] CONTEXT:  SQL function "wardah_is_sensitive_permission" statement 1
+	PL/pgSQL function has_permission(uuid,uuid,character varying) line 10 at assignment
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 4 at IF
+2026-10-04 21:24:46.558 UTC [3001] LOG:  duration: 0.006 ms  plan:
+	Query Text: EXISTS (
+	    SELECT 1 FROM public.super_admins
+	    WHERE user_id = p_user_id AND is_active = true
+	  )
+	Result  (cost=0.00..0.01 rows=1 width=1) (actual time=0.004..0.005 rows=1 loops=1)
+	  InitPlan 1
+	    ->  Seq Scan on super_admins  (cost=0.00..0.00 rows=1 width=0) (actual time=0.004..0.004 rows=0 loops=1)
+	          Filter: (is_active AND (user_id = 'ed000000-0000-4000-8000-0000000000a4'::uuid))
+2026-10-04 21:24:46.558 UTC [3001] CONTEXT:  SQL expression "EXISTS (
+	    SELECT 1 FROM public.super_admins
+	    WHERE user_id = p_user_id AND is_active = true
+	  )"
+	PL/pgSQL function has_permission(uuid,uuid,character varying) line 13 at IF
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 4 at IF
+2026-10-04 21:24:46.558 UTC [3001] LOG:  duration: 0.005 ms  plan:
+	Query Text: NOT v_sensitive AND EXISTS (
+	    SELECT 1 FROM public.user_organizations
+	    WHERE user_id = p_user_id
+	      AND org_id = p_org_id
+	      AND is_active = true
+	      AND is_org_admin = true
+	  )
+	Result  (cost=1.06..1.07 rows=1 width=1) (actual time=0.004..0.004 rows=1 loops=1)
+	  Buffers: shared hit=1
+	  InitPlan 1
+	    ->  Seq Scan on user_organizations  (cost=0.00..1.06 rows=1 width=0) (actual time=0.003..0.003 rows=0 loops=1)
+	          Filter: (is_active AND is_org_admin AND (user_id = 'ed000000-0000-4000-8000-0000000000a4'::uuid) AND (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid))
+	          Rows Removed by Filter: 4
+	          Buffers: shared hit=1
+2026-10-04 21:24:46.558 UTC [3001] CONTEXT:  SQL expression "NOT v_sensitive AND EXISTS (
+	    SELECT 1 FROM public.user_organizations
+	    WHERE user_id = p_user_id
+	      AND org_id = p_org_id
+	      AND is_active = true
+	      AND is_org_admin = true
+	  )"
+	PL/pgSQL function has_permission(uuid,uuid,character varying) line 20 at IF
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 4 at IF
+2026-10-04 21:24:46.560 UTC [3001] LOG:  duration: 0.043 ms  plan:
+	Query Text: SELECT EXISTS (
+	    SELECT 1
+	    FROM public.user_roles ur
+	    INNER JOIN public.user_organizations uo
+	      ON uo.user_id = ur.user_id
+	     AND uo.org_id = ur.org_id
+	     AND uo.is_active IS TRUE
+	    INNER JOIN public.roles r
+	      ON r.id = ur.role_id
+	     AND r.org_id = p_org_id
+	     AND COALESCE(r.is_active, true)
+	    INNER JOIN public.role_permissions rp ON ur.role_id = rp.role_id
+	    INNER JOIN public.permissions p ON rp.permission_id = p.id
+	    WHERE ur.user_id = p_user_id
+	      AND ur.org_id = p_org_id
+	      AND p.permission_key = p_permission_key
+	      AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+	  )
+	Result  (cost=11.64..11.65 rows=1 width=1) (actual time=0.039..0.040 rows=1 loops=1)
+	  Buffers: shared hit=9
+	  InitPlan 1
+	    ->  Nested Loop  (cost=0.00..11.64 rows=1 width=0) (actual time=0.038..0.039 rows=1 loops=1)
+	          Join Filter: (rp.permission_id = p.id)
+	          Buffers: shared hit=9
+	          ->  Nested Loop  (cost=0.00..4.38 rows=1 width=16) (actual time=0.016..0.017 rows=1 loops=1)
+	                Join Filter: (r.id = rp.role_id)
+	                Rows Removed by Join Filter: 2
+	                Buffers: shared hit=4
+	                ->  Nested Loop  (cost=0.00..3.29 rows=1 width=32) (actual time=0.015..0.015 rows=1 loops=1)
+	                      Join Filter: (ur.role_id = r.id)
+	                      Rows Removed by Join Filter: 8
+	                      Buffers: shared hit=3
+	                      ->  Nested Loop  (cost=0.00..2.13 rows=1 width=16) (actual time=0.009..0.009 rows=1 loops=1)
+	                            Buffers: shared hit=2
+	                            ->  Seq Scan on user_roles ur  (cost=0.00..1.06 rows=1 width=48) (actual time=0.006..0.006 rows=1 loops=1)
+	                                  Filter: ((user_id = 'ed000000-0000-4000-8000-0000000000a4'::uuid) AND (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid) AND ((expires_at IS NULL) OR (expires_at > now())))
+	                                  Rows Removed by Filter: 2
+	                                  Buffers: shared hit=1
+	                            ->  Seq Scan on user_organizations uo  (cost=0.00..1.06 rows=1 width=32) (actual time=0.002..0.002 rows=1 loops=1)
+	                                  Filter: ((is_active IS TRUE) AND (user_id = 'ed000000-0000-4000-8000-0000000000a4'::uuid) AND (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid))
+	                                  Rows Removed by Filter: 3
+	                                  Buffers: shared hit=1
+	                      ->  Seq Scan on roles r  (cost=0.00..1.11 rows=4 width=16) (actual time=0.003..0.004 rows=9 loops=1)
+	                            Filter: (COALESCE(is_active, true) AND (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid))
+	                            Buffers: shared hit=1
+	                ->  Seq Scan on role_permissions rp  (cost=0.00..1.04 rows=4 width=32) (actual time=0.001..0.001 rows=3 loops=1)
+	                      Buffers: shared hit=1
+	          ->  Seq Scan on permissions p  (cost=0.00..7.25 rows=1 width=16) (actual time=0.021..0.021 rows=1 loops=1)
+	                Filter: ((permission_key)::text = 'manufacturing.quality_inspections.read'::text)
+	                Rows Removed by Filter: 175
+	                Buffers: shared hit=5
+2026-10-04 21:24:46.560 UTC [3001] CONTEXT:  SQL statement "SELECT EXISTS (
+	    SELECT 1
+	    FROM public.user_roles ur
+	    INNER JOIN public.user_organizations uo
+	      ON uo.user_id = ur.user_id
+	     AND uo.org_id = ur.org_id
+	     AND uo.is_active IS TRUE
+	    INNER JOIN public.roles r
+	      ON r.id = ur.role_id
+	     AND r.org_id = p_org_id
+	     AND COALESCE(r.is_active, true)
+	    INNER JOIN public.role_permissions rp ON ur.role_id = rp.role_id
+	    INNER JOIN public.permissions p ON rp.permission_id = p.id
+	    WHERE ur.user_id = p_user_id
+	      AND ur.org_id = p_org_id
+	      AND p.permission_key = p_permission_key
+	      AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+	  )"
+	PL/pgSQL function has_permission(uuid,uuid,character varying) line 30 at SQL statement
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 4 at IF
+2026-10-04 21:24:46.565 UTC [3001] LOG:  duration: 0.311 ms  plan:
+	Query Text: COALESCE((
+	    SELECT jsonb_agg(page.row_data ORDER BY page.head_seq DESC NULLS LAST, page.head_id DESC, page.rn)
+	    FROM (
+	      SELECT w.row_data, w.head_seq, w.head_id, w.rn
+	      FROM (
+	        SELECT
+	          row_number() OVER part AS rn,
+	          first_value(b.seq) OVER part AS head_seq,
+	          first_value(b.id) OVER part AS head_id,
+	          jsonb_build_object(
+	            'id', b.id, 'inspection_number', b.inspection_number,
+	            'inspection_type', b.inspection_type, 'result', b.result,
+	            'mo_id', b.mo_id, 'order_number', b.order_number,
+	            'work_order_id', b.work_order_id,
+	            'stage_id', b.stage_id, 'stage_name', b.stage_name, 'stage_name_ar', b.stage_name_ar,
+	            'qc_cycle', b.qc_cycle, 'sample_size', b.sample_size,
+	            'passed_quantity', b.passed_quantity, 'failed_quantity', b.failed_quantity,
+	            'disposition', b.disposition, 'findings', b.findings,
+	            'corrective_action', b.corrective_action, 'specifications', b.specifications,
+	            'inspector_id', b.inspector_id,
+	            'inspector_name', b.inspector_name,
+	            'inspection_date', b.inspection_date,
+	            'authority_revision', COALESCE(b.rev, 0),
+	            'superseded', COALESCE(b.rev, 0) < b.part_rev,
+	            'partition_revision', b.part_rev,
+	            'awaiting_replacement', b.awaiting,
+	            'authority_status', CASE
+	              WHEN b.awaiting THEN 'SUPERSEDED_AWAITING_REPLACEMENT'
+	              WHEN COALESCE(b.rev, 0) < b.part_rev THEN 'SUPERSEDED'
+	              ELSE 'CURRENT' END) AS row_data
+	        FROM (
+	          SELECT qi.id, qi.mo_id, qi.inspection_type, qi.qc_cycle, qi.stage_id,
+	            qi.inspection_seq AS seq, qi.inspection_number, qi.result, qi.work_order_id,
+	            qi.sample_size, qi.passed_quantity, qi.failed_quantity, qi.disposition,
+	            qi.findings, qi.corrective_action, qi.specifications, qi.inspector_id,
+	            qi.inspection_date, mo.order_number, st.name AS stage_name,
+	            st.name_ar AS stage_name_ar,
+	            COALESCE(up.full_name_ar, up.full_name) AS inspector_name,
+	            au.authority_revision AS rev,
+	            ps.part_rev,
+	            (ps.part_rev > 0 AND NOT EXISTS (
+	               SELECT 1 FROM public.quality_inspections q2
+	               LEFT JOIN wardah_internal.quality_inspection_authority_202 a2
+	                 ON a2.inspection_id = q2.id
+	               WHERE q2.org_id = qi.org_id AND q2.mo_id = qi.mo_id
+	                 AND q2.inspection_type = qi.inspection_type
+	                 AND ((qi.inspection_type = 'FINAL' AND q2.qc_cycle = qi.qc_cycle)
+	                   OR (qi.inspection_type = 'IN_PROCESS' AND q2.stage_id = qi.stage_id))
+	                 AND COALESCE(a2.authority_revision, 0) = ps.part_rev)) AS awaiting
+	          FROM public.quality_inspections qi
+	          LEFT JOIN wardah_internal.quality_inspection_authority_202 au ON au.inspection_id = qi.id
+	          LEFT JOIN public.manufacturing_orders mo ON mo.id = qi.mo_id
+	          LEFT JOIN public.manufacturing_stages st ON st.id = qi.stage_id
+	          LEFT JOIN LATERAL (
+	            SELECT u.full_name, u.full_name_ar FROM public.user_profiles u
+	            WHERE u.user_id = qi.inspector_id LIMIT 1) up ON true
+	          CROSS JOIN LATERAL (
+	            SELECT COALESCE(max(s.revision), 0) AS part_rev
+	            FROM wardah_internal.quality_supersessions_202 s
+	            WHERE s.org_id = qi.org_id AND s.mo_id = qi.mo_id
+	              AND s.inspection_type = qi.inspection_type
+	              AND ((qi.inspection_type = 'FINAL' AND s.qc_cycle = qi.qc_cycle)
+	                OR (qi.inspection_type = 'IN_PROCESS' AND s.stage_id = qi.stage_id))) ps
+	          WHERE qi.org_id = p_org_id
+	            AND (p_mo_id IS NULL OR qi.mo_id = p_mo_id)
+	        ) b
+	        WINDOW part AS (
+	          PARTITION BY b.mo_id, b.inspection_type,
+	            CASE WHEN b.inspection_type = 'FINAL' THEN b.qc_cycle END,
+	            CASE WHEN b.inspection_type = 'IN_PROCESS' THEN b.stage_id END
+	          ORDER BY COALESCE(b.rev, 0) DESC, b.seq DESC NULLS LAST, b.id DESC)
+	      ) w
+	      ORDER BY w.head_seq DESC NULLS LAST, w.head_id DESC, w.rn
+	      LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 500)
+	    ) page), '[]'::jsonb)
+	Result  (cost=195.22..195.23 rows=1 width=32) (actual time=0.304..0.308 rows=1 loops=1)
+	  Buffers: shared hit=24
+	  InitPlan 3
+	    ->  Aggregate  (cost=195.21..195.22 rows=1 width=32) (actual time=0.303..0.306 rows=1 loops=1)
+	          Buffers: shared hit=24
+	          ->  Limit  (cost=195.18..195.19 rows=5 width=64) (actual time=0.252..0.255 rows=5 loops=1)
+	                Buffers: shared hit=24
+	                ->  Sort  (cost=195.18..195.19 rows=5 width=64) (actual time=0.251..0.254 rows=5 loops=1)
+	                      Sort Key: w.head_seq DESC NULLS LAST, w.head_id DESC, w.rn
+	                      Sort Method: quicksort  Memory: 30kB
+	                      Buffers: shared hit=24
+	                      ->  Subquery Scan on w  (cost=20.69..195.12 rows=5 width=64) (actual time=0.179..0.225 rows=5 loops=1)
+	                            Buffers: shared hit=18
+	                            ->  WindowAgg  (cost=20.69..195.07 rows=5 width=134) (actual time=0.179..0.223 rows=5 loops=1)
+	                                  Buffers: shared hit=18
+	                                  ->  Incremental Sort  (cost=17.31..34.03 rows=5 width=1887) (actual time=0.136..0.138 rows=5 loops=1)
+	                                        Sort Key: qi.inspection_type, (CASE WHEN ((qi.inspection_type)::text = 'FINAL'::text) THEN qi.qc_cycle ELSE NULL::integer END), (CASE WHEN ((qi.inspection_type)::text = 'IN_PROCESS'::text) THEN qi.stage_id ELSE NULL::uuid END), (COALESCE(au.authority_revision, 0)) DESC, qi.inspection_seq DESC NULLS LAST, qi.id DESC
+	                                        Presorted Key: qi.inspection_type
+	                                        Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+	                                        Buffers: shared hit=18
+	                                        ->  Nested Loop  (cost=0.70..33.89 rows=5 width=1887) (actual time=0.073..0.109 rows=5 loops=1)
+	                                              Buffers: shared hit=12
+	                                              ->  Nested Loop Left Join  (cost=0.70..33.75 rows=5 width=1859) (actual time=0.068..0.099 rows=5 loops=1)
+	                                                    Buffers: shared hit=12
+	                                                    ->  Nested Loop Left Join  (cost=0.70..33.65 rows=5 width=827) (actual time=0.065..0.093 rows=5 loops=1)
+	                                                          Join Filter: (st.id = qi.stage_id)
+	                                                          Rows Removed by Join Filter: 4
+	                                                          Buffers: shared hit=12
+	                                                          ->  Nested Loop Left Join  (cost=0.70..32.57 rows=5 width=299) (actual time=0.054..0.079 rows=5 loops=1)
+	                                                                Buffers: shared hit=11
+	                                                                ->  Nested Loop Left Join  (cost=0.41..24.20 rows=5 width=292) (actual time=0.032..0.055 rows=5 loops=1)
+	                                                                      Join Filter: (au.inspection_id = qi.id)
+	                                                                      Buffers: shared hit=8
+	                                                                      ->  Index Scan using quality_inspections_mo_199 on quality_inspections qi  (cost=0.41..24.14 rows=5 width=288) (actual time=0.027..0.046 rows=5 loops=1)
+	                                                                            Index Cond: (mo_id = 'ed000000-0000-4000-8000-0000001e9808'::uuid)
+	                                                                            Filter: (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid)
+	                                                                            Buffers: shared hit=8
+	                                                                      ->  Seq Scan on quality_inspection_authority_202 au  (cost=0.00..0.00 rows=1 width=20) (actual time=0.001..0.001 rows=0 loops=5)
+	                                                                ->  Materialize  (cost=0.29..8.31 rows=1 width=23) (actual time=0.004..0.004 rows=1 loops=5)
+	                                                                      Buffers: shared hit=3
+	                                                                      ->  Index Scan using manufacturing_orders_pkey on manufacturing_orders mo  (cost=0.29..8.30 rows=1 width=23) (actual time=0.017..0.017 rows=1 loops=1)
+	                                                                            Index Cond: (id = 'ed000000-0000-4000-8000-0000001e9808'::uuid)
+	                                                                            Buffers: shared hit=3
+	                                                          ->  Materialize  (cost=0.00..1.01 rows=1 width=544) (actual time=0.002..0.002 rows=1 loops=5)
+	                                                                Buffers: shared hit=1
+	                                                                ->  Seq Scan on manufacturing_stages st  (cost=0.00..1.01 rows=1 width=544) (actual time=0.008..0.008 rows=1 loops=1)
+	                                                                      Buffers: shared hit=1
+	                                                    ->  Limit  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.001..0.001 rows=0 loops=5)
+	                                                          ->  Seq Scan on user_profiles u  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.000..0.000 rows=0 loops=5)
+	                                                                Filter: (user_id = qi.inspector_id)
+	                                              ->  Aggregate  (cost=0.00..0.01 rows=1 width=4) (actual time=0.001..0.001 rows=1 loops=5)
+	                                                    ->  Seq Scan on quality_supersessions_202 s  (cost=0.00..0.00 rows=1 width=4) (actual time=0.000..0.000 rows=0 loops=5)
+	                                                          Filter: ((org_id = qi.org_id) AND (mo_id = qi.mo_id) AND (inspection_type = (qi.inspection_type)::text) AND ((((qi.inspection_type)::text = 'FINAL'::text) AND (qc_cycle = qi.qc_cycle)) OR (((qi.inspection_type)::text = 'IN_PROCESS'::text) AND (stage_id = qi.stage_id))))
+	                                  SubPlan 1
+	                                    ->  Nested Loop Left Join  (cost=4.45..16.08 rows=1 width=0) (never executed)
+	                                          Join Filter: (a2.inspection_id = q2.id)
+	                                          Filter: (COALESCE(a2.authority_revision, 0) = (COALESCE(max(s.revision), 0)))
+	                                          ->  Bitmap Heap Scan on quality_inspections q2  (cost=4.45..16.06 rows=1 width=16) (never executed)
+	                                                Recheck Cond: ((mo_id = qi.mo_id) AND ((inspection_type)::text = (qi.inspection_type)::text))
+	                                                Filter: ((org_id = qi.org_id) AND ((((qi.inspection_type)::text = 'FINAL'::text) AND (qc_cycle = qi.qc_cycle)) OR (((qi.inspection_type)::text = 'IN_PROCESS'::text) AND (stage_id = qi.stage_id))))
+	                                                ->  Bitmap Index Scan on quality_inspections_mo_199  (cost=0.00..4.45 rows=3 width=0) (never executed)
+	                                                      Index Cond: ((mo_id = qi.mo_id) AND ((inspection_type)::text = (qi.inspection_type)::text))
+	                                          ->  Seq Scan on quality_inspection_authority_202 a2  (cost=0.00..0.00 rows=1 width=20) (never executed)
+	                                  SubPlan 2
+	                                    ->  Nested Loop Left Join  (cost=4.45..16.08 rows=1 width=0) (never executed)
+	                                          Join Filter: (a2_1.inspection_id = q2_1.id)
+	                                          Filter: (COALESCE(a2_1.authority_revision, 0) = (COALESCE(max(s.revision), 0)))
+	                                          ->  Bitmap Heap Scan on quality_inspections q2_1  (cost=4.45..16.06 rows=1 width=16) (never executed)
+	                                                Recheck Cond: ((mo_id = qi.mo_id) AND ((inspection_type)::text = (qi.inspection_type)::text))
+	                                                Filter: ((org_id = qi.org_id) AND ((((qi.inspection_type)::text = 'FINAL'::text) AND (qc_cycle = qi.qc_cycle)) OR (((qi.inspection_type)::text = 'IN_PROCESS'::text) AND (stage_id = qi.stage_id))))
+	                                                ->  Bitmap Index Scan on quality_inspections_mo_199  (cost=0.00..4.45 rows=3 width=0) (never executed)
+	                                                      Index Cond: ((mo_id = qi.mo_id) AND ((inspection_type)::text = (qi.inspection_type)::text))
+	                                          ->  Seq Scan on quality_inspection_authority_202 a2_1  (cost=0.00..0.00 rows=1 width=20) (never executed)
+2026-10-04 21:24:46.565 UTC [3001] CONTEXT:  SQL expression "COALESCE((
+	    SELECT jsonb_agg(page.row_data ORDER BY page.head_seq DESC NULLS LAST, page.head_id DESC, page.rn)
+	    FROM (
+	      SELECT w.row_data, w.head_seq, w.head_id, w.rn
+	      FROM (
+	        SELECT
+	          row_number() OVER part AS rn,
+	          first_value(b.seq) OVER part AS head_seq,
+	          first_value(b.id) OVER part AS head_id,
+	          jsonb_build_object(
+	            'id', b.id, 'inspection_number', b.inspection_number,
+	            'inspection_type', b.inspection_type, 'result', b.result,
+	            'mo_id', b.mo_id, 'order_number', b.order_number,
+	            'work_order_id', b.work_order_id,
+	            'stage_id', b.stage_id, 'stage_name', b.stage_name, 'stage_name_ar', b.stage_name_ar,
+	            'qc_cycle', b.qc_cycle, 'sample_size', b.sample_size,
+	            'passed_quantity', b.passed_quantity, 'failed_quantity', b.failed_quantity,
+	            'disposition', b.disposition, 'findings', b.findings,
+	            'corrective_action', b.corrective_action, 'specifications', b.specifications,
+	            'inspector_id', b.inspector_id,
+	            'inspector_name', b.inspector_name,
+	            'inspection_date', b.inspection_date,
+	            'authority_revision', COALESCE(b.rev, 0),
+	            'superseded', COALESCE(b.rev, 0) < b.part_rev,
+	            'partition_revision', b.part_rev,
+	            'awaiting_replacement', b.awaiting,
+	            'authority_status', CASE
+	              WHEN b.awaiting THEN 'SUPERSEDED_AWAITING_REPLACEMENT'
+	              WHEN COALESCE(b.rev, 0) < b.part_rev THEN 'SUPERSEDED'
+	              ELSE 'CURRENT' END) AS row_data
+	        FROM (
+	          SELECT qi.id, qi.mo_id, qi.inspection_type, qi.qc_cycle, qi.stage_id,
+	            qi.inspection_seq AS seq, qi.inspection_number, qi.result, qi.work_order_id,
+	            qi.sample_size, qi.passed_quantity, qi.failed_quantity, qi.disposition,
+	            qi.findings, qi.corrective_action, qi.specifications, qi.inspector_id,
+	            qi.inspection_date, mo.order_number, st.name AS stage_name,
+	            st.name_ar AS stage_name_ar,
+	            COALESCE(up.full_name_ar, up.full_name) AS inspector_name,
+	            au.authority_revision AS rev,
+	            ps.part_rev,
+	            (ps.part_rev > 0 AND NOT EXISTS (
+	               SELECT 1 FROM public.quality_inspections q2
+	               LEFT JOIN wardah_internal.quality_inspection_authority_202 a2
+	                 ON a2.inspection_id = q2.id
+	               WHERE q2.org_id = qi.org_id AND q2.mo_id = qi.mo_id
+	                 AND q2.inspection_type = qi.inspection_type
+	                 AND ((qi.inspection_type = 'FINAL' AND q2.qc_cycle = qi.qc_cycle)
+	                   OR (qi.inspection_type = 'IN_PROCESS' AND q2.stage_id = qi.stage_id))
+	                 AND COALESCE(a2.authority_revision, 0) = ps.part_rev)) AS awaiting
+	          FROM public.quality_inspections qi
+	          LEFT JOIN wardah_internal.quality_inspection_authority_202 au ON au.inspection_id = qi.id
+	          LEFT JOIN public.manufacturing_orders mo ON mo.id = qi.mo_id
+	          LEFT JOIN public.manufacturing_stages st ON st.id = qi.stage_id
+	          LEFT JOIN LATERAL (
+	            SELECT u.full_name, u.full_name_ar FROM public.user_profiles u
+	            WHERE u.user_id = qi.inspector_id LIMIT 1) up ON true
+	          CROSS JOIN LATERAL (
+	            SELECT COALESCE(max(s.revision), 0) AS part_rev
+	            FROM wardah_internal.quality_supersessions_202 s
+	            WHERE s.org_id = qi.org_id AND s.mo_id = qi.mo_id
+	              AND s.inspection_type = qi.inspection_type
+	              AND ((qi.inspection_type = 'FINAL' AND s.qc_cycle = qi.qc_cycle)
+	                OR (qi.inspection_type = 'IN_PROCESS' AND s.stage_id = qi.stage_id))) ps
+	          WHERE qi.org_id = p_org_id
+	            AND (p_mo_id IS NULL OR qi.mo_id = p_mo_id)
+	        ) b
+	        WINDOW part AS (
+	          PARTITION BY b.mo_id, b.inspection_type,
+	            CASE WHEN b.inspection_type = 'FINAL' THEN b.qc_cycle END,
+	            CASE WHEN b.inspection_type = 'IN_PROCESS' THEN b.stage_id END
+	          ORDER BY COALESCE(b.rev, 0) DESC, b.seq DESC NULLS LAST, b.id DESC)
+	      ) w
+	      ORDER BY w.head_seq DESC NULLS LAST, w.head_id DESC, w.rn
+	      LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 500)
+	    ) page), '[]'::jsonb)"
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 8 at RETURN
+2026-10-04 21:24:46.565 UTC [3001] LOG:  duration: 9.838 ms  plan:
+	Query Text: SELECT public.rpc_list_quality_inspections('ed000000-0000-4000-8000-000000000001'::uuid, 'ed000000-0000-4000-8000-0000001e9808'::uuid, 100)
+	Result  (cost=0.00..0.26 rows=1 width=32) (actual time=9.812..9.812 rows=1 loops=1)
+	  Buffers: shared hit=2609
+2026-10-04 21:24:46.566 UTC [3001] LOG:  duration: 0.010 ms  plan:
+	Query Text: NOT EXISTS (
+	    SELECT 1
+	    FROM public.user_organizations
+	    WHERE user_id = auth.uid()
+	      AND org_id = p_org
+	      AND is_active IS TRUE
+	  )
+	Result  (cost=1.10..1.11 rows=1 width=1) (actual time=0.008..0.008 rows=1 loops=1)
+	  Buffers: shared hit=1
+	  InitPlan 1
+	    ->  Seq Scan on user_organizations  (cost=0.00..1.10 rows=1 width=0) (actual time=0.007..0.008 rows=1 loops=1)
+	          Filter: ((is_active IS TRUE) AND (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid) AND (user_id = (NULLIF(current_setting('request.jwt.claim.sub'::text, true), ''::text))::uuid))
+	          Rows Removed by Filter: 3
+	          Buffers: shared hit=1
+2026-10-04 21:24:46.566 UTC [3001] CONTEXT:  SQL expression "NOT EXISTS (
+	    SELECT 1
+	    FROM public.user_organizations
+	    WHERE user_id = auth.uid()
+	      AND org_id = p_org
+	      AND is_active IS TRUE
+	  )"
+	PL/pgSQL function wardah_assert_org_member(uuid) line 9 at IF
+	SQL statement "SELECT public.wardah_assert_org_member(p_org_id)"
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 3 at PERFORM
+2026-10-04 21:24:46.566 UTC [3001] LOG:  duration: 0.152 ms  plan:
+	Query Text: SELECT public.wardah_assert_org_member(p_org_id)
+	Result  (cost=0.00..0.26 rows=1 width=4) (actual time=0.151..0.151 rows=1 loops=1)
+	  Buffers: shared hit=1
+2026-10-04 21:24:46.566 UTC [3001] CONTEXT:  SQL statement "SELECT public.wardah_assert_org_member(p_org_id)"
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 3 at PERFORM
+2026-10-04 21:24:46.566 UTC [3001] LOG:  duration: 0.002 ms  plan:
+	Query Text:
+	  SELECT p_permission_key IN (
+	    'accounting.vouchers.unpost',
+	    'accounting.vouchers.cancel',
+	    'accounting.journals.reverse'
+	  );
+
+	Query Parameters: $1 = 'manufacturing.quality_inspections.read'
+	Result  (cost=0.00..0.01 rows=1 width=1) (actual time=0.001..0.001 rows=1 loops=1)
+2026-10-04 21:24:46.566 UTC [3001] CONTEXT:  SQL function "wardah_is_sensitive_permission" statement 1
+	PL/pgSQL function has_permission(uuid,uuid,character varying) line 10 at assignment
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 4 at IF
+2026-10-04 21:24:46.566 UTC [3001] LOG:  duration: 0.002 ms  plan:
+	Query Text: EXISTS (
+	    SELECT 1 FROM public.super_admins
+	    WHERE user_id = p_user_id AND is_active = true
+	  )
+	Result  (cost=0.00..0.01 rows=1 width=1) (actual time=0.001..0.001 rows=1 loops=1)
+	  InitPlan 1
+	    ->  Seq Scan on super_admins  (cost=0.00..0.00 rows=1 width=0) (actual time=0.001..0.001 rows=0 loops=1)
+	          Filter: (is_active AND (user_id = 'ed000000-0000-4000-8000-0000000000a4'::uuid))
+2026-10-04 21:24:46.566 UTC [3001] CONTEXT:  SQL expression "EXISTS (
+	    SELECT 1 FROM public.super_admins
+	    WHERE user_id = p_user_id AND is_active = true
+	  )"
+	PL/pgSQL function has_permission(uuid,uuid,character varying) line 13 at IF
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 4 at IF
+2026-10-04 21:24:46.566 UTC [3001] LOG:  duration: 0.003 ms  plan:
+	Query Text: NOT v_sensitive AND EXISTS (
+	    SELECT 1 FROM public.user_organizations
+	    WHERE user_id = p_user_id
+	      AND org_id = p_org_id
+	      AND is_active = true
+	      AND is_org_admin = true
+	  )
+	Result  (cost=1.06..1.07 rows=1 width=1) (actual time=0.003..0.003 rows=1 loops=1)
+	  Buffers: shared hit=1
+	  InitPlan 1
+	    ->  Seq Scan on user_organizations  (cost=0.00..1.06 rows=1 width=0) (actual time=0.002..0.002 rows=0 loops=1)
+	          Filter: (is_active AND is_org_admin AND (user_id = 'ed000000-0000-4000-8000-0000000000a4'::uuid) AND (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid))
+	          Rows Removed by Filter: 4
+	          Buffers: shared hit=1
+2026-10-04 21:24:46.566 UTC [3001] CONTEXT:  SQL expression "NOT v_sensitive AND EXISTS (
+	    SELECT 1 FROM public.user_organizations
+	    WHERE user_id = p_user_id
+	      AND org_id = p_org_id
+	      AND is_active = true
+	      AND is_org_admin = true
+	  )"
+	PL/pgSQL function has_permission(uuid,uuid,character varying) line 20 at IF
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 4 at IF
+2026-10-04 21:24:46.567 UTC [3001] LOG:  duration: 0.034 ms  plan:
+	Query Text: SELECT EXISTS (
+	    SELECT 1
+	    FROM public.user_roles ur
+	    INNER JOIN public.user_organizations uo
+	      ON uo.user_id = ur.user_id
+	     AND uo.org_id = ur.org_id
+	     AND uo.is_active IS TRUE
+	    INNER JOIN public.roles r
+	      ON r.id = ur.role_id
+	     AND r.org_id = p_org_id
+	     AND COALESCE(r.is_active, true)
+	    INNER JOIN public.role_permissions rp ON ur.role_id = rp.role_id
+	    INNER JOIN public.permissions p ON rp.permission_id = p.id
+	    WHERE ur.user_id = p_user_id
+	      AND ur.org_id = p_org_id
+	      AND p.permission_key = p_permission_key
+	      AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+	  )
+	Result  (cost=11.64..11.65 rows=1 width=1) (actual time=0.032..0.033 rows=1 loops=1)
+	  Buffers: shared hit=9
+	  InitPlan 1
+	    ->  Nested Loop  (cost=0.00..11.64 rows=1 width=0) (actual time=0.031..0.032 rows=1 loops=1)
+	          Join Filter: (rp.permission_id = p.id)
+	          Buffers: shared hit=9
+	          ->  Nested Loop  (cost=0.00..4.38 rows=1 width=16) (actual time=0.012..0.013 rows=1 loops=1)
+	                Join Filter: (r.id = rp.role_id)
+	                Rows Removed by Join Filter: 2
+	                Buffers: shared hit=4
+	                ->  Nested Loop  (cost=0.00..3.29 rows=1 width=32) (actual time=0.011..0.011 rows=1 loops=1)
+	                      Join Filter: (ur.role_id = r.id)
+	                      Rows Removed by Join Filter: 8
+	                      Buffers: shared hit=3
+	                      ->  Nested Loop  (cost=0.00..2.13 rows=1 width=16) (actual time=0.007..0.007 rows=1 loops=1)
+	                            Buffers: shared hit=2
+	                            ->  Seq Scan on user_roles ur  (cost=0.00..1.06 rows=1 width=48) (actual time=0.004..0.004 rows=1 loops=1)
+	                                  Filter: ((user_id = 'ed000000-0000-4000-8000-0000000000a4'::uuid) AND (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid) AND ((expires_at IS NULL) OR (expires_at > now())))
+	                                  Rows Removed by Filter: 2
+	                                  Buffers: shared hit=1
+	                            ->  Seq Scan on user_organizations uo  (cost=0.00..1.06 rows=1 width=32) (actual time=0.002..0.002 rows=1 loops=1)
+	                                  Filter: ((is_active IS TRUE) AND (user_id = 'ed000000-0000-4000-8000-0000000000a4'::uuid) AND (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid))
+	                                  Rows Removed by Filter: 3
+	                                  Buffers: shared hit=1
+	                      ->  Seq Scan on roles r  (cost=0.00..1.11 rows=4 width=16) (actual time=0.001..0.002 rows=9 loops=1)
+	                            Filter: (COALESCE(is_active, true) AND (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid))
+	                            Buffers: shared hit=1
+	                ->  Seq Scan on role_permissions rp  (cost=0.00..1.04 rows=4 width=32) (actual time=0.001..0.001 rows=3 loops=1)
+	                      Buffers: shared hit=1
+	          ->  Seq Scan on permissions p  (cost=0.00..7.25 rows=1 width=16) (actual time=0.018..0.018 rows=1 loops=1)
+	                Filter: ((permission_key)::text = 'manufacturing.quality_inspections.read'::text)
+	                Rows Removed by Filter: 175
+	                Buffers: shared hit=5
+2026-10-04 21:24:46.567 UTC [3001] CONTEXT:  SQL statement "SELECT EXISTS (
+	    SELECT 1
+	    FROM public.user_roles ur
+	    INNER JOIN public.user_organizations uo
+	      ON uo.user_id = ur.user_id
+	     AND uo.org_id = ur.org_id
+	     AND uo.is_active IS TRUE
+	    INNER JOIN public.roles r
+	      ON r.id = ur.role_id
+	     AND r.org_id = p_org_id
+	     AND COALESCE(r.is_active, true)
+	    INNER JOIN public.role_permissions rp ON ur.role_id = rp.role_id
+	    INNER JOIN public.permissions p ON rp.permission_id = p.id
+	    WHERE ur.user_id = p_user_id
+	      AND ur.org_id = p_org_id
+	      AND p.permission_key = p_permission_key
+	      AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+	  )"
+	PL/pgSQL function has_permission(uuid,uuid,character varying) line 30 at SQL statement
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 4 at IF
+2026-10-04 21:24:46.569 UTC [3001] LOG:  duration: 0.240 ms  plan:
+	Query Text: COALESCE((
+	    SELECT jsonb_agg(page.row_data ORDER BY page.head_seq DESC NULLS LAST, page.head_id DESC, page.rn)
+	    FROM (
+	      SELECT w.row_data, w.head_seq, w.head_id, w.rn
+	      FROM (
+	        SELECT
+	          row_number() OVER part AS rn,
+	          first_value(b.seq) OVER part AS head_seq,
+	          first_value(b.id) OVER part AS head_id,
+	          jsonb_build_object(
+	            'id', b.id, 'inspection_number', b.inspection_number,
+	            'inspection_type', b.inspection_type, 'result', b.result,
+	            'mo_id', b.mo_id, 'order_number', b.order_number,
+	            'work_order_id', b.work_order_id,
+	            'stage_id', b.stage_id, 'stage_name', b.stage_name, 'stage_name_ar', b.stage_name_ar,
+	            'qc_cycle', b.qc_cycle, 'sample_size', b.sample_size,
+	            'passed_quantity', b.passed_quantity, 'failed_quantity', b.failed_quantity,
+	            'disposition', b.disposition, 'findings', b.findings,
+	            'corrective_action', b.corrective_action, 'specifications', b.specifications,
+	            'inspector_id', b.inspector_id,
+	            'inspector_name', b.inspector_name,
+	            'inspection_date', b.inspection_date,
+	            'authority_revision', COALESCE(b.rev, 0),
+	            'superseded', COALESCE(b.rev, 0) < b.part_rev,
+	            'partition_revision', b.part_rev,
+	            'awaiting_replacement', b.awaiting,
+	            'authority_status', CASE
+	              WHEN b.awaiting THEN 'SUPERSEDED_AWAITING_REPLACEMENT'
+	              WHEN COALESCE(b.rev, 0) < b.part_rev THEN 'SUPERSEDED'
+	              ELSE 'CURRENT' END) AS row_data
+	        FROM (
+	          SELECT qi.id, qi.mo_id, qi.inspection_type, qi.qc_cycle, qi.stage_id,
+	            qi.inspection_seq AS seq, qi.inspection_number, qi.result, qi.work_order_id,
+	            qi.sample_size, qi.passed_quantity, qi.failed_quantity, qi.disposition,
+	            qi.findings, qi.corrective_action, qi.specifications, qi.inspector_id,
+	            qi.inspection_date, mo.order_number, st.name AS stage_name,
+	            st.name_ar AS stage_name_ar,
+	            COALESCE(up.full_name_ar, up.full_name) AS inspector_name,
+	            au.authority_revision AS rev,
+	            ps.part_rev,
+	            (ps.part_rev > 0 AND NOT EXISTS (
+	               SELECT 1 FROM public.quality_inspections q2
+	               LEFT JOIN wardah_internal.quality_inspection_authority_202 a2
+	                 ON a2.inspection_id = q2.id
+	               WHERE q2.org_id = qi.org_id AND q2.mo_id = qi.mo_id
+	                 AND q2.inspection_type = qi.inspection_type
+	                 AND ((qi.inspection_type = 'FINAL' AND q2.qc_cycle = qi.qc_cycle)
+	                   OR (qi.inspection_type = 'IN_PROCESS' AND q2.stage_id = qi.stage_id))
+	                 AND COALESCE(a2.authority_revision, 0) = ps.part_rev)) AS awaiting
+	          FROM public.quality_inspections qi
+	          LEFT JOIN wardah_internal.quality_inspection_authority_202 au ON au.inspection_id = qi.id
+	          LEFT JOIN public.manufacturing_orders mo ON mo.id = qi.mo_id
+	          LEFT JOIN public.manufacturing_stages st ON st.id = qi.stage_id
+	          LEFT JOIN LATERAL (
+	            SELECT u.full_name, u.full_name_ar FROM public.user_profiles u
+	            WHERE u.user_id = qi.inspector_id LIMIT 1) up ON true
+	          CROSS JOIN LATERAL (
+	            SELECT COALESCE(max(s.revision), 0) AS part_rev
+	            FROM wardah_internal.quality_supersessions_202 s
+	            WHERE s.org_id = qi.org_id AND s.mo_id = qi.mo_id
+	              AND s.inspection_type = qi.inspection_type
+	              AND ((qi.inspection_type = 'FINAL' AND s.qc_cycle = qi.qc_cycle)
+	                OR (qi.inspection_type = 'IN_PROCESS' AND s.stage_id = qi.stage_id))) ps
+	          WHERE qi.org_id = p_org_id
+	            AND (p_mo_id IS NULL OR qi.mo_id = p_mo_id)
+	        ) b
+	        WINDOW part AS (
+	          PARTITION BY b.mo_id, b.inspection_type,
+	            CASE WHEN b.inspection_type = 'FINAL' THEN b.qc_cycle END,
+	            CASE WHEN b.inspection_type = 'IN_PROCESS' THEN b.stage_id END
+	          ORDER BY COALESCE(b.rev, 0) DESC, b.seq DESC NULLS LAST, b.id DESC)
+	      ) w
+	      ORDER BY w.head_seq DESC NULLS LAST, w.head_id DESC, w.rn
+	      LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 500)
+	    ) page), '[]'::jsonb)
+	Result  (cost=195.22..195.23 rows=1 width=32) (actual time=0.235..0.238 rows=1 loops=1)
+	  Buffers: shared hit=12
+	  InitPlan 3
+	    ->  Aggregate  (cost=195.21..195.22 rows=1 width=32) (actual time=0.234..0.236 rows=1 loops=1)
+	          Buffers: shared hit=12
+	          ->  Limit  (cost=195.18..195.19 rows=5 width=64) (actual time=0.192..0.195 rows=5 loops=1)
+	                Buffers: shared hit=12
+	                ->  Sort  (cost=195.18..195.19 rows=5 width=64) (actual time=0.191..0.194 rows=5 loops=1)
+	                      Sort Key: w.head_seq DESC NULLS LAST, w.head_id DESC, w.rn
+	                      Sort Method: quicksort  Memory: 30kB
+	                      Buffers: shared hit=12
+	                      ->  Subquery Scan on w  (cost=20.69..195.12 rows=5 width=64) (actual time=0.108..0.188 rows=5 loops=1)
+	                            Buffers: shared hit=12
+	                            ->  WindowAgg  (cost=20.69..195.07 rows=5 width=134) (actual time=0.107..0.186 rows=5 loops=1)
+	                                  Buffers: shared hit=12
+	                                  ->  Incremental Sort  (cost=17.31..34.03 rows=5 width=1887) (actual time=0.068..0.070 rows=5 loops=1)
+	                                        Sort Key: qi.inspection_type, (CASE WHEN ((qi.inspection_type)::text = 'FINAL'::text) THEN qi.qc_cycle ELSE NULL::integer END), (CASE WHEN ((qi.inspection_type)::text = 'IN_PROCESS'::text) THEN qi.stage_id ELSE NULL::uuid END), (COALESCE(au.authority_revision, 0)) DESC, qi.inspection_seq DESC NULLS LAST, qi.id DESC
+	                                        Presorted Key: qi.inspection_type
+	                                        Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+	                                        Buffers: shared hit=12
+	                                        ->  Nested Loop  (cost=0.70..33.89 rows=5 width=1887) (actual time=0.036..0.057 rows=5 loops=1)
+	                                              Buffers: shared hit=12
+	                                              ->  Nested Loop Left Join  (cost=0.70..33.75 rows=5 width=1859) (actual time=0.032..0.048 rows=5 loops=1)
+	                                                    Buffers: shared hit=12
+	                                                    ->  Nested Loop Left Join  (cost=0.70..33.65 rows=5 width=827) (actual time=0.030..0.043 rows=5 loops=1)
+	                                                          Join Filter: (st.id = qi.stage_id)
+	                                                          Rows Removed by Join Filter: 4
+	                                                          Buffers: shared hit=12
+	                                                          ->  Nested Loop Left Join  (cost=0.70..32.57 rows=5 width=299) (actual time=0.025..0.036 rows=5 loops=1)
+	                                                                Buffers: shared hit=11
+	                                                                ->  Nested Loop Left Join  (cost=0.41..24.20 rows=5 width=292) (actual time=0.016..0.025 rows=5 loops=1)
+	                                                                      Join Filter: (au.inspection_id = qi.id)
+	                                                                      Buffers: shared hit=8
+	                                                                      ->  Index Scan using quality_inspections_mo_199 on quality_inspections qi  (cost=0.41..24.14 rows=5 width=288) (actual time=0.012..0.018 rows=5 loops=1)
+	                                                                            Index Cond: (mo_id = 'ed000000-0000-4000-8000-0000001e9808'::uuid)
+	                                                                            Filter: (org_id = 'ed000000-0000-4000-8000-000000000001'::uuid)
+	                                                                            Buffers: shared hit=8
+	                                                                      ->  Seq Scan on quality_inspection_authority_202 au  (cost=0.00..0.00 rows=1 width=20) (actual time=0.000..0.000 rows=0 loops=5)
+	                                                                ->  Materialize  (cost=0.29..8.31 rows=1 width=23) (actual time=0.002..0.002 rows=1 loops=5)
+	                                                                      Buffers: shared hit=3
+	                                                                      ->  Index Scan using manufacturing_orders_pkey on manufacturing_orders mo  (cost=0.29..8.30 rows=1 width=23) (actual time=0.005..0.005 rows=1 loops=1)
+	                                                                            Index Cond: (id = 'ed000000-0000-4000-8000-0000001e9808'::uuid)
+	                                                                            Buffers: shared hit=3
+	                                                          ->  Materialize  (cost=0.00..1.01 rows=1 width=544) (actual time=0.001..0.001 rows=1 loops=5)
+	                                                                Buffers: shared hit=1
+	                                                                ->  Seq Scan on manufacturing_stages st  (cost=0.00..1.01 rows=1 width=544) (actual time=0.003..0.003 rows=1 loops=1)
+	                                                                      Buffers: shared hit=1
+	                                                    ->  Limit  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.000..0.000 rows=0 loops=5)
+	                                                          ->  Seq Scan on user_profiles u  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.000..0.000 rows=0 loops=5)
+	                                                                Filter: (user_id = qi.inspector_id)
+	                                              ->  Aggregate  (cost=0.00..0.01 rows=1 width=4) (actual time=0.001..0.001 rows=1 loops=5)
+	                                                    ->  Seq Scan on quality_supersessions_202 s  (cost=0.00..0.00 rows=1 width=4) (actual time=0.000..0.000 rows=0 loops=5)
+	                                                          Filter: ((org_id = qi.org_id) AND (mo_id = qi.mo_id) AND (inspection_type = (qi.inspection_type)::text) AND ((((qi.inspection_type)::text = 'FINAL'::text) AND (qc_cycle = qi.qc_cycle)) OR (((qi.inspection_type)::text = 'IN_PROCESS'::text) AND (stage_id = qi.stage_id))))
+	                                  SubPlan 1
+	                                    ->  Nested Loop Left Join  (cost=4.45..16.08 rows=1 width=0) (never executed)
+	                                          Join Filter: (a2.inspection_id = q2.id)
+	                                          Filter: (COALESCE(a2.authority_revision, 0) = (COALESCE(max(s.revision), 0)))
+	                                          ->  Bitmap Heap Scan on quality_inspections q2  (cost=4.45..16.06 rows=1 width=16) (never executed)
+	                                                Recheck Cond: ((mo_id = qi.mo_id) AND ((inspection_type)::text = (qi.inspection_type)::text))
+	                                                Filter: ((org_id = qi.org_id) AND ((((qi.inspection_type)::text = 'FINAL'::text) AND (qc_cycle = qi.qc_cycle)) OR (((qi.inspection_type)::text = 'IN_PROCESS'::text) AND (stage_id = qi.stage_id))))
+	                                                ->  Bitmap Index Scan on quality_inspections_mo_199  (cost=0.00..4.45 rows=3 width=0) (never executed)
+	                                                      Index Cond: ((mo_id = qi.mo_id) AND ((inspection_type)::text = (qi.inspection_type)::text))
+	                                          ->  Seq Scan on quality_inspection_authority_202 a2  (cost=0.00..0.00 rows=1 width=20) (never executed)
+	                                  SubPlan 2
+	                                    ->  Nested Loop Left Join  (cost=4.45..16.08 rows=1 width=0) (never executed)
+	                                          Join Filter: (a2_1.inspection_id = q2_1.id)
+	                                          Filter: (COALESCE(a2_1.authority_revision, 0) = (COALESCE(max(s.revision), 0)))
+	                                          ->  Bitmap Heap Scan on quality_inspections q2_1  (cost=4.45..16.06 rows=1 width=16) (never executed)
+	                                                Recheck Cond: ((mo_id = qi.mo_id) AND ((inspection_type)::text = (qi.inspection_type)::text))
+	                                                Filter: ((org_id = qi.org_id) AND ((((qi.inspection_type)::text = 'FINAL'::text) AND (qc_cycle = qi.qc_cycle)) OR (((qi.inspection_type)::text = 'IN_PROCESS'::text) AND (stage_id = qi.stage_id))))
+	                                                ->  Bitmap Index Scan on quality_inspections_mo_199  (cost=0.00..4.45 rows=3 width=0) (never executed)
+	                                                      Index Cond: ((mo_id = qi.mo_id) AND ((inspection_type)::text = (qi.inspection_type)::text))
+	                                          ->  Seq Scan on quality_inspection_authority_202 a2_1  (cost=0.00..0.00 rows=1 width=20) (never executed)
+2026-10-04 21:24:46.569 UTC [3001] CONTEXT:  SQL expression "COALESCE((
+	    SELECT jsonb_agg(page.row_data ORDER BY page.head_seq DESC NULLS LAST, page.head_id DESC, page.rn)
+	    FROM (
+	      SELECT w.row_data, w.head_seq, w.head_id, w.rn
+	      FROM (
+	        SELECT
+	          row_number() OVER part AS rn,
+	          first_value(b.seq) OVER part AS head_seq,
+	          first_value(b.id) OVER part AS head_id,
+	          jsonb_build_object(
+	            'id', b.id, 'inspection_number', b.inspection_number,
+	            'inspection_type', b.inspection_type, 'result', b.result,
+	            'mo_id', b.mo_id, 'order_number', b.order_number,
+	            'work_order_id', b.work_order_id,
+	            'stage_id', b.stage_id, 'stage_name', b.stage_name, 'stage_name_ar', b.stage_name_ar,
+	            'qc_cycle', b.qc_cycle, 'sample_size', b.sample_size,
+	            'passed_quantity', b.passed_quantity, 'failed_quantity', b.failed_quantity,
+	            'disposition', b.disposition, 'findings', b.findings,
+	            'corrective_action', b.corrective_action, 'specifications', b.specifications,
+	            'inspector_id', b.inspector_id,
+	            'inspector_name', b.inspector_name,
+	            'inspection_date', b.inspection_date,
+	            'authority_revision', COALESCE(b.rev, 0),
+	            'superseded', COALESCE(b.rev, 0) < b.part_rev,
+	            'partition_revision', b.part_rev,
+	            'awaiting_replacement', b.awaiting,
+	            'authority_status', CASE
+	              WHEN b.awaiting THEN 'SUPERSEDED_AWAITING_REPLACEMENT'
+	              WHEN COALESCE(b.rev, 0) < b.part_rev THEN 'SUPERSEDED'
+	              ELSE 'CURRENT' END) AS row_data
+	        FROM (
+	          SELECT qi.id, qi.mo_id, qi.inspection_type, qi.qc_cycle, qi.stage_id,
+	            qi.inspection_seq AS seq, qi.inspection_number, qi.result, qi.work_order_id,
+	            qi.sample_size, qi.passed_quantity, qi.failed_quantity, qi.disposition,
+	            qi.findings, qi.corrective_action, qi.specifications, qi.inspector_id,
+	            qi.inspection_date, mo.order_number, st.name AS stage_name,
+	            st.name_ar AS stage_name_ar,
+	            COALESCE(up.full_name_ar, up.full_name) AS inspector_name,
+	            au.authority_revision AS rev,
+	            ps.part_rev,
+	            (ps.part_rev > 0 AND NOT EXISTS (
+	               SELECT 1 FROM public.quality_inspections q2
+	               LEFT JOIN wardah_internal.quality_inspection_authority_202 a2
+	                 ON a2.inspection_id = q2.id
+	               WHERE q2.org_id = qi.org_id AND q2.mo_id = qi.mo_id
+	                 AND q2.inspection_type = qi.inspection_type
+	                 AND ((qi.inspection_type = 'FINAL' AND q2.qc_cycle = qi.qc_cycle)
+	                   OR (qi.inspection_type = 'IN_PROCESS' AND q2.stage_id = qi.stage_id))
+	                 AND COALESCE(a2.authority_revision, 0) = ps.part_rev)) AS awaiting
+	          FROM public.quality_inspections qi
+	          LEFT JOIN wardah_internal.quality_inspection_authority_202 au ON au.inspection_id = qi.id
+	          LEFT JOIN public.manufacturing_orders mo ON mo.id = qi.mo_id
+	          LEFT JOIN public.manufacturing_stages st ON st.id = qi.stage_id
+	          LEFT JOIN LATERAL (
+	            SELECT u.full_name, u.full_name_ar FROM public.user_profiles u
+	            WHERE u.user_id = qi.inspector_id LIMIT 1) up ON true
+	          CROSS JOIN LATERAL (
+	            SELECT COALESCE(max(s.revision), 0) AS part_rev
+	            FROM wardah_internal.quality_supersessions_202 s
+	            WHERE s.org_id = qi.org_id AND s.mo_id = qi.mo_id
+	              AND s.inspection_type = qi.inspection_type
+	              AND ((qi.inspection_type = 'FINAL' AND s.qc_cycle = qi.qc_cycle)
+	                OR (qi.inspection_type = 'IN_PROCESS' AND s.stage_id = qi.stage_id))) ps
+	          WHERE qi.org_id = p_org_id
+	            AND (p_mo_id IS NULL OR qi.mo_id = p_mo_id)
+	        ) b
+	        WINDOW part AS (
+	          PARTITION BY b.mo_id, b.inspection_type,
+	            CASE WHEN b.inspection_type = 'FINAL' THEN b.qc_cycle END,
+	            CASE WHEN b.inspection_type = 'IN_PROCESS' THEN b.stage_id END
+	          ORDER BY COALESCE(b.rev, 0) DESC, b.seq DESC NULLS LAST, b.id DESC)
+	      ) w
+	      ORDER BY w.head_seq DESC NULLS LAST, w.head_id DESC, w.rn
+	      LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 500)
+	    ) page), '[]'::jsonb)"
+	PL/pgSQL function rpc_list_quality_inspections(uuid,uuid,integer) line 8 at RETURN
+2026-10-04 21:24:46.569 UTC [3001] LOG:  duration: 3.154 ms  plan:
+	Query Text: SELECT public.rpc_list_quality_inspections('ed000000-0000-4000-8000-000000000001'::uuid, 'ed000000-0000-4000-8000-0000001e9808'::uuid, 100)
+	Result  (cost=0.00..0.26 rows=1 width=32) (actual time=3.135..3.135 rows=1 loops=1)
+	  Buffers: shared hit=79

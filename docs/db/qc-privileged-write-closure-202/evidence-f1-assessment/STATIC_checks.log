@@ -1,0 +1,26 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: CITED. Static checks on the working tree before commit 6ae66631 (shellcheck, bash -n, py_compile, pglast, DEFINER check, git diff --check).
+----------------------------------------------------------------------------------------------------
+== shellcheck (all 202 scripts)
+clean
+== bash -n
+ok docs/db/qc-privileged-write-closure-202/run_local.sh
+ok docs/db/qc-privileged-write-closure-202/type_shadow_regression.sh
+== py_compile
+ok
+== pglast migration syntax
+فُحص 230 ملفاً
+✅ كل ملفات migrations صالحة الصياغة لمحلل PostgreSQL
+== DEFINER guards
+✅ 72 migration(s) — لا دوال DEFINER بلا حارس
+== git diff --check (working tree vs HEAD)
+clean
+== migration SHA-256
+32f8b62ffe2851e0a16103b2a09434b2aa19be902eb940ea650145e0827f328a  sql/migrations/202_qc_privileged_write_closure.sql
+== diff vs HEAD (stat)
+ .../qc-privileged-write-closure-202/acceptance.sql | 119 +++++++++++++++++++
+ .../type_shadow_regression.sh                      |   1 -
+ sql/migrations/202_qc_privileged_write_closure.sql | 131 +++++++++++----------
+ 3 files changed, 186 insertions(+), 65 deletions(-)
+== untracked
+?? docs/db/qc-privileged-write-closure-202/list_reference_8babdd6f.sql

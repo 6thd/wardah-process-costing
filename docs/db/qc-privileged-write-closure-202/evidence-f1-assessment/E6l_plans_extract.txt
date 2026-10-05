@@ -1,0 +1,263 @@
+====================================================================================================
+A_M199_orgwide.raw | nested statements logged: 17
+heaviest list statement: 392.5 ms
+	Result  (cost=5813.67..5813.68 rows=1 width=32) (actual time=392.428..392.435 rows=1 loops=1)
+	  Buffers: shared hit=1393
+	    ->  Aggregate  (cost=5813.66..5813.67 rows=1 width=32) (actual time=392.394..392.401 rows=1 loops=1)
+	          Buffers: shared hit=1393
+	          ->  Limit  (cost=5812.16..5812.41 rows=100 width=48) (actual time=391.732..391.758 rows=100 loops=1)
+	                Buffers: shared hit=1393
+	                ->  Sort  (cost=5812.16..5937.16 rows=50000 width=48) (actual time=391.730..391.748 rows=100 loops=1)
+	                      Sort Method: top-N heapsort  Memory: 227kB
+	                      Buffers: shared hit=1393
+	                      ->  Nested Loop Left Join  (cost=487.57..3901.19 rows=50000 width=48) (actual time=2.977..383.397 rows=50000 loops=1)
+	                            Buffers: shared hit=1387
+	                            ->  Hash Left Join  (cost=487.42..2509.86 rows=50000 width=1312) (actual time=2.926..34.103 rows=50000 loops=1)
+	                                  Buffers: shared hit=1385
+	                                  ->  Hash Left Join  (cost=476.07..2365.37 rows=50000 width=280) (actual time=2.891..26.565 rows=50000 loops=1)
+	                                        Buffers: shared hit=1384
+	                                        ->  Seq Scan on quality_inspections qi  (cost=0.00..1758.00 rows=50000 width=273) (actual time=0.013..7.494 rows=50000 loops=1)
+	                                              Buffers: shared hit=1133
+	                                        ->  Hash  (cost=351.03..351.03 rows=10003 width=23) (actual time=2.809..2.810 rows=10003 loops=1)
+	                                              Buffers: shared hit=251
+	                                              ->  Seq Scan on manufacturing_orders mo  (cost=0.00..351.03 rows=10003 width=23) (actual time=0.003..1.167 rows=10003 loops=1)
+	                                                    Buffers: shared hit=251
+	                                  ->  Hash  (cost=10.60..10.60 rows=60 width=1048) (actual time=0.017..0.017 rows=1 loops=1)
+	                                        Buffers: shared hit=1
+	                                        ->  Seq Scan on manufacturing_stages st  (cost=0.00..10.60 rows=60 width=1048) (actual time=0.013..0.014 rows=1 loops=1)
+	                                              Buffers: shared hit=1
+	                            ->  Memoize  (cost=0.15..8.18 rows=1 width=1032) (actual time=0.000..0.000 rows=0 loops=50000)
+	                                  Buffers: shared hit=2
+	                                  ->  Subquery Scan on up  (cost=0.14..8.17 rows=1 width=1032) (actual time=0.011..0.012 rows=0 loops=1)
+	                                        Buffers: shared hit=2
+	                                        ->  Limit  (cost=0.14..8.16 rows=1 width=1032) (actual time=0.009..0.009 rows=0 loops=1)
+	                                              Buffers: shared hit=2
+	                                              ->  Index Scan using idx_user_profiles_user on user_profiles u  (cost=0.14..8.16 rows=1 width=1032) (actual time=0.008..0.008 rows=0 loops=1)
+	                                                    Buffers: shared hit=2
+====================================================================================================
+B_oldM202_orgwide.raw | nested statements logged: 17
+heaviest list statement: 1741.4 ms
+	Result  (cost=1626722.42..1626722.43 rows=1 width=32) (actual time=1741.337..1741.345 rows=1 loops=1)
+	  Buffers: shared hit=50794
+	    ->  Aggregate  (cost=1626722.41..1626722.42 rows=1 width=32) (actual time=703.297..703.304 rows=1 loops=1)
+	          Buffers: shared hit=50794
+	          ->  Limit  (cost=1626721.91..1626722.16 rows=100 width=64) (actual time=702.807..702.826 rows=100 loops=1)
+	                Buffers: shared hit=50794
+	                ->  Sort  (cost=1626721.91..1626846.91 rows=50000 width=64) (actual time=702.796..702.807 rows=100 loops=1)
+	                      Sort Method: top-N heapsort  Memory: 227kB
+	                      Buffers: shared hit=50794
+	                      ->  Subquery Scan on w  (cost=5.27..1624810.95 rows=50000 width=64) (actual time=0.301..682.675 rows=50000 loops=1)
+	                            Buffers: shared hit=50794
+	                            ->  WindowAgg  (cost=5.27..1624310.95 rows=50000 width=134) (actual time=0.298..676.603 rows=50000 loops=1)
+	                                  Buffers: shared hit=50794
+	                                  ->  Incremental Sort  (cost=4.96..13722.38 rows=50000 width=1887) (actual time=0.246..184.753 rows=50000 loops=1)
+	                                        Full-sort Groups: 1429  Sort Method: quicksort  Average Memory: 30kB  Peak Memory: 30kB
+	                                        Buffers: shared hit=50794
+	                                        ->  Nested Loop  (cost=3.67..12316.57 rows=50000 width=1887) (actual time=0.102..144.336 rows=50000 loops=1)
+	                                              Buffers: shared hit=50794
+	                                              ->  Nested Loop Left Join  (cost=3.66..10941.57 rows=50000 width=1859) (actual time=0.090..103.854 rows=50000 loops=1)
+	                                                    Buffers: shared hit=50794
+	                                                    ->  Nested Loop Left Join  (cost=3.66..9941.57 rows=50000 width=827) (actual time=0.081..72.437 rows=50000 loops=1)
+	                                                          Rows Removed by Join Filter: 40000
+	                                                          Buffers: shared hit=50794
+	                                                          ->  Merge Left Join  (cost=3.66..9190.56 rows=50000 width=299) (actual time=0.064..55.916 rows=50000 loops=1)
+	                                                                Buffers: shared hit=50793
+	                                                                ->  Nested Loop Left Join  (cost=0.41..7972.22 rows=50000 width=292) (actual time=0.042..44.127 rows=50000 loops=1)
+	                                                                      Buffers: shared hit=50502
+	                                                                      ->  Index Scan using quality_inspections_mo_199 on quality_inspections qi  (cost=0.41..7347.22 rows=50000 width=288) (actual time=0.027..19.270 rows=50000 loop
+	                                                                            Buffers: shared hit=50502
+	                                                                      ->  Seq Scan on quality_inspection_authority_202 au  (cost=0.00..0.00 rows=1 width=20) (actual time=0.000..0.000 rows=0 loops=50000)
+	                                                                ->  Index Scan using manufacturing_orders_pkey on manufacturing_orders mo  (cost=0.29..568.33 rows=10003 width=23) (actual time=0.012..2.204 rows=10003 loops=1)
+	                                                                      Buffers: shared hit=291
+	                                                          ->  Materialize  (cost=0.00..1.01 rows=1 width=544) (actual time=0.000..0.000 rows=1 loops=50000)
+	                                                                Buffers: shared hit=1
+	                                                                ->  Seq Scan on manufacturing_stages st  (cost=0.00..1.01 rows=1 width=544) (actual time=0.007..0.007 rows=1 loops=1)
+	                                                                      Buffers: shared hit=1
+	                                                    ->  Limit  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.000..0.000 rows=0 loops=50000)
+	                                                          ->  Seq Scan on user_profiles u  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.000..0.000 rows=0 loops=50000)
+	                                              ->  Aggregate  (cost=0.00..0.01 rows=1 width=4) (actual time=0.000..0.000 rows=1 loops=50000)
+	                                                    ->  Seq Scan on quality_supersessions_202 s  (cost=0.00..0.00 rows=1 width=4) (actual time=0.000..0.000 rows=0 loops=50000)
+	JIT:
+	  Functions: 93
+	  Options: Inlining true, Optimization true, Expressions true, Deforming true
+	  Timing: Generation 5.047 ms (Deform 2.973 ms), Inlining 16.710 ms, Optimization 607.335 ms, Emission 414.044 ms, Total 1043.137 ms
+====================================================================================================
+C_newM202_orgwide.raw | nested statements logged: 17
+heaviest list statement: 109.9 ms
+	Result  (cost=16808.94..16808.95 rows=1 width=32) (actual time=109.923..109.933 rows=1 loops=1)
+	  Buffers: shared hit=1746, temp read=448 written=449
+	    ->  Aggregate  (cost=16808.93..16808.94 rows=1 width=32) (actual time=109.912..109.921 rows=1 loops=1)
+	          Buffers: shared hit=1746, temp read=448 written=449
+	          ->  Nested Loop  (cost=12800.73..13591.50 rows=100 width=1888) (actual time=107.715..108.448 rows=100 loops=1)
+	                Buffers: shared hit=1746, temp read=448 written=449
+	                ->  Nested Loop Left Join  (cost=12800.72..13589.25 rows=100 width=1884) (actual time=107.706..108.343 rows=100 loops=1)
+	                      Buffers: shared hit=1746, temp read=448 written=449
+	                      ->  Nested Loop Left Join  (cost=12800.72..13587.25 rows=100 width=852) (actual time=107.693..108.253 rows=100 loops=1)
+	                            Rows Removed by Join Filter: 80
+	                            Buffers: shared hit=1746, temp read=448 written=449
+	                            ->  Nested Loop Left Join  (cost=12800.72..13584.73 rows=100 width=324) (actual time=107.657..108.176 rows=100 loops=1)
+	                                  Buffers: shared hit=1745, temp read=448 written=449
+	                                  ->  Nested Loop  (cost=12800.44..13552.15 rows=100 width=317) (actual time=107.641..108.045 rows=100 loops=1)
+	                                        Buffers: shared hit=1445, temp read=448 written=449
+	                                        ->  Limit  (cost=12800.15..12800.40 rows=100 width=52) (actual time=107.595..107.616 rows=100 loops=1)
+	                                              Buffers: shared hit=1145, temp read=448 written=449
+	                                              ->  Sort  (cost=12800.15..12925.15 rows=50000 width=52) (actual time=107.593..107.604 rows=100 loops=1)
+	                                                    Sort Method: top-N heapsort  Memory: 39kB
+	                                                    Buffers: shared hit=1145, temp read=448 written=449
+	                                                    ->  Subquery Scan on r  (cost=8264.22..10889.18 rows=50000 width=52) (actual time=48.535..91.284 rows=50000 loops=1)
+	                                                          Buffers: shared hit=1139, temp read=448 written=449
+	                                                          ->  WindowAgg  (cost=8264.22..10389.18 rows=50000 width=107) (actual time=48.534..86.490 rows=50000 loops=1)
+	                                                                Buffers: shared hit=1139, temp read=448 written=449
+	                                                                ->  Sort  (cost=8264.18..8389.18 rows=50000 width=75) (actual time=48.518..55.314 rows=50000 loops=1)
+	                                                                      Sort Method: external merge  Disk: 3584kB
+	                                                                      Buffers: shared hit=1139, temp read=448 written=449
+	                                                                      ->  Hash Left Join  (cost=0.01..2139.27 rows=50000 width=75) (actual time=0.039..18.050 rows=50000 loops=1)
+	                                                                            Buffers: shared hit=1133
+	                                                                            ->  Seq Scan on quality_inspections q  (cost=0.00..1758.00 rows=50000 width=67) (actual time=0.019..5.587 rows=50000 loops=1)
+	                                                                                  Buffers: shared hit=1133
+	                                                                            ->  Hash  (cost=0.00..0.00 rows=1 width=20) (actual time=0.004..0.005 rows=0 loops=1)
+	                                                                                  ->  Seq Scan on quality_inspection_authority_202 au  (cost=0.00..0.00 rows=1 width=20) (actual time=0.004..0.004 rows=0 loops=1)
+	                                        ->  Index Scan using quality_inspections_pkey on quality_inspections qi  (cost=0.29..7.51 rows=1 width=281) (actual time=0.004..0.004 rows=1 loops=100)
+	                                              Buffers: shared hit=300
+	                                  ->  Index Scan using manufacturing_orders_pkey on manufacturing_orders mo  (cost=0.29..0.33 rows=1 width=23) (actual time=0.001..0.001 rows=1 loops=100)
+	                                        Buffers: shared hit=300
+	                            ->  Materialize  (cost=0.00..1.01 rows=1 width=544) (actual time=0.000..0.000 rows=1 loops=100)
+	                                  Buffers: shared hit=1
+	                                  ->  Seq Scan on manufacturing_stages st  (cost=0.00..1.01 rows=1 width=544) (actual time=0.018..0.018 rows=1 loops=1)
+	                                        Buffers: shared hit=1
+	                      ->  Limit  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.001..0.001 rows=0 loops=100)
+	                            ->  Seq Scan on user_profiles u  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.000..0.000 rows=0 loops=100)
+	                ->  Aggregate  (cost=0.00..0.01 rows=1 width=4) (actual time=0.000..0.001 rows=1 loops=100)
+	                      ->  Seq Scan on quality_supersessions_202 s  (cost=0.00..0.00 rows=1 width=4) (actual time=0.000..0.000 rows=0 loops=100)
+====================================================================================================
+A_M199_mo.raw | nested statements logged: 17
+heaviest list statement: 0.2 ms
+	Result  (cost=55.92..55.93 rows=1 width=32) (actual time=0.214..0.216 rows=1 loops=1)
+	  Buffers: shared hit=21
+	    ->  Aggregate  (cost=55.91..55.92 rows=1 width=32) (actual time=0.211..0.213 rows=1 loops=1)
+	          Buffers: shared hit=21
+	          ->  Limit  (cost=55.84..55.85 rows=5 width=48) (actual time=0.174..0.177 rows=5 loops=1)
+	                Buffers: shared hit=21
+	                ->  Sort  (cost=55.84..55.85 rows=5 width=48) (actual time=0.174..0.176 rows=5 loops=1)
+	                      Sort Method: quicksort  Memory: 30kB
+	                      Buffers: shared hit=21
+	                      ->  Nested Loop Left Join  (cost=5.04..55.78 rows=5 width=48) (actual time=0.089..0.149 rows=5 loops=1)
+	                            Buffers: shared hit=15
+	                            ->  Nested Loop Left Join  (cost=4.89..40.94 rows=5 width=1312) (actual time=0.056..0.086 rows=5 loops=1)
+	                                  Buffers: shared hit=13
+	                                  ->  Nested Loop Left Join  (cost=4.74..31.90 rows=5 width=280) (actual time=0.050..0.069 rows=5 loops=1)
+	                                        Buffers: shared hit=11
+	                                        ->  Bitmap Heap Scan on quality_inspections qi  (cost=4.45..23.53 rows=5 width=273) (actual time=0.030..0.046 rows=5 loops=1)
+	                                              Buffers: shared hit=8
+	                                              ->  Bitmap Index Scan on quality_inspections_mo_199  (cost=0.00..4.45 rows=5 width=0) (actual time=0.020..0.021 rows=5 loops=1)
+	                                                    Buffers: shared hit=3
+	                                        ->  Materialize  (cost=0.29..8.31 rows=1 width=23) (actual time=0.004..0.004 rows=1 loops=5)
+	                                              Buffers: shared hit=3
+	                                              ->  Index Scan using manufacturing_orders_pkey on manufacturing_orders mo  (cost=0.29..8.30 rows=1 width=23) (actual time=0.017..0.017 rows=1 loops=1)
+	                                                    Buffers: shared hit=3
+	                                  ->  Memoize  (cost=0.15..4.97 rows=1 width=1048) (actual time=0.003..0.003 rows=0 loops=5)
+	                                        Buffers: shared hit=2
+	                                        ->  Index Scan using manufacturing_stages_pkey on manufacturing_stages st  (cost=0.14..4.96 rows=1 width=1048) (actual time=0.005..0.005 rows=0 loops=2)
+	                                              Buffers: shared hit=2
+	                            ->  Memoize  (cost=0.15..8.18 rows=1 width=1032) (actual time=0.002..0.002 rows=0 loops=5)
+	                                  Buffers: shared hit=2
+	                                  ->  Subquery Scan on up  (cost=0.14..8.17 rows=1 width=1032) (actual time=0.006..0.006 rows=0 loops=1)
+	                                        Buffers: shared hit=2
+	                                        ->  Limit  (cost=0.14..8.16 rows=1 width=1032) (actual time=0.006..0.006 rows=0 loops=1)
+	                                              Buffers: shared hit=2
+	                                              ->  Index Scan using idx_user_profiles_user on user_profiles u  (cost=0.14..8.16 rows=1 width=1032) (actual time=0.005..0.005 rows=0 loops=1)
+	                                                    Buffers: shared hit=2
+====================================================================================================
+B_oldM202_mo.raw | nested statements logged: 17
+heaviest list statement: 0.3 ms
+	Result  (cost=195.22..195.23 rows=1 width=32) (actual time=0.304..0.308 rows=1 loops=1)
+	  Buffers: shared hit=24
+	    ->  Aggregate  (cost=195.21..195.22 rows=1 width=32) (actual time=0.303..0.306 rows=1 loops=1)
+	          Buffers: shared hit=24
+	          ->  Limit  (cost=195.18..195.19 rows=5 width=64) (actual time=0.252..0.255 rows=5 loops=1)
+	                Buffers: shared hit=24
+	                ->  Sort  (cost=195.18..195.19 rows=5 width=64) (actual time=0.251..0.254 rows=5 loops=1)
+	                      Sort Method: quicksort  Memory: 30kB
+	                      Buffers: shared hit=24
+	                      ->  Subquery Scan on w  (cost=20.69..195.12 rows=5 width=64) (actual time=0.179..0.225 rows=5 loops=1)
+	                            Buffers: shared hit=18
+	                            ->  WindowAgg  (cost=20.69..195.07 rows=5 width=134) (actual time=0.179..0.223 rows=5 loops=1)
+	                                  Buffers: shared hit=18
+	                                  ->  Incremental Sort  (cost=17.31..34.03 rows=5 width=1887) (actual time=0.136..0.138 rows=5 loops=1)
+	                                        Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+	                                        Buffers: shared hit=18
+	                                        ->  Nested Loop  (cost=0.70..33.89 rows=5 width=1887) (actual time=0.073..0.109 rows=5 loops=1)
+	                                              Buffers: shared hit=12
+	                                              ->  Nested Loop Left Join  (cost=0.70..33.75 rows=5 width=1859) (actual time=0.068..0.099 rows=5 loops=1)
+	                                                    Buffers: shared hit=12
+	                                                    ->  Nested Loop Left Join  (cost=0.70..33.65 rows=5 width=827) (actual time=0.065..0.093 rows=5 loops=1)
+	                                                          Rows Removed by Join Filter: 4
+	                                                          Buffers: shared hit=12
+	                                                          ->  Nested Loop Left Join  (cost=0.70..32.57 rows=5 width=299) (actual time=0.054..0.079 rows=5 loops=1)
+	                                                                Buffers: shared hit=11
+	                                                                ->  Nested Loop Left Join  (cost=0.41..24.20 rows=5 width=292) (actual time=0.032..0.055 rows=5 loops=1)
+	                                                                      Buffers: shared hit=8
+	                                                                      ->  Index Scan using quality_inspections_mo_199 on quality_inspections qi  (cost=0.41..24.14 rows=5 width=288) (actual time=0.027..0.046 rows=5 loops=1)
+	                                                                            Buffers: shared hit=8
+	                                                                      ->  Seq Scan on quality_inspection_authority_202 au  (cost=0.00..0.00 rows=1 width=20) (actual time=0.001..0.001 rows=0 loops=5)
+	                                                                ->  Materialize  (cost=0.29..8.31 rows=1 width=23) (actual time=0.004..0.004 rows=1 loops=5)
+	                                                                      Buffers: shared hit=3
+	                                                                      ->  Index Scan using manufacturing_orders_pkey on manufacturing_orders mo  (cost=0.29..8.30 rows=1 width=23) (actual time=0.017..0.017 rows=1 loops=1)
+	                                                                            Buffers: shared hit=3
+	                                                          ->  Materialize  (cost=0.00..1.01 rows=1 width=544) (actual time=0.002..0.002 rows=1 loops=5)
+	                                                                Buffers: shared hit=1
+	                                                                ->  Seq Scan on manufacturing_stages st  (cost=0.00..1.01 rows=1 width=544) (actual time=0.008..0.008 rows=1 loops=1)
+	                                                                      Buffers: shared hit=1
+	                                                    ->  Limit  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.001..0.001 rows=0 loops=5)
+	                                                          ->  Seq Scan on user_profiles u  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.000..0.000 rows=0 loops=5)
+	                                              ->  Aggregate  (cost=0.00..0.01 rows=1 width=4) (actual time=0.001..0.001 rows=1 loops=5)
+	                                                    ->  Seq Scan on quality_supersessions_202 s  (cost=0.00..0.00 rows=1 width=4) (actual time=0.000..0.000 rows=0 loops=5)
+====================================================================================================
+C_newM202_mo.raw | nested statements logged: 17
+heaviest list statement: 0.6 ms
+	Result  (cost=228.65..228.66 rows=1 width=32) (actual time=0.630..0.641 rows=1 loops=1)
+	  Buffers: shared hit=52
+	    ->  Aggregate  (cost=228.64..228.65 rows=1 width=32) (actual time=0.620..0.630 rows=1 loops=1)
+	          Buffers: shared hit=52
+	          ->  Nested Loop  (cost=24.66..67.77 rows=5 width=1888) (actual time=0.252..0.427 rows=5 loops=1)
+	                Buffers: shared hit=52
+	                ->  Nested Loop Left Join  (cost=24.66..67.66 rows=5 width=1884) (actual time=0.247..0.410 rows=5 loops=1)
+	                      Buffers: shared hit=52
+	                      ->  Nested Loop Left Join  (cost=24.66..67.56 rows=5 width=852) (actual time=0.244..0.395 rows=5 loops=1)
+	                            Buffers: shared hit=52
+	                            ->  Nested Loop Left Join  (cost=24.52..67.18 rows=5 width=324) (actual time=0.224..0.366 rows=5 loops=1)
+	                                  Buffers: shared hit=50
+	                                  ->  Nested Loop  (cost=24.24..65.55 rows=5 width=317) (actual time=0.203..0.328 rows=5 loops=1)
+	                                        Buffers: shared hit=35
+	                                        ->  Limit  (cost=23.95..23.96 rows=5 width=52) (actual time=0.188..0.250 rows=5 loops=1)
+	                                              Buffers: shared hit=20
+	                                              ->  Sort  (cost=23.95..23.96 rows=5 width=52) (actual time=0.187..0.247 rows=5 loops=1)
+	                                                    Sort Method: quicksort  Memory: 25kB
+	                                                    Buffers: shared hit=20
+	                                                    ->  Subquery Scan on r  (cost=23.68..23.89 rows=5 width=52) (actual time=0.142..0.154 rows=5 loops=1)
+	                                                          Buffers: shared hit=14
+	                                                          ->  WindowAgg  (cost=23.68..23.84 rows=5 width=107) (actual time=0.141..0.151 rows=5 loops=1)
+	                                                                Buffers: shared hit=14
+	                                                                ->  Sort  (cost=23.64..23.65 rows=5 width=75) (actual time=0.129..0.132 rows=5 loops=1)
+	                                                                      Sort Method: quicksort  Memory: 25kB
+	                                                                      Buffers: shared hit=14
+	                                                                      ->  Hash Left Join  (cost=4.47..23.58 rows=5 width=75) (actual time=0.067..0.099 rows=5 loops=1)
+	                                                                            Buffers: shared hit=8
+	                                                                            ->  Bitmap Heap Scan on quality_inspections q  (cost=4.45..23.53 rows=5 width=67) (actual time=0.041..0.068 rows=5 loops=1)
+	                                                                                  Buffers: shared hit=8
+	                                                                                  ->  Bitmap Index Scan on quality_inspections_mo_199  (cost=0.00..4.45 rows=5 width=0) (actual time=0.028..0.028 rows=5 loops=1)
+	                                                                                        Buffers: shared hit=3
+	                                                                            ->  Hash  (cost=0.00..0.00 rows=1 width=20) (actual time=0.004..0.005 rows=0 loops=1)
+	                                                                                  ->  Seq Scan on quality_inspection_authority_202 au  (cost=0.00..0.00 rows=1 width=20) (actual time=0.004..0.004 rows=0 loops=1)
+	                                        ->  Index Scan using quality_inspections_pkey on quality_inspections qi  (cost=0.29..8.31 rows=1 width=281) (actual time=0.012..0.012 rows=1 loops=5)
+	                                              Buffers: shared hit=15
+	                                  ->  Index Scan using manufacturing_orders_pkey on manufacturing_orders mo  (cost=0.29..0.33 rows=1 width=23) (actual time=0.006..0.006 rows=1 loops=5)
+	                                        Buffers: shared hit=15
+	                            ->  Memoize  (cost=0.14..0.15 rows=1 width=544) (actual time=0.005..0.005 rows=0 loops=5)
+	                                  Buffers: shared hit=2
+	                                  ->  Index Scan using manufacturing_stages_pkey on manufacturing_stages st  (cost=0.12..0.14 rows=1 width=544) (actual time=0.007..0.007 rows=0 loops=2)
+	                                        Buffers: shared hit=2
+	                      ->  Limit  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.002..0.002 rows=0 loops=5)
+	                            ->  Seq Scan on user_profiles u  (cost=0.00..0.00 rows=1 width=1032) (actual time=0.001..0.001 rows=0 loops=5)
+	                ->  Aggregate  (cost=0.00..0.01 rows=1 width=4) (actual time=0.002..0.002 rows=1 loops=5)
+	                      ->  Seq Scan on quality_supersessions_202 s  (cost=0.00..0.00 rows=1 width=4) (actual time=0.000..0.000 rows=0 loops=5)

@@ -1,0 +1,6 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: CITED. Installed-function readback printed by the plan-capture script (A = M199, B = frozen old M202, C = optimized M202) before the EXPLAIN captures in E6l_plans_raw/.
+----------------------------------------------------------------------------------------------------
+A (M199) installed: 159090c0b1f4e060cf218d026a0169c3|t|{"search_path=public, pg_temp"}
+B_oldM202 installed: bb2432f528a97ebb7f4d75a3e5b2f585|t|{"search_path=public, pg_temp"}
+C_newM202 installed: 3ef747d991d0f1efe10c67c292697037|t|{"search_path=public, pg_temp"}

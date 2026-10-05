@@ -1,0 +1,22 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: SUPERSEDED / NOT CITED. First scaling measurement. UNCONTROLLED: the M199 and M202 databases held different row counts (55,536 vs 51,349, extra rows from earlier RPC measurements), one pgbench average per query, first-run warm-up not separated. It showed the direction of the problem and motivated the controlled runs (E6k). Do not quote its numbers.
+----------------------------------------------------------------------------------------------------
+######## E6c list RPC scaling (50,000 inspection rows in one org: 200 MOs x 250), M199 body vs M202 body
+       ?column?
+-----------------------
+ exp_p_pre rows: 55536
+(1 row)
+
+        ?column?
+------------------------
+ exp_p_post rows: 51349
+(1 row)
+
+-- exp_p_pre
+   org_100  latency average = 487.977 ms
+   org_500  latency average = 469.050 ms
+   mo_100   latency average = 4.171 ms
+-- exp_p_post
+   org_100  latency average = 8026.632 ms
+   org_500  latency average = 2546.923 ms
+   mo_100   latency average = 71.415 ms

@@ -1,0 +1,80 @@
+name: QC privileged write closure M202 disposable acceptance
+
+# F1 (see docs/db/QC_PRIVILEGED_WRITE_CLOSURE_202_RUNBOOK.md): service_role holds no
+# direct privilege on quality_inspections; the only writer is the entry-role RPC,
+# guarded by a transaction-bound marker and a closed-execution-graph assertion;
+# NULL-safe selection and append-only supersession. Repository-only migration:
+# nothing here touches Production or Staging.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/202_qc_privileged_write_closure.sql'
+      - 'docs/db/qc-privileged-write-closure-202/**'
+      - 'docs/db/quality-control-199/acceptance.sql'
+      - 'docs/db/manufacturing-inventory-red-20260925/_helpers.sql'
+      - 'docs/db/manufacturing-inventory-red-20260925/00_fixture.sql'
+      - 'scripts/ci/fresh-db/**'
+      - '.github/workflows/qc-privileged-write-202-acceptance.yml'
+      - 'sql/baseline/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: M202 RED, controls, GREEN, mutants and concurrency on disposable PG17
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL client libraries for the concurrency test
+        run: python -m pip install 'psycopg[binary]>=3.2,<4'
+      - name: Prove RED, preflight controls, GREEN, mutants, regressions and concurrency
+        run: |
+          set -Eeuo pipefail
+          bash docs/db/qc-privileged-write-closure-202/run_local.sh 2>&1 | tee /tmp/m202.out
+          # A green exit is not enough: every proof direction must have run.
+          for marker in 'M202_RED_REPRODUCED forged_gate_open=1 null_shadow=1 high_seq_shadow=1' \
+                        M202_RUNNER_NEGATIVE_CONTROLS_PASS \
+                        M202_PREFLIGHT_CONTROLS_PASS M202_M201_FUNCTIONS_UNCHANGED \
+                        M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS \
+                        M202_OWNER_SWITCH_MECHANICS_OK 'M202_M199_REGRESSION_PASS 70/70' \
+                        'regression ok: DEFINER guard contract self-test' \
+                        M202_HISTORY_INSERT_ONLY_REHEARSAL_PASS \
+                        M202_CONCURRENCY_PASS M202_TYPE_SHADOW_REGRESSION_PASS \
+                        GREEN_M202_QC_PRIVILEGED_WRITE_CLOSURE; do
+            grep -Fq "$marker" /tmp/m202.out || { echo "missing $marker" >&2; exit 1; }
+          done
+      - name: Static migration gates
+        run: |
+          python -m pip install --quiet pglast pyyaml
+          python3 scripts/ci/check_migration_syntax.py
+          python3 scripts/ci/check_definer_guards.py
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qc-privileged-write-202-${{ github.run_id }}
+          path: /tmp/m202.out
+          retention-days: 30

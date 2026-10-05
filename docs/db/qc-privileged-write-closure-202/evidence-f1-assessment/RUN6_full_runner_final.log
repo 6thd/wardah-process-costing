@@ -1,0 +1,77 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: CITED. Full disposable-PG17 runner on the final SQL/test tree (run before the docs-only commits).
+----------------------------------------------------------------------------------------------------
+checkout: 8babdd6f8de45d023dde722b01e24fc4383d6f21
+server: 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
+control ok: runner refuses 'late error after notices and marker (ON_ERROR_STOP, real exit 3)' (psql exit code 3)
+control ok: runner refuses 'late error after marker with a masked exit code of 0' (although the exit code was 0)
+control ok: runner refuses 'marker missing' (success marker 'NEG_MARKER' missing)
+control ok: runner refuses 'wrong number of ok notices' (expected exactly 3 ok-notices, got 2)
+M202_RUNNER_NEGATIVE_CONTROLS_PASS
+PASS=12 FAIL=0 NOT_RUN=0 TOTAL=12
+RED (pre-202): psql rc=0, no psql error, marker ok: M202_RED_REPRODUCED forged_gate_open=1 null_shadow=1 high_seq_shadow=1
+psql:red.sql:90: NOTICE:  M202_RED_REPRODUCED forged_gate_open=1 null_shadow=1 high_seq_shadow=1
+PASS=11 FAIL=0 NOT_RUN=0 TOTAL=11
+control ok: chain without M201 refused (M202_REQUIRES_M201)
+control ok: post-201 body drift of public.rpc_set_gl_event_mapping(uuid,text,text,text,text,text,boolean) refused (M202_UNEXPECTED_M201_BODY)
+control ok: post-201 body drift of public.rpc_set_material_issue_wo_statuses(uuid,text[]) refused (M202_UNEXPECTED_M201_BODY)
+control ok: post-201 body drift of public.rpc_set_quality_policy(uuid,jsonb,bigint) refused (M202_UNEXPECTED_M201_BODY)
+control ok: post-201 body drift of public.rpc_get_quality_policy(uuid) refused (M202_UNEXPECTED_M201_BODY)
+control ok: post-201 body drift of public.create_role_from_template(uuid,uuid,character varying,uuid) refused (M202_UNEXPECTED_M201_BODY)
+control ok: pre-201 (M199) body of rpc_get_quality_policy re-installed refused (M202_UNEXPECTED_M201_BODY)
+control ok: pre-201 (M199) body of rpc_set_quality_policy re-installed refused (M202_UNEXPECTED_M201_BODY)
+control ok: M199 body drift of public.rpc_record_quality_inspection(uuid,uuid,jsonb) refused (M202_UNEXPECTED_M199_BODY)
+control ok: M199 body drift of public.rpc_list_quality_inspections(uuid,uuid,integer) refused (M202_UNEXPECTED_M199_BODY)
+control ok: M199 body drift of the evaluator refused (M202_UNEXPECTED_M199_BODY)
+control ok: public schema without PUBLIC USAGE refused (M202_PUBLIC_SCHEMA_USAGE_REQUIRED)
+control ok: authenticated holds a table privilege refused (M202_REQUIRES_M199)
+control ok: a pre-existing INSERT trigger opens the graph (postflight) refused (QC_EXECUTION_GRAPH_OPEN_202: INSERT_TRIGGERS)
+control ok: failed 202 rolled back completely (no role, tables or functions; service_role ACL and M199 body untouched)
+control ok: second application refused (M202_ALREADY_APPLIED)
+control ok: role already present in the cluster refused (M202_ALREADY_APPLIED)
+M202_PREFLIGHT_CONTROLS_PASS
+M202_M201_FUNCTIONS_UNCHANGED owner+ACL+body of all five identical before and after
+acceptance: psql rc=0, no psql error, marker ok: M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS
+psql:acceptance.sql:1119: NOTICE:  M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS
+acceptance assertions: 226
+acceptance mutants caught: 75; forgeries refused: 26
+owner-switch mechanics: psql rc=0, no psql error, marker ok: M202_OWNER_SWITCH_MECHANICS_OK
+psql:/home/user/wardah-process-costing/docs/db/qc-privileged-write-closure-202/owner_switch_mechanics.sql:31: NOTICE:  M202_OWNER_SWITCH_MECHANICS_OK non-superuser CREATEROLE owner switched the function and left only the creator ADMIN-only membership (no SET/INHERIT), no CREATE grant and no ACL entry
+M199 regression: psql rc=0, no psql error, marker ok: M199_QUALITY_CONTROL_ACCEPTANCE_PASS
+M202_M199_REGRESSION_PASS 70/70
+acceptance_201_manufacturing_settings_permissions.sql: psql rc=0, no psql error, marker ok: MFG_SETTINGS_201_ACCEPTANCE_PASS
+regression ok: acceptance_201_manufacturing_settings_permissions.sql
+acceptance_200_201_contract_claims.sql: psql rc=0, no psql error, marker ok: CLAIMS_200_201_PASS
+regression ok: acceptance_200_201_contract_claims.sql
+acceptance_200_gl_event_mapping_write_closure.sql: psql rc=0, no psql error, marker ok: GL_EVENT_200_ACCEPTANCE_PASS
+regression ok: acceptance_200_gl_event_mapping_write_closure.sql
+regression ok: DEFINER guard contract self-test
+ok  a second transaction cannot reuse an open marker
+ok  rolled-back markers leave nothing
+M202_CONCURRENCY_PASS
+history rehearsal seed: psql rc=0, no psql error, marker ok: M202_HISTORY_SEED_OK
+history rehearsal source: psql rc=0, no psql error, marker ok: M202_HISTORY_SOURCE_OK
+history rehearsal (commit connection): psql rc=0, no psql error, marker ok: M202_HISTORY_PROCEDURE_COMMITTED
+history rehearsal: COMMIT confirmed from an independent connection (3 inspections / 3 links)
+history rehearsal (fresh connection): psql rc=0, no psql error, marker ok: M202_HISTORY_INSERT_ONLY_REHEARSAL_PASS
+history rehearsal: commit connection backend pid 1319, fresh readback connection backend pid 1325
+history rehearsal assertions: commit connection 29 (non-vacuity mutations 13); fresh connection 35 (oracle rejections 12)
+ COMMIT_CONNECTION pid=1319
+ FINGERPRINT_BEFORE 8c1eb3929b4689f49de7e77c05e5689e
+ FINGERPRINT_AFTER_COMMIT_SAME_SESSION 8c1eb3929b4689f49de7e77c05e5689e
+ M202_HISTORY_PROCEDURE_COMMITTED baseline=8c1eb3929b4689f49de7e77c05e5689e same_session_after=8c1eb3929b4689f49de7e77c05e5689e
+ FRESH_CONNECTION pid=1325
+ FINGERPRINT_AFTER_FRESH_CONNECTION 8c1eb3929b4689f49de7e77c05e5689e
+ FRESH_RPC_RESULT {"result": "PASS", "release": {"ready": true, "reason": null, "qc_cycle": 1, "required": true, "gate_mode": "all_orders",
+M202_HISTORY_INSERT_ONLY_REHEARSAL_PASS fingerprint_before=8c1eb3929b4689f49de7e77c05e5689e fingerprint_after=8c1eb3929b4689f49de7e77c05e5689e
+NOTICE:  role "zz_tsr_login" does not exist, skipping
+--- GREEN: fix applied ---
+privileged hits: hold=0 write=0
+TSR_GREEN_OK
+--- RED: revert mo_quality_gate_199's search_path to pre-fix (non-vacuity) ---
+privileged hits with the revert: hold=4
+TSR_RED_OK (reverted fix reproduces current_user=postgres: authenticated postgres )
+TSR_RESTORED_OK
+M202_TYPE_SHADOW_REGRESSION_PASS
+GREEN_M202_QC_PRIVILEGED_WRITE_CLOSURE
+RUNNER_RC=0

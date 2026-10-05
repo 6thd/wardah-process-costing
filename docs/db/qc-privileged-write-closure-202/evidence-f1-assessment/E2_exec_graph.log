@@ -1,0 +1,45 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: CITED. Entry-role execution graph, helper body, and non-owner replacement / pg_temp shadow controls.
+----------------------------------------------------------------------------------------------------
+######## E2 effective execution graph of the entry-role RPC
+RPC owner=wardah_qc_entry_202 secdef=true config={"search_path=pg_catalog, pg_temp"}
+entry role EXECUTE grants on functions (ACL entries naming it): wardah_assert_org_member(uuid) [owner postgres, secdef=true, md5 33c67e93]
+   wardah_internal.qc_assert_closed_graph_202() [owner postgres, secdef=false, md5 5da9f9c5]
+   wardah_internal.qc_prepare_inspection_202(uuid,uuid,jsonb) [owner postgres, secdef=true, md5 59c37bde]
+   rpc_record_quality_inspection(uuid,uuid,jsonb) [owner wardah_qc_entry_202, secdef=true, md5 88503b79]
+   wardah_internal.evaluate_quality_release_199(uuid,uuid,uuid,text,numeric) [owner postgres, secdef=true, md5 fb8dd9fe]
+wardah_assert_org_member: owner=postgres secdef=true config={"search_path=public, pg_temp"} acl={postgres=X/postgres,service_role=X/postgres,wardah_qc_entry_202=X/postgres}
+wardah_assert_org_member body:
+
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'NOT_AUTHENTICATED';
+  END IF;
+  IF p_org IS NULL THEN
+    RAISE EXCEPTION 'ORG_UNRESOLVED';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.user_organizations
+    WHERE user_id = auth.uid()
+      AND org_id = p_org
+      AND is_active IS TRUE
+  ) THEN
+    RAISE EXCEPTION 'NOT_ORG_MEMBER';
+  END IF;
+END;
+
+-- callee identifiers in the RPC body (anything followed by '(' ), classified
+  jsonb_build_object                           unqualified; defined in: pg_catalog
+  pg_backend_pid                               unqualified; defined in: pg_catalog
+  pg_current_xact_id                           unqualified; defined in: pg_catalog
+  public.quality_inspections                   qualified:public
+  public.wardah_assert_org_member              qualified:public
+  wardah_internal.evaluate_quality_release_199 qualified:wardah_internal
+  wardah_internal.qc_entry_markers_202         qualified:wardah_internal
+  wardah_internal.qc_prepare_inspection_202    qualified:wardah_internal
+  wardah_internal.quality_inspection_authority_202 qualified:wardah_internal
+-- negative controls: can a non-owner replace or shadow the shared helper / graph members?
+NOTICE:  control 1 ok: non-owner CREATE OR REPLACE refused (must be owner of function wardah_assert_org_member)
+NOTICE:  control 2 ok: authenticated cannot replace the RPC (permission denied for schema public)
+NOTICE:  control 3 info: authenticated can create a pg_temp function with the same name (always allowed)

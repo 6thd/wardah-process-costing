@@ -1,0 +1,37 @@
+[header added when this file was committed; the lines below are the original output, unmodified apart from stripped trailing whitespace]
+NOTE: SUPERSEDED. Controlled and complete (return code 0, identical row counts, 25 samples per variant/query) but it did NOT read back the installed function from pg_proc before timing, so which function body was measured was not proven. Replaced by E6k, which aborts unless the installed digest, security mode and search_path match. Not cited.
+----------------------------------------------------------------------------------------------------
+row counts: A=50000 B=50000
+### shape=realistic 10,000 MOs x 5 rows (50,000 rows)  A=exp_bm_r_base_a (M199 body)  B=exp_bm_r_base_b (M202 body)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   423.94 p50=   446.74 p90=   516.07 max=   720.05 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   652.53 p50=  1786.79 p90=  1845.65 max=  1866.07 ms
+                                       ratio p50 B/A =    4.0x
+  org-wide limit 500                   A M199: n=25 min=   430.92 p50=   447.01 p90=   465.94 max=   506.06 ms
+  org-wide limit 500                   B M202: n=25 min=   656.78 p50=  1793.33 p90=  1835.28 max=  1910.84 ms
+                                       ratio p50 B/A =    4.0x
+  MO-scoped limit 100                  A M199: n=25 min=     1.16 p50=     1.29 p90=     1.78 max=     2.02 ms
+  MO-scoped limit 100                  B M202: n=25 min=     2.04 p50=     2.17 p90=     4.12 max=     4.25 ms
+                                       ratio p50 B/A =    1.7x
+row counts: A=5000 B=5000
+### shape=small org 1,000 MOs x 5 rows (5,000 rows)  A=exp_bm_s_base_a (M199 body)  B=exp_bm_s_base_b (M202 body)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=    44.91 p50=    46.40 p90=    49.31 max=    50.33 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=    66.94 p50=   126.53 p90=   132.30 max=   137.33 ms
+                                       ratio p50 B/A =    2.7x
+  org-wide limit 500                   A M199: n=25 min=    47.87 p50=    49.78 p90=    55.97 max=    76.02 ms
+  org-wide limit 500                   B M202: n=25 min=    70.05 p50=   128.25 p90=   136.62 max=   146.84 ms
+                                       ratio p50 B/A =    2.6x
+  MO-scoped limit 100                  A M199: n=25 min=     1.14 p50=     1.35 p90=     1.80 max=     1.98 ms
+  MO-scoped limit 100                  B M202: n=25 min=     2.01 p50=     2.24 p90=     4.11 max=     4.67 ms
+                                       ratio p50 B/A =    1.7x
+row counts: A=50000 B=50000
+### shape=heavy 200 MOs x 250 rows (50,000 rows)  A=exp_bm_h_base_a (M199 body)  B=exp_bm_h_base_b (M202 body)  rounds=5 x 5 timed calls (first call of each fresh session discarded)
+  org-wide limit 100 (default call)    A M199: n=25 min=   423.54 p50=   435.97 p90=   468.07 max=   505.53 ms
+  org-wide limit 100 (default call)    B M202: n=25 min=   758.75 p50=  1791.78 p90=  1849.30 max=  1897.96 ms
+                                       ratio p50 B/A =    4.1x
+  org-wide limit 500                   A M199: n=25 min=   428.06 p50=   442.08 p90=   464.99 max=   482.80 ms
+  org-wide limit 500                   B M202: n=25 min=   784.32 p50=  1791.88 p90=  1867.39 max=  1891.53 ms
+                                       ratio p50 B/A =    4.1x
+  MO-scoped limit 100                  A M199: n=25 min=     3.92 p50=     4.49 p90=     4.91 max=     6.56 ms
+  MO-scoped limit 100                  B M202: n=25 min=    63.99 p50=    68.02 p90=    83.56 max=   110.84 ms
+                                       ratio p50 B/A =   15.1x
+HARNESS_RC=0

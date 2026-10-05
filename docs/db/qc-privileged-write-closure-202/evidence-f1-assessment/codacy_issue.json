@@ -1,0 +1,39 @@
+{
+ "analyzed": true,
+ "data": [
+  {
+   "commitIssue": {
+    "issueId": "23b9ad0f3540c26aca19296c7feafa58",
+    "resultDataId": 131546221369,
+    "filePath": "docs/db/qc-privileged-write-closure-202/type_shadow_regression.sh",
+    "fileId": 235740953614,
+    "patternInfo": {
+     "id": "shellcheck_SC2034",
+     "category": "ErrorProne",
+     "level": "Warning",
+     "severityLevel": "Warning"
+    },
+    "toolInfo": {
+     "uuid": "233f8aac-4fb6-4193-8a17-e64515bea152",
+     "name": "ShellCheck"
+    },
+    "lineNumber": 18,
+    "message": "P appears unused. Verify use (or export if used externally).",
+    "language": "Shell",
+    "lineText": "P=\"${PGDATABASE:-}\"",
+    "falsePositiveThreshold": 80,
+    "commitInfo": {
+     "sha": "7c4841ae8d7863022f1dd697ebcb73d101fb4441",
+     "commiter": "noreply@anthropic.com",
+     "commiterName": "Claude",
+     "timestamp": "2026-10-04T13:10:12Z"
+    }
+   },
+   "deltaType": "Added"
+  }
+ ],
+ "pagination": {
+  "limit": 100,
+  "total": 1
+ }
+}
