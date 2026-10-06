@@ -1,0 +1,11 @@
+[tool: apply_migration, project_id=kfzwgldukqmcvzhzysrx, name=o1_probe_02_fail_after_own_commit, sent=sent_P2.sql bytes=961 sha256=c48f84ae895d611d6bfd4f2f55e129922a9eebe8ec0125edba84b00618e1acca]
+RAW RESPONSE (error):
+{"error":{"name":"HttpException","message":"Failed to apply database migration: ERROR:  P0001: O1_PROBE_02_INTENDED_FAILURE_AFTER_OWN_COMMIT\nCONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE\n"}}
+EXPECTED: yes (intentional tag P0001, no other error).
+
+=== READBACK AFTER P2
+[R3 catalog] [{"obj":"commit_ok_d","exists_now":false,"owner":null},{"obj":"fail_after_commit_a","exists_now":true,"owner":"postgres"},{"obj":"fail_before_commit_b","exists_now":false,"owner":null},{"obj":"identity","exists_now":true,"owner":"postgres"},{"obj":"plain_fail_c","exists_now":false,"owner":null}]
+[R2 duplicates] [{"name":"o1_probe_01_identity","rows":1}]      <- NO row for o1_probe_02_fail_after_own_commit
+[byte check ledger] [{"name":"o1_probe_01_identity","version":"20261006180959","n_elems":1,"stored_bytes":4066,"stored_sha256":"f28c5e33...edd"}]   <- unchanged, P1 only
+
+VERDICT P2: catalog=PERSISTED (fail_after_commit_a exists), ledger=NOT WRITTEN  => catalog/ledger drift after a failure that follows the file's own COMMIT.

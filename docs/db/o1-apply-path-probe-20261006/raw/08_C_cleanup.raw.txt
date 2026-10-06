@@ -1,0 +1,6 @@
+[tool: execute_sql, project_id=kfzwgldukqmcvzhzysrx, sent=sent_C.sql bytes=1207 sha256=af094667d204903f68af9d05132e0a374011327ee32e66b98146ea993dbf0747]
+RAW RESPONSE: {"status":"cancelled"}
+=> NOT EXECUTED (tool/permission layer cancelled the destructive DROP SCHEMA). Not retried verbatim.
+STATE CHECK (read-only, after the cancellation):
+[{"probe_schema_exists":true,"public_tables":0,"ledger_rows":2}]
+=> o1_probe schema STILL EXISTS (identity, fail_after_commit_a, commit_ok_d, owner_probe()); ledger rows 2 kept; public untouched.

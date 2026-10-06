@@ -1,0 +1,4 @@
+After the cancelled cleanup (08), the owner's reviewer (Codex) independently re-read O1 and reported:
+postgres is not a superuser; statement_timeout=2min; fail_after_commit_a exists; fail_before_commit_b and plain_fail_c are absent;
+the ledger holds the P1 and P5 rows only, each with a single `statements` element.   [REPORTED by the reviewer; not re-executed here]
+Schema o1_probe is intentionally LEFT in place on O1 (owner instruction) in case further proof is needed. The cancelled DROP was not repeated.

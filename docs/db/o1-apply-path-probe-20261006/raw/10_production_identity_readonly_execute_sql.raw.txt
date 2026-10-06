@@ -1,0 +1,16 @@
+[tool: execute_sql, project_id=uutfztmqvajmsxnrqeiv (PRODUCTION), READ-ONLY single SELECT of identity/settings; no table, no business data, no write]
+Authorized by the owner as a supplementary identity check (D1). It is evidence about the execute_sql endpoint ONLY; it does NOT establish the role of apply_migration on Production.
+QUERY (verbatim):
+SELECT current_user AS current_user, session_user AS session_user,
+       (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS is_superuser,
+       (SELECT rolcreaterole FROM pg_roles WHERE rolname = current_user) AS can_create_role,
+       (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS bypass_rls,
+       current_setting('application_name') AS application_name,
+       current_setting('statement_timeout') AS statement_timeout,
+       current_setting('lock_timeout') AS lock_timeout,
+       current_setting('idle_in_transaction_session_timeout') AS idle_in_txn_timeout,
+       current_setting('transaction_isolation') AS isolation,
+       current_setting('server_version') AS server_version;
+RAW RESPONSE (rows only):
+[{"current_user":"postgres","session_user":"postgres","is_superuser":false,"can_create_role":true,"bypass_rls":true,"application_name":"mgmt-api","statement_timeout":"2min","lock_timeout":"0","idle_in_txn_timeout":"0","isolation":"read committed","server_version":"17.6"}]
+COMPARISON with O1 (P0 execute_sql and P1 apply_migration): same current_user/session_user/rolsuper/rolcreaterole/rolbypassrls/application_name/statement_timeout/lock_timeout/isolation. Only server_version differs (O1 17.11, Production 17.6).
