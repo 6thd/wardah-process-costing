@@ -11958,6 +11958,10 @@ export type Database = {
         Args: { p_permission_key: string }
         Returns: boolean
       }
+      wardah_lock_mo_for_stage_wip_203: {
+        Args: { p_mo_id: string; p_org: string }
+        Returns: string
+      }
       wardah_lock_products_for_stock_write: {
         Args: { p_org: string; p_product_ids: string[] }
         Returns: string[]
