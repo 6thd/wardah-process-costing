@@ -42,6 +42,8 @@ jobs:
 
     env:
       PGHOST: localhost
+      # The 203 acceptance scripts read PGPORT explicitly; this matches the service port mapping above.
+      PGPORT: '5432'
       PGUSER: postgres
       PGPASSWORD: postgres
       PGDATABASE: postgres
