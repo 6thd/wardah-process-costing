@@ -5,7 +5,6 @@ not apply migration 202. Refusal must leave pg_proc unchanged.
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import sys
 import threading
@@ -132,9 +131,12 @@ def expect_refuse(conn, src: str, label: str) -> None:
     print(f"REFUSED|{label}")
 
 
-def md5_hex(text: str) -> str:
-    # An identity pin matched against Postgres md5(prosrc), not a security digest.
-    return hashlib.md5(text.encode("utf-8"), usedforsecurity=False).hexdigest()
+def md5_hex(conn, text: str) -> str:
+    # The same md5(text) that the pins and snapshot() read from pg_proc.prosrc,
+    # computed by the server, so CR and LF bytes are hashed exactly as sent.
+    with conn.cursor() as cur:
+        cur.execute("SELECT md5(%s::text)", (text,))
+        return cur.fetchone()[0]
 
 
 def expect_attribute_refusal(conn, before: tuple, accepted_message: str, changed_message: str) -> None:
@@ -210,7 +212,7 @@ def prepare_database(conn) -> None:
         cur.execute("DROP ROLE IF EXISTS pre_m202_extra")
 
 
-def load_canonical_bodies() -> tuple[str, str]:
+def load_canonical_bodies(conn) -> tuple[str, str]:
     # The LF bytes are the migration-78 body embedded in the script's own pin,
     # taken from the v_lf assignment up to its closing tag.
     text = SCRIPT.read_text(encoding="utf-8")
@@ -218,10 +220,10 @@ def load_canonical_bodies() -> tuple[str, str]:
     start = text.index(marker) + len(marker)
     end = text.index("$canonical$;", start)
     lf = text[start:end]
-    if md5_hex(lf) != LF_MD5:
+    if md5_hex(conn, lf) != LF_MD5:
         raise SystemExit("embedded LF pin drifted")
     crlf = lf.replace("\n", "\r\n")
-    if md5_hex(crlf) != CRLF_MD5:
+    if md5_hex(conn, crlf) != CRLF_MD5:
         raise SystemExit("approved CRLF variant drifted")
     return lf, crlf
 
@@ -354,7 +356,7 @@ def phase_concurrent_search_path(conn, crlf: str) -> None:
 
 def phase_concurrent_body(conn, crlf: str) -> None:
     bad = crlf + "\n"
-    bad_md5 = md5_hex(bad)
+    bad_md5 = md5_hex(conn, bad)
     change_body = sql.Composed(
         [
             sql.SQL(
@@ -398,7 +400,7 @@ def phase_owner_lock_timeout(conn, crlf: str) -> None:
 def main() -> None:
     with connect() as conn:
         prepare_database(conn)
-        lf, crlf = load_canonical_bodies()
+        lf, crlf = load_canonical_bodies(conn)
         phase_lf_noop(conn, lf)
         phase_crlf_replaced(conn, crlf)
         phase_byte_refusals(conn, lf)
