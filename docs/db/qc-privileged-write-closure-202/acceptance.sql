@@ -3,7 +3,61 @@
 -- D NULL + supersession, E post-201 contract.
 \set ON_ERROR_STOP on
 BEGIN;
+-- The connection may be the local superuser only so this script can orchestrate
+-- SET ROLE, BYPASSRLS, and SET SESSION AUTHORIZATION. Object creation and the
+-- membership checks then run as postgres, the role that applied the migrations.
+DO $orch$
+BEGIN
+  RAISE NOTICE 'orchestrator_identity current_user=% session_user=% rolsuper=% rolbypassrls=%',
+    current_user, session_user,
+    (SELECT r.rolsuper FROM pg_roles r WHERE r.rolname = current_user),
+    (SELECT r.rolbypassrls FROM pg_roles r WHERE r.rolname = current_user);
+  IF current_user = 'supabase_admin' THEN
+    EXECUTE 'SET SESSION AUTHORIZATION postgres';
+  END IF;
+  RAISE NOTICE 'application_session current_user=% session_user=% rolsuper=% rolbypassrls=%',
+    current_user, session_user,
+    (SELECT r.rolsuper FROM pg_roles r WHERE r.rolname = session_user),
+    (SELECT r.rolbypassrls FROM pg_roles r WHERE r.rolname = session_user);
+END
+$orch$;
 \ir ../manufacturing-inventory-red-20260925/_helpers.sql
+
+-- Shared try_as (the helper above) runs SET LOCAL ROLE and the probe in one
+-- exception block, so a role-setup failure comes back as an ordinary refusal.
+-- Reachable here: denied() at the "client cannot read the table directly" check
+-- expects the text 'permission denied', which a failed SET ROLE also produces.
+-- This acceptance therefore uses a local copy that separates the two phases:
+-- a setup failure raises and never reaches an expected-text comparison, and the
+-- probe runs exactly once. The shared helper file is unchanged.
+CREATE OR REPLACE FUNCTION pg_temp.try_as_role(p_uid uuid, p_role text, p_sql text) RETURNS jsonb
+LANGUAGE plpgsql AS $fn$
+DECLARE v_res jsonb; v_out jsonb; v_state text; v_msg text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub', COALESCE(p_uid::text, ''), true);
+  PERFORM set_config('request.jwt.claims',
+    CASE WHEN p_uid IS NULL THEN '{}'
+         ELSE json_build_object('sub', p_uid, 'role', p_role)::text END, true);
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', p_role);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: try_as role setup failed for % and is not a product result: % %',
+      p_role, v_state, v_msg;
+  END;
+  RAISE NOTICE 'probe_identity current_user=% session_user=% probe_role=%', current_user, session_user, p_role;
+  BEGIN
+    EXECUTE p_sql INTO v_res;
+    v_out := jsonb_build_object('ok', true, 'result', v_res, 'phase', 'probe');
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    v_out := jsonb_build_object('ok', false, 'sqlstate', v_state, 'error', v_msg, 'phase', 'probe');
+  END;
+  EXECUTE 'RESET ROLE';
+  RETURN v_out;
+END $fn$;
+CREATE OR REPLACE FUNCTION pg_temp.try_as(p_uid uuid, p_sql text) RETURNS jsonb
+LANGUAGE sql AS $fn$ SELECT pg_temp.try_as_role(p_uid, 'authenticated', p_sql) $fn$;
 
 CREATE FUNCTION pg_temp.inspector() RETURNS uuid LANGUAGE sql IMMUTABLE AS $$ SELECT 'ed000000-0000-4000-8000-0000000000a4'::uuid $$;
 CREATE FUNCTION pg_temp.qmanager()  RETURNS uuid LANGUAGE sql IMMUTABLE AS $$ SELECT 'ed000000-0000-4000-8000-0000000000a5'::uuid $$;
@@ -28,29 +82,127 @@ BEGIN
   RAISE NOTICE 'ok  % (%)', p_label, p_expect;
 END $fn$;
 
--- Run one statement under a DB role (no JWT), inside a subtransaction.
+-- Return the session to the user that called try_role. RESET ROLE alone is
+-- not enough after an orchestrated SET ROLE, because that path changes
+-- session_user as well.
+CREATE FUNCTION pg_temp.try_role_restore(p_current text, p_session text) RETURNS void
+LANGUAGE plpgsql AS $fn$
+BEGIN
+  EXECUTE 'RESET ROLE';
+  IF session_user::text IS DISTINCT FROM p_session THEN
+    EXECUTE format('SET SESSION AUTHORIZATION %I', p_session);
+  END IF;
+  IF current_user::text IS DISTINCT FROM p_current
+     OR session_user::text IS DISTINCT FROM p_session THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: try_role restored current_user=% session_user=% expected current=% session=%',
+      current_user, session_user, p_current, p_session;
+  END IF;
+END $fn$;
+
+-- Run one statement under a DB role (no JWT).
+-- SET ROLE is isolated. Escalation happens only when that statement fails
+-- with "permission denied to set role". The probe then runs exactly once.
+-- An error raised by the probe, including its own SET ROLE, is returned
+-- and is not retried. phase=set_role means the probe did not run.
 CREATE FUNCTION pg_temp.try_role(p_role text, p_sql text) RETURNS jsonb LANGUAGE plpgsql AS $fn$
-DECLARE v_state text; v_msg text;
+DECLARE
+  v_state text;
+  v_msg text;
+  v_escalate boolean := false;
+  v_result jsonb;
+  v_restore_current text := current_user::text;
+  v_restore_session text := session_user::text;
 BEGIN
   BEGIN
     EXECUTE format('SET LOCAL ROLE %I', p_role);
-    EXECUTE p_sql;
-    EXECUTE 'RESET ROLE';
-    RETURN jsonb_build_object('ok', true);
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
-    RETURN jsonb_build_object('ok', false, 'sqlstate', v_state, 'error', v_msg);
+    IF v_msg ILIKE 'permission denied to set role%' THEN
+      v_escalate := true;
+    ELSE
+      PERFORM pg_temp.try_role_restore(v_restore_current, v_restore_session);
+      RETURN jsonb_build_object('ok', false, 'sqlstate', v_state, 'error', v_msg, 'phase', 'set_role');
+    END IF;
   END;
+  IF v_escalate THEN
+    BEGIN
+      RESET SESSION AUTHORIZATION;
+      RAISE NOTICE 'orchestrator_escalation session_user=% probe_role=% reason=set_role', session_user, p_role;
+      IF to_regclass('pg_temp.try_role_escalation_ticks') IS NOT NULL THEN
+        PERFORM nextval('pg_temp.try_role_escalation_ticks');
+      END IF;
+      EXECUTE format('SET LOCAL ROLE %I', p_role);
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      PERFORM pg_temp.try_role_restore(v_restore_current, v_restore_session);
+      RETURN jsonb_build_object('ok', false, 'sqlstate', v_state, 'error', v_msg, 'phase', 'set_role');
+    END;
+  END IF;
+  RAISE NOTICE 'probe_identity current_user=% session_user=% probe_role=%', current_user, session_user, p_role;
+  BEGIN
+    EXECUTE p_sql;
+    v_result := jsonb_build_object('ok', true, 'phase', 'probe');
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    v_result := jsonb_build_object('ok', false, 'sqlstate', v_state, 'error', v_msg, 'phase', 'probe');
+  END;
+  PERFORM pg_temp.try_role_restore(v_restore_current, v_restore_session);
+  RETURN v_result;
 END $fn$;
 CREATE FUNCTION pg_temp.role_denied(p_role text, p_sql text, p_expect text, p_label text)
 RETURNS void LANGUAGE plpgsql AS $fn$
 DECLARE v jsonb := pg_temp.try_role(p_role, p_sql);
 BEGIN
+  IF v->>'phase' = 'set_role' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: % role setup failed and is not a product denial: %', p_label, v;
+  END IF;
   IF (v->>'ok')::boolean OR position(p_expect IN COALESCE(v->>'error','')) = 0 THEN
     RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: % expected % got %', p_label, p_expect, v;
   END IF;
   RAISE NOTICE 'ok  % (%)', p_label, p_expect;
 END $fn$;
+
+-- Catalog setup runs as postgres. A privilege failure is retried once by the
+-- authenticated superuser, then the session returns to postgres. The setup
+-- text is the existing mutant, not an extra grant.
+CREATE FUNCTION pg_temp.exec_setup(p_sql text) RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE v_msg text; v_state text;
+BEGIN
+  BEGIN
+    EXECUTE p_sql;
+    -- A function GRANT or REVOKE by a non-owner warns and grants nothing.
+    -- Retry that same statement as the orchestrator so the closed-graph
+    -- assertion sees the ACL the mutant describes.
+    IF (SELECT r.rolsuper FROM pg_catalog.pg_roles r WHERE r.rolname = current_user)
+       OR p_sql !~* '(GRANT|REVOKE)[[:space:]]+.*[[:space:]]+ON[[:space:]]+FUNCTION' THEN
+      RETURN;
+    END IF;
+    v_msg := 'function_acl';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    IF v_state IS DISTINCT FROM '42501'
+       AND v_msg NOT LIKE '%ADMIN option cannot be granted back to your own grantor%' THEN
+      RAISE;
+    END IF;
+  END;
+  BEGIN
+    RESET SESSION AUTHORIZATION;
+    RAISE NOTICE 'orchestrator_escalation session_user=% reason=%', session_user,
+      CASE
+        WHEN v_msg = 'function_acl' THEN 'function_acl'
+        WHEN v_msg LIKE '%grantor%' THEN 'admin_grant_cycle'
+        ELSE 'setup_privilege'
+      END;
+    EXECUTE p_sql;
+    IF session_user IS DISTINCT FROM 'postgres' THEN
+      EXECUTE 'SET SESSION AUTHORIZATION postgres';
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_msg = MESSAGE_TEXT;
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: setup failed after orchestration: %', v_msg;
+  END;
+END
+$fn$;
 
 -- Apply a catalog mutation, run the closed-graph assertion, expect it to raise
 -- p_expect, and roll the mutation back.
@@ -59,7 +211,7 @@ LANGUAGE plpgsql AS $fn$
 DECLARE v_msg text;
 BEGIN
   BEGIN
-    EXECUTE p_setup;
+    PERFORM pg_temp.exec_setup(p_setup);
     BEGIN
       PERFORM wardah_internal.qc_assert_closed_graph_202();
       v_msg := '<assertion passed>';
@@ -82,11 +234,167 @@ RETURNS void LANGUAGE plpgsql AS $fn$
 DECLARE v jsonb;
 BEGIN
   v := pg_temp.try_role(p_role, p_sql);
+  IF v->>'phase' = 'set_role' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: forgery % role setup failed and is not a product denial: %', p_label, v;
+  END IF;
   IF (v->>'ok')::boolean OR position(p_expect IN COALESCE(v->>'error','')) = 0 THEN
     RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: forgery % expected % got %', p_label, p_expect, v;
   END IF;
   RAISE NOTICE 'ok  forgery refused: % (%)', p_label, p_expect;
 END $fn$;
+
+-- Harness controls for try_role. nextval survives the probe subtransaction,
+-- so a retried probe increments the sequence twice. The sequences are dropped
+-- before the product tests so later escalations are not counted here.
+CREATE TEMP SEQUENCE pg_temp.try_role_probe_ticks;
+CREATE TEMP SEQUENCE pg_temp.try_role_escalation_ticks;
+GRANT USAGE, SELECT, UPDATE ON SEQUENCE pg_temp.try_role_probe_ticks TO PUBLIC;
+GRANT USAGE, SELECT, UPDATE ON SEQUENCE pg_temp.try_role_escalation_ticks TO PUBLIC;
+DO $try_role_controls$
+DECLARE
+  v jsonb;
+  v_state text;
+  v_msg text;
+  v_probe bigint;
+  v_escalation bigint;
+BEGIN
+  IF current_user::text IS DISTINCT FROM 'postgres' OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: try_role controls require current_user=session_user=postgres, got current=% session=%',
+      current_user, session_user;
+  END IF;
+
+  -- A probe that itself raises "permission denied to set role" runs once.
+  v := pg_temp.try_role('service_role', $probe$
+    SELECT nextval('pg_temp.try_role_probe_ticks');
+    SET LOCAL ROLE wardah_qc_entry_202
+  $probe$);
+  v_probe := currval('pg_temp.try_role_probe_ticks');
+  SELECT CASE WHEN is_called THEN last_value ELSE 0 END INTO v_escalation
+    FROM pg_temp.try_role_escalation_ticks;
+  IF v->>'phase' IS DISTINCT FROM 'probe'
+     OR v->>'error' NOT ILIKE 'permission denied to set role%'
+     OR v_probe IS DISTINCT FROM 1
+     OR v_escalation IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: probe set-role error was retried or escalated: result=% probe_ticks=% escalation_ticks=%',
+      v, v_probe, v_escalation;
+  END IF;
+  IF current_user::text IS DISTINCT FROM 'postgres' OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: session not restored after rejected set-role probe: current=% session=%',
+      current_user, session_user;
+  END IF;
+  RAISE NOTICE 'ok  try_role control: probe set-role denial ran once and was not escalated';
+
+  -- A normal privilege failure is returned once and does not escalate.
+  v := pg_temp.try_role('service_role', $probe$
+    SELECT nextval('pg_temp.try_role_probe_ticks');
+    SELECT count(*) FROM public.quality_inspections
+  $probe$);
+  v_probe := currval('pg_temp.try_role_probe_ticks');
+  SELECT CASE WHEN is_called THEN last_value ELSE 0 END INTO v_escalation
+    FROM pg_temp.try_role_escalation_ticks;
+  IF v->>'phase' IS DISTINCT FROM 'probe'
+     OR v->>'error' NOT ILIKE 'permission denied%'
+     OR v->>'error' ILIKE 'permission denied to set role%'
+     OR v_probe IS DISTINCT FROM 2
+     OR v_escalation IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: table privilege failure was escalated or retried: result=% probe_ticks=% escalation_ticks=%',
+      v, v_probe, v_escalation;
+  END IF;
+  IF current_user::text IS DISTINCT FROM 'postgres' OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: session not restored after rejected privilege probe: current=% session=%',
+      current_user, session_user;
+  END IF;
+  RAISE NOTICE 'ok  try_role control: table privilege denial ran once and was not escalated';
+
+  -- A failed role setup is not a product denial, even when its text matches.
+  v_probe := currval('pg_temp.try_role_probe_ticks');
+  BEGIN
+    PERFORM pg_temp.role_denied(
+      'zz_try_role_missing_202',
+      $probe$SELECT nextval('pg_temp.try_role_probe_ticks')$probe$,
+      'does not exist',
+      'missing role setup');
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: role_denied counted setup failure as a product denial';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    IF v_msg NOT LIKE '%role setup failed and is not a product denial%' THEN
+      RAISE;
+    END IF;
+  END;
+  BEGIN
+    PERFORM pg_temp.forge_denied(
+      'zz_try_role_missing_202',
+      $probe$SELECT nextval('pg_temp.try_role_probe_ticks')$probe$,
+      'does not exist',
+      'missing role setup');
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: forge_denied counted setup failure as a product denial';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    IF v_msg NOT LIKE '%role setup failed and is not a product denial%' THEN
+      RAISE;
+    END IF;
+  END;
+  IF currval('pg_temp.try_role_probe_ticks') IS DISTINCT FROM v_probe THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: failed role setup executed the probe';
+  END IF;
+  RAISE NOTICE 'ok  try_role control: failed role setup is not a product denial';
+
+  -- Successful and rejected probes both return the calling session.
+  v := pg_temp.try_role('postgres', 'SELECT 1');
+  IF (v->>'ok')::boolean IS NOT TRUE
+     OR current_user::text IS DISTINCT FROM 'postgres'
+     OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: successful probe did not restore postgres: result=% current=% session=%',
+      v, current_user, session_user;
+  END IF;
+  v := pg_temp.try_role('wardah_qc_entry_202', 'SELECT count(*) FROM public.quality_inspections');
+  IF (v->>'ok')::boolean
+     OR v->>'phase' IS DISTINCT FROM 'probe'
+     OR current_user::text IS DISTINCT FROM 'postgres'
+     OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: rejected entry-role probe did not restore postgres: result=% current=% session=%',
+      v, current_user, session_user;
+  END IF;
+  RAISE NOTICE 'ok  try_role control: current_user and session_user restored after success and rejection';
+END $try_role_controls$;
+-- try_as_role (acceptance-local copy of the shared try_as): a setup failure raises
+-- before the probe; a probe error, even one reading "permission denied to set role",
+-- is a phase=probe result and runs once.
+CREATE FUNCTION pg_temp.zz_try_as_probe() RETURNS jsonb LANGUAGE plpgsql AS $f$
+BEGIN
+  PERFORM nextval('pg_temp.try_role_probe_ticks');
+  PERFORM count(*) FROM public.quality_inspections;
+  RETURN NULL;
+END $f$;
+DO $try_as_controls$
+DECLARE v jsonb; v_state text; v_msg text; v_ticks bigint;
+BEGIN
+  IF current_user::text IS DISTINCT FROM 'postgres' OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: try_as controls require current_user=session_user=postgres';
+  END IF;
+  SELECT CASE WHEN is_called THEN last_value ELSE 0 END INTO v_ticks FROM pg_temp.try_role_probe_ticks;
+  BEGIN
+    PERFORM pg_temp.try_as_role(NULL, 'zz_try_as_missing_202', $probe$SELECT nextval('pg_temp.try_role_probe_ticks')$probe$);
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: try_as_role returned for a missing role';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    IF v_msg NOT LIKE '%try_as role setup failed%is not a product result%' THEN RAISE; END IF;
+  END;
+  IF (SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM pg_temp.try_role_probe_ticks) IS DISTINCT FROM v_ticks
+     OR current_user::text IS DISTINCT FROM 'postgres' OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: try_as setup failure executed the probe or lost identity';
+  END IF;
+  RAISE NOTICE 'ok  try_as control: a role-setup failure raises and the probe did not run';
+  v := pg_temp.try_as_role(NULL, 'authenticated', 'SELECT pg_temp.zz_try_as_probe()');
+  IF v->>'phase' IS DISTINCT FROM 'probe' OR (v->>'ok')::boolean OR v->>'error' NOT ILIKE 'permission denied for%'
+     OR (SELECT last_value FROM pg_temp.try_role_probe_ticks) IS DISTINCT FROM v_ticks + 1
+     OR current_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: try_as probe refusal was retried, mis-tagged or lost identity: %', v;
+  END IF;
+  RAISE NOTICE 'ok  try_as control: a probe refusal is phase=probe and ran once';
+END $try_as_controls$;
+DROP SEQUENCE pg_temp.try_role_probe_ticks;
+DROP SEQUENCE pg_temp.try_role_escalation_ticks;
 
 CREATE FUNCTION pg_temp.mo(p_number text, p_status text DEFAULT 'in_progress', p_creator uuid DEFAULT NULL)
 RETURNS uuid LANGUAGE sql AS $fn$
@@ -235,8 +543,11 @@ SELECT pg_temp.ok((SELECT count(*) FROM pg_shdepend d WHERE d.refclassid = 'pg_a
     AND d.dbid IN (0, (SELECT oid FROM pg_database WHERE datname = current_database()))) = 1
   AND (SELECT proowner::regrole::text FROM pg_proc WHERE oid = 'public.rpc_record_quality_inspection(uuid,uuid,jsonb)'::regprocedure) = 'wardah_qc_entry_202',
   'entry role owns exactly the recording RPC');
-SELECT pg_temp.ok(NOT EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.roleid = 'wardah_qc_entry_202'::regrole OR m.member = 'wardah_qc_entry_202'::regrole),
-  'entry role has no membership edge');
+-- Matches qc_assert_closed_graph_202()'s existing admin-only exception.
+-- The predicate and the negative tests are in the included file.
+\ir acceptance_admin_membership_contract.sql
+SELECT pg_temp.ok(pg_temp.m202_membership_contract(),
+  'entry role membership is empty or only the admin-only DDL-owner edge');
 SELECT pg_temp.ok((SELECT count(*) FROM pg_trigger WHERE tgname = 'qc_write_guard_202' AND tgenabled = 'A' AND NOT tgisinternal) = 2,
   'the guard is ENABLE ALWAYS on both guarded stores');
 SELECT pg_temp.ok(NOT has_parameter_privilege('service_role', 'session_replication_role', 'SET')
@@ -292,7 +603,7 @@ RETURNS void LANGUAGE plpgsql AS $fn$
 DECLARE v jsonb; v_msg text;
 BEGIN
   BEGIN
-    EXECUTE p_setup;
+    PERFORM pg_temp.exec_setup(p_setup);
     v := pg_temp.try_role(p_role, p_sql);
     RAISE EXCEPTION USING ERRCODE = 'Z0202', MESSAGE = v::text;
   EXCEPTION WHEN SQLSTATE 'Z0202' THEN
@@ -308,7 +619,7 @@ RETURNS void LANGUAGE plpgsql AS $fn$
 DECLARE v jsonb; v_msg text;
 BEGIN
   BEGIN
-    EXECUTE p_setup;
+    PERFORM pg_temp.exec_setup(p_setup);
     v := pg_temp.try_as(p_uid, p_sql);
     RAISE EXCEPTION USING ERRCODE = 'Z0202', MESSAGE = v::text;
   EXCEPTION WHEN SQLSTATE 'Z0202' THEN
@@ -336,27 +647,48 @@ LANGUAGE sql AS $fn$
 -- cannot answer "may this credential reach the entry role?".
 CREATE ROLE zz_authenticator NOLOGIN;
 GRANT service_role, authenticated, anon TO zz_authenticator;
+-- Connection setup (session authorization, role) is separate from the probe.
+-- A setup failure returns phase=set_role and the probe never runs; mutated_connected
+-- rejects it. The probe runs exactly once and its error, whatever the text, is a
+-- phase=probe result. There is no retry: SET SESSION AUTHORIZATION depends on the
+-- login user, so a second attempt could not succeed where the first failed.
 CREATE FUNCTION pg_temp.try_connected(p_role text, p_sql text) RETURNS jsonb LANGUAGE plpgsql AS $fn$
-DECLARE v_state text; v_msg text;
+DECLARE
+  v_state text; v_msg text; v_out jsonb;
+  v_restore_current text := current_user::text;
+  v_restore_session text := session_user::text;
 BEGIN
   BEGIN
     SET LOCAL SESSION AUTHORIZATION zz_authenticator;
     EXECUTE format('SET LOCAL ROLE %I', p_role);
-    EXECUTE p_sql;
-    RESET SESSION AUTHORIZATION;
-    RETURN jsonb_build_object('ok', true);
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
-    RETURN jsonb_build_object('ok', false, 'sqlstate', v_state, 'error', v_msg);
+    RESET SESSION AUTHORIZATION;
+    PERFORM pg_temp.try_role_restore(v_restore_current, v_restore_session);
+    RETURN jsonb_build_object('ok', false, 'sqlstate', v_state, 'error', v_msg, 'phase', 'set_role');
   END;
+  RAISE NOTICE 'probe_identity current_user=% session_user=% probe_role=%', current_user, session_user, p_role;
+  BEGIN
+    EXECUTE p_sql;
+    v_out := jsonb_build_object('ok', true, 'phase', 'probe');
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    v_out := jsonb_build_object('ok', false, 'sqlstate', v_state, 'error', v_msg, 'phase', 'probe');
+  END;
+  RESET SESSION AUTHORIZATION;
+  PERFORM pg_temp.try_role_restore(v_restore_current, v_restore_session);
+  RETURN v_out;
 END $fn$;
 CREATE FUNCTION pg_temp.mutated_connected(p_label text, p_setup text, p_role text, p_sql text, p_expect text)
 RETURNS void LANGUAGE plpgsql AS $fn$
 DECLARE v jsonb; v_msg text;
 BEGIN
   BEGIN
-    EXECUTE p_setup;
+    PERFORM pg_temp.exec_setup(p_setup);
     v := pg_temp.try_connected(p_role, p_sql);
+    IF v->>'phase' IS DISTINCT FROM 'probe' THEN
+      RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: % connection setup failed and is not a product result: %', p_label, v;
+    END IF;
     RAISE EXCEPTION USING ERRCODE = 'Z0202', MESSAGE = v::text;
   EXCEPTION WHEN SQLSTATE 'Z0202' THEN
     GET STACKED DIAGNOSTICS v_msg = MESSAGE_TEXT;
@@ -366,6 +698,70 @@ BEGIN
   END IF;
   RAISE NOTICE 'ok  % (%)', p_label, p_expect;
 END $fn$;
+
+-- Harness controls for try_connected. The sequence advances once per probe run.
+CREATE TEMP SEQUENCE pg_temp.try_connected_probe_ticks;
+GRANT USAGE, SELECT, UPDATE ON SEQUENCE pg_temp.try_connected_probe_ticks TO PUBLIC;
+DO $try_connected_controls$
+DECLARE
+  v jsonb; v_state text; v_msg text; v_ticks bigint;
+BEGIN
+  IF current_user::text IS DISTINCT FROM 'postgres' OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: try_connected controls require current_user=session_user=postgres, got current=% session=%',
+      current_user, session_user;
+  END IF;
+
+  -- A product error whose text contains "session authorization" is a probe
+  -- result and the probe ran once (the r4 discriminator re-ran it).
+  v := pg_temp.try_connected('service_role', $probe$
+    DO $d$ BEGIN
+      PERFORM nextval('pg_temp.try_connected_probe_ticks');
+      RAISE EXCEPTION 'synthetic product error mentioning session authorization';
+    END $d$
+  $probe$);
+  SELECT CASE WHEN is_called THEN last_value ELSE 0 END INTO v_ticks FROM pg_temp.try_connected_probe_ticks;
+  IF v->>'phase' IS DISTINCT FROM 'probe' OR (v->>'ok')::boolean
+     OR v->>'error' NOT ILIKE '%session authorization%' OR v_ticks IS DISTINCT FROM 1
+     OR current_user::text IS DISTINCT FROM 'postgres' OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: probe error text triggered a retry or lost identity: result=% probe_ticks=% current=% session=%',
+      v, v_ticks, current_user, session_user;
+  END IF;
+  RAISE NOTICE 'ok  try_connected control: a probe error mentioning session authorization ran once';
+
+  -- A failed connection setup is phase=set_role and never runs the probe.
+  v := pg_temp.try_connected('zz_try_connected_missing_202', $probe$SELECT nextval('pg_temp.try_connected_probe_ticks')$probe$);
+  SELECT CASE WHEN is_called THEN last_value ELSE 0 END INTO v_ticks FROM pg_temp.try_connected_probe_ticks;
+  IF v->>'phase' IS DISTINCT FROM 'set_role' OR (v->>'ok')::boolean OR v_ticks IS DISTINCT FROM 1
+     OR current_user::text IS DISTINCT FROM 'postgres' OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: connection setup failure was not tagged, ran the probe or lost identity: result=% probe_ticks=%', v, v_ticks;
+  END IF;
+  RAISE NOTICE 'ok  try_connected control: a setup failure is tagged set_role and the probe did not run';
+
+  -- mutated_connected refuses a setup failure even when the expected text matches it.
+  BEGIN
+    PERFORM pg_temp.mutated_connected('control', 'SELECT 1', 'zz_try_connected_missing_202',
+      $probe$SELECT nextval('pg_temp.try_connected_probe_ticks')$probe$, 'does not exist');
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: mutated_connected counted a setup failure as a product result';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    IF v_msg NOT LIKE '%connection setup failed and is not a product result%' THEN RAISE; END IF;
+  END;
+  SELECT CASE WHEN is_called THEN last_value ELSE 0 END INTO v_ticks FROM pg_temp.try_connected_probe_ticks;
+  IF v_ticks IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: rejected setup failure executed the probe: probe_ticks=%', v_ticks;
+  END IF;
+  RAISE NOTICE 'ok  try_connected control: mutated_connected rejects a setup failure';
+
+  -- A successful probe restores both identities.
+  v := pg_temp.try_connected('authenticated', 'SELECT 1');
+  IF (v->>'ok')::boolean IS NOT TRUE OR v->>'phase' IS DISTINCT FROM 'probe'
+     OR current_user::text IS DISTINCT FROM 'postgres' OR session_user::text IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'M202_ACCEPTANCE_FAIL: try_connected success did not restore postgres: result=% current=% session=%',
+      v, current_user, session_user;
+  END IF;
+  RAISE NOTICE 'ok  try_connected control: identities restored after success and rejection';
+END $try_connected_controls$;
+DROP SEQUENCE pg_temp.try_connected_probe_ticks;
 
 INSERT INTO m VALUES ('c', pg_temp.mo('C-FORGE', 'quality_check'));
 CREATE TEMP TABLE c_ids(id uuid, req uuid) ON COMMIT DROP;
@@ -388,10 +784,20 @@ SELECT pg_temp.forge_denied('service_role', format('SELECT public.zz_forge(%L)',
 CREATE ROLE zz_forger NOLOGIN;
 GRANT CREATE ON SCHEMA public TO zz_forger;
 DO $d$ BEGIN
-  SET LOCAL ROLE zz_forger;
+  BEGIN
+    SET LOCAL ROLE zz_forger;
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET SESSION AUTHORIZATION;
+    RAISE NOTICE 'orchestrator_escalation session_user=% probe_role=zz_forger reason=set_role', session_user;
+    SET LOCAL ROLE zz_forger;
+  END;
+  RAISE NOTICE 'probe_identity current_user=% session_user=% probe_role=zz_forger', current_user, session_user;
   CREATE FUNCTION public.zz_f3(p_sql text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $f$
   BEGIN EXECUTE p_sql; END $f$;
   RESET ROLE;
+  IF session_user IS DISTINCT FROM 'postgres' THEN
+    SET SESSION AUTHORIZATION postgres;
+  END IF;
 END $d$;
 GRANT EXECUTE ON FUNCTION public.zz_f3(text) TO service_role;
 SELECT pg_temp.forge_denied('service_role', format('SELECT public.zz_f3(%L)',
@@ -626,7 +1032,7 @@ SELECT pg_temp.mutant('the entry role policy is dropped', 'DROP POLICY quality_i
 -- TO the entry role only, no USING, WITH CHECK = the constant true). Every altered shape
 -- below must be refused by name; none forges a row.
 CREATE FUNCTION public.zz_pol_pred() RETURNS boolean LANGUAGE sql SECURITY INVOKER AS $f$ SELECT true $f$;
-ALTER FUNCTION public.zz_pol_pred() OWNER TO zz_forger;
+SELECT pg_temp.exec_setup('ALTER FUNCTION public.zz_pol_pred() OWNER TO zz_forger');
 SELECT pg_temp.mutant('control: the pristine policy shape passes the closed-graph assertion', 'SELECT 1', '<assertion passed>');
 SELECT pg_temp.mutant('WITH CHECK replaced by a different-owner SECURITY INVOKER predicate',
   'ALTER POLICY quality_inspections_entry_insert_202 ON public.quality_inspections WITH CHECK (public.zz_pol_pred())', 'POLICIES');
@@ -666,7 +1072,7 @@ BEGIN
     GRANT USAGE ON SEQUENCE public.zz_pol_seq TO PUBLIC;
     CREATE FUNCTION public.zz_pol_probe() RETURNS boolean LANGUAGE sql SECURITY INVOKER
       AS $f$ SELECT pg_catalog.nextval('public.zz_pol_seq') > 0 $f$;
-    ALTER FUNCTION public.zz_pol_probe() OWNER TO zz_forger;
+    PERFORM pg_temp.exec_setup('ALTER FUNCTION public.zz_pol_probe() OWNER TO zz_forger');
     ALTER POLICY quality_inspections_entry_insert_202 ON public.quality_inspections WITH CHECK (public.zz_pol_probe());
     IF p_disable_guard THEN
       ALTER TABLE public.quality_inspections DISABLE TRIGGER qc_write_guard_202;
@@ -1118,5 +1524,8 @@ SELECT pg_temp.ok((pg_temp.as_user(pg_temp.keyholder(), format('SELECT public.rp
 SELECT pg_temp.denied(pg_temp.inspector(), format('SELECT public.rpc_set_quality_policy(%L::uuid, %L::jsonb, 1)', pg_temp.org(), pg_temp.policy('all_orders')),
   'MANUFACTURING_SETTINGS_UPDATE_DENIED', 'E the M201 denial message is unchanged');
 
-DO $$ BEGIN RAISE NOTICE 'M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS'; END $$;
+DO $$ BEGIN
+  RAISE NOTICE 'session_at_end current_user=% session_user=%', current_user, session_user;
+  RAISE NOTICE 'M202_QC_PRIVILEGED_WRITE_CLOSURE_ACCEPTANCE_PASS';
+END $$;
 ROLLBACK;

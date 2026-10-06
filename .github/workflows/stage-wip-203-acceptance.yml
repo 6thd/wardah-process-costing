@@ -1,0 +1,84 @@
+name: Stage WIP 203 and pre-M202 CRLF local acceptance
+
+# Local-only: a throwaway postgres:17 service container, no repository secret and
+# no remote database. The CI service password below belongs to that container only.
+# Chain: cutoff-189 baseline + 190..201, CRLF unit tests, 203 pre-image drift,
+# CRLF script -> 202 -> 203 (203 acceptance, concurrency, revised M202 acceptance),
+# and 203 -> 202. See docs/db/STAGE_WIP_MO_LOCK_203.md.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/203_stage_wip_mo_lock_under_m195_containment.sql'
+      - 'scripts/ops/pre_m202_validate_mo_transition_crlf.sql'
+      - 'scripts/ci/fresh-db/**'
+      - 'docs/db/qc-privileged-write-closure-202/**'
+      - 'docs/db/manufacturing-inventory-red-20260925/**'
+      - 'sql/baseline/**'
+      - '.github/workflows/stage-wip-203-acceptance.yml'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: CRLF script, M203 and revised M202 acceptance on disposable PG17
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL client libraries for the concurrency test
+        run: python -m pip install 'psycopg[binary]>=3.2,<4'
+
+      - name: Run the local acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/ci/fresh-db/run_m203_local.sh 2>&1 | tee /tmp/m203-local.out
+          # A green exit is not enough: every proof direction must have run.
+          grep -q '^M203_LOCAL_RUN_PASS' /tmp/m203-local.out
+          for marker in 'CRLF unit tests: exit 0, marker ok: PRE_M202_CRLF_CHECKS_PASS' \
+                        '203 pre-image drift: exit 0, marker ok: STAGE_WIP_203_PREIMAGE_DRIFT_PASS' \
+                        'CRLF script: psql rc=0, no psql error, marker ok: PRE_M202_CRLF_NOOP' \
+                        '203 acceptance (restored order)' '203 concurrency: exit 0' \
+                        'M202 acceptance on the post-203 catalog' '203 acceptance (203 before 202)'; do
+            grep -Fq "$marker" /tmp/m203-local.out || { echo "missing $marker" >&2; exit 1; }
+          done
+
+      - name: Static migration gates
+        run: |
+          python -m pip install --quiet pglast pyyaml
+          python3 scripts/ci/check_migration_syntax.py
+          python3 scripts/ci/check_definer_guards.py
+
+      - name: Upload run output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage-wip-203-local-${{ github.run_id }}
+          path: /tmp/m203-local.out
+          retention-days: 30
