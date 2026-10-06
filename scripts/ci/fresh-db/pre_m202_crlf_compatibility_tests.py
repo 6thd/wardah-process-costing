@@ -166,7 +166,7 @@ def selftest_target_guard() -> None:
     print("PRE_M202_CRLF_TARGET_GUARD_OK")
 
 
-def _psql_command(extra: list[str] | None) -> tuple[list[str], dict[str, str]]:
+def _psql_command(extra: list[str] | None) -> tuple[str, list[str], dict[str, str]]:
     if extra not in (None, [], LOCK_TIMEOUT_ARGS):
         raise ValueError(f"psql arguments outside the reviewed set: {extra!r}")
     require_local_target()
@@ -177,15 +177,17 @@ def _psql_command(extra: list[str] | None) -> tuple[list[str], dict[str, str]]:
         raise SystemExit("REFUSED: psql was not found as an absolute path on PATH")
     env = {name: os.environ[name] for name in PSQL_ENV if name in os.environ}
     env["LC_MESSAGES"] = "C"
-    return [exe, "-X", "-v", "ON_ERROR_STOP=1", *(extra or []), "-f", str(SCRIPT)], env
+    return exe, (LOCK_TIMEOUT_ARGS if extra else []), env
 
 
 def run_script_raw(extra: list[str] | None = None) -> tuple[int, str]:
     # psql is required, not psycopg: the script under test uses the psql meta-commands \if and \gset.
-    # Fixed argv list from _psql_command(), shell=False, an allowlisted environment, one validated local target.
-    command, env = _psql_command(extra)
-    result = subprocess.run(  # nosec B603
-        command,
+    # The fixed arguments are written out here; `executable` is the absolute path checked in _psql_command(), the
+    # environment is the allowlist, and the target was validated as one local server. shell=False.
+    exe, lock_args, env = _psql_command(extra)
+    result = subprocess.run(  # nosec B603 B607
+        ["psql", "-X", "-v", "ON_ERROR_STOP=1", *lock_args, "-f", str(SCRIPT)],
+        executable=exe,
         env=env,
         text=True,
         capture_output=True,
