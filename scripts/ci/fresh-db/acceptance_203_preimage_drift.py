@@ -84,16 +84,15 @@ def run_mutant(conn, prefix: str, label: str, expect: str) -> None:
         with conn.cursor() as cur:
             cur.execute(payload)
     except psycopg.Error as exc:
-        refusal = str(exc)
+        # The refusal must happen inside the open BEGIN block, before any COMMIT.
         status = conn.info.transaction_status
+        if status != psycopg.pq.TransactionStatus.INERROR:
+            raise SystemExit(f"{label}: expected an aborted transaction block, got {status}\n{exc}") from exc
+        conn.rollback()
+        if expect not in str(exc):
+            raise SystemExit(f"{label}: expected refusal {expect}, got\n{exc}") from exc
     else:
         raise SystemExit(f"{label}: migration 203 was accepted on a drifted pre-image")
-    # The refusal must happen inside the open BEGIN block, before any COMMIT.
-    if status != psycopg.pq.TransactionStatus.INERROR:
-        raise SystemExit(f"{label}: expected an aborted transaction block, got {status}\n{refusal}")
-    conn.rollback()
-    if expect not in refusal:
-        raise SystemExit(f"{label}: expected refusal {expect}, got\n{refusal}")
     print(f"REFUSED|{label}|{expect}")
 
 
