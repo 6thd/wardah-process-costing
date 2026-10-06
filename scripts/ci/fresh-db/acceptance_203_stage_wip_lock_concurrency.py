@@ -218,7 +218,6 @@ def lock_order() -> None:
         with inserter.cursor() as cur:
             cur.execute("SET statement_timeout = '8s'")
             as_user(cur, GRANTED, ORG_A)
-        started = time.monotonic()
         box: dict[str, object] = {}
 
         def do_insert() -> None:

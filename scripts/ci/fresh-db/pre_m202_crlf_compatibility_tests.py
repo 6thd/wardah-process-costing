@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 import psycopg
+from psycopg import sql
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "ops" / "pre_m202_validate_mo_transition_crlf.sql"
@@ -51,11 +52,10 @@ def canon(conn) -> str:
 def install(conn, src: str) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            """
-            CREATE OR REPLACE FUNCTION public.validate_mo_transition(p_from text, p_to text)
-            RETURNS void LANGUAGE plpgsql SECURITY INVOKER AS $canonical$"""
-            + src
-            + """$canonical$"""
+            sql.SQL(
+                "CREATE OR REPLACE FUNCTION public.validate_mo_transition(p_from text, p_to text) "
+                "RETURNS void LANGUAGE plpgsql SECURITY INVOKER AS {}"
+            ).format(sql.Literal(src))
         )
         cur.execute("ALTER FUNCTION public.validate_mo_transition(text, text) OWNER TO postgres")
         cur.execute("ALTER FUNCTION public.validate_mo_transition(text, text) SECURITY INVOKER")

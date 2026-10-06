@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -81,15 +82,20 @@ def snapshot(conn) -> tuple:
 
 
 def run_mutant(sql: str, label: str, expect: str) -> None:
-    path = Path(os.environ.get("WARDAH_DRIFT_DIR", "/tmp")) / f"acceptance_203_drift_{label}.sql"
-    path.write_text(sql, encoding="utf-8", newline="\n")
-    result = subprocess.run(
-        ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-v", f"m203={M203}", "-f", str(path)],
-        env=os.environ.copy(),
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    # A private, unpredictable directory (optionally under WARDAH_DRIFT_DIR); the
+    # file stays inside it until psql has finished.
+    with tempfile.TemporaryDirectory(
+        prefix="acceptance_203_drift_", dir=os.environ.get("WARDAH_DRIFT_DIR") or None
+    ) as workdir:
+        path = Path(workdir) / f"acceptance_203_drift_{label}.sql"
+        path.write_text(sql, encoding="utf-8", newline="\n")
+        result = subprocess.run(
+            ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-v", f"m203={M203}", "-f", str(path)],
+            env=os.environ.copy(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
     output = (result.stdout or "") + (result.stderr or "")
     if result.returncode == 0 or expect not in output:
         raise SystemExit(f"{label}: expected refusal {expect}, got {result.returncode}\n{output}")
