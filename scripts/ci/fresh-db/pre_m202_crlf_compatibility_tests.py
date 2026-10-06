@@ -6,9 +6,14 @@ not apply migration 202. Refusal must leave pg_proc unchanged.
 from __future__ import annotations
 
 import os
+import shutil
+# Only the argv built in _psql_command() is run: shell=False, fixed arguments, allowlisted environment.
+import subprocess  # nosec B404
 import sys
+import tempfile
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 import psycopg
@@ -19,6 +24,21 @@ SCRIPT = ROOT / "scripts" / "ops" / "pre_m202_validate_mo_transition_crlf.sql"
 LF_MD5 = "22789ca9c175eb3476b5c33648b92d1a"
 CRLF_MD5 = "4169a0696bbcc28b39a922dcf1df23fe"
 ACL = "authenticated=EXECUTE/postgres,postgres=EXECUTE/postgres,service_role=EXECUTE/postgres"
+
+# psql is run only against one local disposable server. The environment variables it receives and the extra
+# arguments it may be given are fixed here.
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+# Settings that can redirect the connection or change the session; refused outright (also for psycopg).
+FORBIDDEN_ENV = ("DATABASE_URL", "SUPABASE_DB_URL", "PGSERVICE", "PGSERVICEFILE", "PGHOSTADDR", "PGOPTIONS")
+# Passed through when set. None of them selects a server: the target comes from PGHOST/PGPORT only, which are
+# validated first. PGPASSFILE, PGSSLMODE and PGCONNECT_TIMEOUT serve wrapper setups; SYSTEMROOT and APPDATA are what
+# a Windows caller needs for sockets and the password file. Windows was NOT exercised here (Linux only): a runner that
+# needs another variable must add it to this tuple explicitly; do not go back to copying the whole environment.
+PSQL_ENV = (
+    "PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE",
+    "PGPASSFILE", "PGSSLMODE", "PGCONNECT_TIMEOUT", "SYSTEMROOT", "APPDATA",
+)
+LOCK_TIMEOUT_ARGS = ["-v", "pre_m202_lock_timeout=400ms"]
 
 
 def connect():
@@ -95,11 +115,78 @@ def snapshot(conn) -> tuple:
         return cur.fetchone()
 
 
+def validate_target(env: Mapping[str, str]) -> None:
+    """Accept exactly one local server: one loopback host or one existing absolute socket directory, one port."""
+    host = env.get("PGHOST", "")
+    if not host or "," in host or any(ch.isspace() for ch in host):
+        raise SystemExit(f"REFUSED: PGHOST {host!r} must be a single value: not empty, no comma, no whitespace")
+    if host not in LOOPBACK_HOSTS and not (os.path.isabs(host) and os.path.isdir(host)):
+        raise SystemExit(f"REFUSED: PGHOST {host!r} is neither a loopback host nor an existing absolute socket directory")
+    port = env.get("PGPORT", "")
+    if not (port.isascii() and port.isdigit() and 1 <= int(port) <= 65535):
+        raise SystemExit(f"REFUSED: PGPORT {port!r} must be one number in 1..65535")
+    present = [name for name in FORBIDDEN_ENV if env.get(name)]
+    if present:
+        raise SystemExit(f"REFUSED: connection settings that can redirect the connection are set: {present}")
+
+
+def require_local_target() -> None:
+    validate_target(os.environ)
+
+
+def selftest_target_guard() -> None:
+    """The guard must refuse these before any subprocess or connection exists (pure checks, nothing is run)."""
+    socket_dir = tempfile.gettempdir()
+    refused = [
+        {"PGHOST": f"{socket_dir},remote.example", "PGPORT": "5432"},
+        {"PGHOST": f"{socket_dir} remote.example", "PGPORT": "5432"},
+        {"PGHOST": "localhost,remote.example", "PGPORT": "5432"},
+        {"PGHOST": "remote.example", "PGPORT": "5432"},
+        {"PGHOST": "", "PGPORT": "5432"},
+        {"PGHOST": "relative/dir", "PGPORT": "5432"},
+        {"PGHOST": f"{socket_dir}/no-such-directory-for-the-guard", "PGPORT": "5432"},
+        {"PGHOST": "localhost", "PGPORT": "0"},
+        {"PGHOST": "localhost", "PGPORT": "65536"},
+        {"PGHOST": "localhost", "PGPORT": "5432,5433"},
+        {"PGHOST": "localhost", "PGPORT": "5432 "},
+        {"PGHOST": "localhost", "PGPORT": "port"},
+        {"PGHOST": "localhost"},
+        {"PGHOST": "localhost", "PGPORT": "5432", "PGSERVICE": "any"},
+        {"PGHOST": "localhost", "PGPORT": "5432", "PGOPTIONS": "-c search_path=x"},
+    ]
+    for env in refused:
+        try:
+            validate_target(env)
+        except SystemExit:
+            continue
+        raise AssertionError(f"target guard accepted {env!r}")
+    for env in ({"PGHOST": "localhost", "PGPORT": "5432"}, {"PGHOST": "::1", "PGPORT": "65535"},
+                {"PGHOST": socket_dir, "PGPORT": "1"}):
+        validate_target(env)
+    print("PRE_M202_CRLF_TARGET_GUARD_OK")
+
+
+def _psql_command(extra: list[str] | None) -> tuple[list[str], dict[str, str]]:
+    if extra not in (None, [], LOCK_TIMEOUT_ARGS):
+        raise ValueError(f"psql arguments outside the reviewed set: {extra!r}")
+    require_local_target()
+    # Trust boundary: the executable is resolved to an absolute path from the operator-controlled PATH. Its identity
+    # and integrity are not verified here; the checkout, the PATH and the environment are trusted as the operator's.
+    exe = shutil.which("psql")
+    if exe is None or not os.path.isabs(exe):
+        raise SystemExit("REFUSED: psql was not found as an absolute path on PATH")
+    env = {name: os.environ[name] for name in PSQL_ENV if name in os.environ}
+    env["LC_MESSAGES"] = "C"
+    return [exe, "-X", "-v", "ON_ERROR_STOP=1", *(extra or []), "-f", str(SCRIPT)], env
+
+
 def run_script_raw(extra: list[str] | None = None) -> tuple[int, str]:
-    import subprocess
-    result = subprocess.run(
-        ["psql", "-X", "-v", "ON_ERROR_STOP=1", *(extra or []), "-f", str(SCRIPT)],
-        env=os.environ.copy(),
+    # psql is required, not psycopg: the script under test uses the psql meta-commands \if and \gset.
+    # Fixed argv list from _psql_command(), shell=False, an allowlisted environment, one validated local target.
+    command, env = _psql_command(extra)
+    result = subprocess.run(  # nosec B603
+        command,
+        env=env,
         text=True,
         capture_output=True,
         check=False,
@@ -398,6 +485,8 @@ def phase_owner_lock_timeout(conn, crlf: str) -> None:
 
 
 def main() -> None:
+    selftest_target_guard()
+    require_local_target()
     with connect() as conn:
         prepare_database(conn)
         lf, crlf = load_canonical_bodies(conn)
