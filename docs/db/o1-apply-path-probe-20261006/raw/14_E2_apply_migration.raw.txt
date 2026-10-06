@@ -1,0 +1,13 @@
+[tool: apply_migration, project_id=kfzwgldukqmcvzhzysrx, name=o1_probe_08_e2_ledger_fail_plain, sent=sent/e1e2/E_e2_apply.sql bytes=850 sha256=7c9868e5e0adde2968811e10c180def506ab979ce5f0ce2e62685d301b78554d]
+File: GUARD; CREATE TABLE o1_probe.e2_plain (id int);   (no own transaction statements)
+RAW RESPONSE (error, the intended one):
+{"error":{"name":"HttpException","message":"Failed to apply database migration: ERROR:  P0001: O1_PROBE_E1E2_LEDGER_INSERT_REFUSED (o1_probe_08_e2_ledger_fail_plain)\nCONTEXT:  PL/pgSQL function o1_probe.ledger_refuse_e1e2() line 5 at RAISE\n"}}
+
+READBACK after E2 (read-only)
+[RB1 tables] [{"obj":"e1_after_own_commit","exists_now":true},{"obj":"e2_plain","exists_now":false}]
+[RB2 ledger rows for the two names] []
+[fingerprint] [{"ledger_rows":3,"ledger_fingerprint":"d3b23eb8002394884fd3e3e592b04d09","user_triggers_on_ledger":1,"ledger_owner":"postgres","can_create_trigger":true}]
+OBSERVATION E2: the watched table e2_plain is ABSENT; no ledger row exists for the name; the ledger fingerprint is unchanged.
+
+PAIR (E1 table / E2 table) = present / absent.
+READING (consistent-with, not a sole proof of one internal implementation): this pair is CONSISTENT WITH a mechanism in which the ledger INSERT is a step that follows the file's own COMMIT and that, for a file without its own COMMIT, belongs to the same atomic unit as the file (for example `begin; <file>; insert; commit;` as one request). Other internal designs could produce the same pair. It shows what the service does when the ledger INSERT itself raises an error; it does not model a lost connection, a killed backend, a lost response or a platform timeout between the file's COMMIT and the ledger write.
