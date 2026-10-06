@@ -5,6 +5,7 @@ not apply migration 202. Refusal must leave pg_proc unchanged.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import threading
@@ -52,10 +53,15 @@ def canon(conn) -> str:
 def install(conn, src: str) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            sql.SQL(
-                "CREATE OR REPLACE FUNCTION public.validate_mo_transition(p_from text, p_to text) "
-                "RETURNS void LANGUAGE plpgsql SECURITY INVOKER AS {}"
-            ).format(sql.Literal(src))
+            sql.Composed(
+                [
+                    sql.SQL(
+                        "CREATE OR REPLACE FUNCTION public.validate_mo_transition(p_from text, p_to text) "
+                        "RETURNS void LANGUAGE plpgsql SECURITY INVOKER AS "
+                    ),
+                    sql.Literal(src),
+                ]
+            )
         )
         cur.execute("ALTER FUNCTION public.validate_mo_transition(text, text) OWNER TO postgres")
         cur.execute("ALTER FUNCTION public.validate_mo_transition(text, text) SECURITY INVOKER")
@@ -126,260 +132,285 @@ def expect_refuse(conn, src: str, label: str) -> None:
     print(f"REFUSED|{label}")
 
 
-def main() -> None:
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                DO $roles$
-                BEGIN
-                  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-                    CREATE ROLE authenticated;
-                  END IF;
-                  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-                    CREATE ROLE anon;
-                  END IF;
-                  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
-                    CREATE ROLE service_role;
-                  END IF;
-                END
-                $roles$
-                """
-            )
-            cur.execute(
-                """
-                DO $cleanup$
-                BEGIN
-                  IF to_regprocedure('public.validate_mo_transition(text,text)') IS NOT NULL THEN
-                    ALTER FUNCTION public.validate_mo_transition(text, text) OWNER TO postgres;
-                  END IF;
-                END
-                $cleanup$
-                """
-            )
-            cur.execute("DROP ROLE IF EXISTS pre_m202_other_owner")
-            cur.execute("DROP ROLE IF EXISTS pre_m202_extra")
-        lf = None
-        # Load the canonical body from the script's own pin by installing CRLF
-        # only after reading the LF constant out of a successful LF install.
-        # The LF bytes are the migration-78 body embedded in the script.
-        text = SCRIPT.read_text(encoding="utf-8")
-        start = text.index("$canonical$\n") + len("$canonical$")
-        # The assignment is `:= $canonical$` followed by the body and a closing tag.
-        # Take the first opening tag that is the v_lf assignment.
-        marker = "v_lf pg_catalog.text := $canonical$"
-        start = text.index(marker) + len(marker)
-        end = text.index("$canonical$;", start)
-        lf = text[start:end]
-        if __import__("hashlib").md5(lf.encode("utf-8")).hexdigest() != LF_MD5:
-            raise SystemExit("embedded LF pin drifted")
-        crlf = lf.replace("\n", "\r\n")
-        if __import__("hashlib").md5(crlf.encode("utf-8")).hexdigest() != CRLF_MD5:
-            raise SystemExit("approved CRLF variant drifted")
+def md5_hex(text: str) -> str:
+    # An identity pin matched against Postgres md5(prosrc), not a security digest.
+    return hashlib.md5(text.encode("utf-8"), usedforsecurity=False).hexdigest()
 
-        install(conn, lf)
-        before = snapshot(conn)
-        notes = run_script()
-        after = snapshot(conn)
-        if "PRE_M202_CRLF_NOOP" not in notes:
-            raise SystemExit(f"LF no-op missing marker: {notes}")
-        if after[0] != LF_MD5 or after[6] != before[6]:
-            raise SystemExit(f"LF no-op mutated the row: {before} -> {after}")
-        print("PRE_M202_CRLF_NOOP")
 
-        install(conn, crlf)
-        notes = run_script()
-        after = snapshot(conn)
-        if "PRE_M202_CRLF_REPLACED" not in notes or after[0] != LF_MD5 or after[5] != "search_path=public":
-            raise SystemExit(f"CRLF replace failed: {notes} {after}")
-        if after[3] != "postgres" or after[4] != "false" or after[7] != ACL:
-            raise SystemExit(f"attributes not preserved: {after}")
-        print("PRE_M202_CRLF_REPLACED")
+def expect_attribute_refusal(conn, before: tuple, accepted_message: str, changed_message: str) -> None:
+    try:
+        run_script()
+    except psycopg.Error as exc:
+        if "PRE_M202_CRLF_ATTRIBUTE_REFUSED" not in str(exc):
+            raise
+    else:
+        raise SystemExit(accepted_message)
+    conn.rollback()
+    if snapshot(conn) != before:
+        raise SystemExit(changed_message)
 
-        expect_refuse(conn, lf + "\r", "trailing_cr")
-        expect_refuse(conn, lf.replace("\n", "\r", 1), "standalone_cr")
-        expect_refuse(conn, lf.replace("\n", "\r\r\n", 1), "cr_cr")
-        expect_refuse(conn, lf + "\n", "added_lf")
-        expect_refuse(conn, lf.replace("\n", "", 1), "removed_lf")
-        expect_refuse(conn, lf.replace("'draft'", "'drafx'", 1), "business_rule")
-        literal = lf.replace("'done'", "'do\rne'", 1)
-        expect_refuse(conn, literal, "cr_inside_literal")
-        literal_crlf = lf.replace("'done'", "'do\r\nne'", 1)
-        expect_refuse(conn, literal_crlf, "crlf_inside_literal")
 
-        install(conn, lf)
-        with conn.cursor() as cur:
-            cur.execute("CREATE ROLE pre_m202_other_owner NOLOGIN")
-            cur.execute(
-                "GRANT pre_m202_other_owner TO postgres WITH SET TRUE, INHERIT FALSE"
-            )
-            cur.execute("GRANT CREATE ON SCHEMA public TO pre_m202_other_owner")
-            cur.execute("ALTER FUNCTION public.validate_mo_transition(text, text) OWNER TO pre_m202_other_owner")
-        expect_owner = snapshot(conn)
-        try:
-            run_script()
-        except psycopg.Error as exc:
-            message = str(exc)
-            if "PRE_M202_CRLF_ATTRIBUTE_REFUSED" not in message:
-                raise
-        else:
-            raise SystemExit("unexpected owner was accepted")
-        conn.rollback()
-        if snapshot(conn) != expect_owner:
-            raise SystemExit("owner refusal changed the catalog")
-        with conn.cursor() as cur:
-            cur.execute("SET ROLE pre_m202_other_owner")
-            cur.execute("DROP FUNCTION public.validate_mo_transition(text, text)")
-            cur.execute("RESET ROLE")
-            cur.execute("REVOKE CREATE ON SCHEMA public FROM pre_m202_other_owner")
-            cur.execute("DROP ROLE pre_m202_other_owner")
-        install(conn, lf)
-        print("REFUSED|unexpected_owner")
+def hold_then(conn, crlf: str, change_sql, commit: bool, script_extra: list[str] | None = None):
+    install(conn, crlf)
+    before_hold = snapshot(conn)
+    holder = connect()
+    holder.autocommit = False
+    with holder.cursor() as cur:
+        cur.execute(change_sql)
+    box: dict[str, object] = {}
 
-        install(conn, lf)
-        with conn.cursor() as cur:
-            cur.execute("CREATE ROLE pre_m202_extra NOLOGIN")
-            cur.execute("GRANT EXECUTE ON FUNCTION public.validate_mo_transition(text, text) TO pre_m202_extra")
-        before = snapshot(conn)
-        try:
-            run_script()
-        except psycopg.Error as exc:
-            if "PRE_M202_CRLF_ATTRIBUTE_REFUSED" not in str(exc):
-                raise
-        else:
-            raise SystemExit("unexpected ACL was accepted")
-        conn.rollback()
-        if snapshot(conn) != before:
-            raise SystemExit("ACL refusal changed the catalog")
-        with conn.cursor() as cur:
-            cur.execute("REVOKE ALL ON FUNCTION public.validate_mo_transition(text, text) FROM pre_m202_extra")
-            cur.execute("DROP ROLE pre_m202_extra")
-        print("REFUSED|unexpected_acl")
+    def target() -> None:
+        box["result"] = run_script_raw(script_extra)
 
-        install(conn, lf)
-        with conn.cursor() as cur:
-            cur.execute("ALTER FUNCTION public.validate_mo_transition(text, text) SET search_path = public, pg_temp")
-        before = snapshot(conn)
-        try:
-            run_script()
-        except psycopg.Error as exc:
-            if "PRE_M202_CRLF_ATTRIBUTE_REFUSED" not in str(exc):
-                raise
-        else:
-            raise SystemExit("unexpected search_path was accepted")
-        conn.rollback()
-        if snapshot(conn) != before:
-            raise SystemExit("attribute refusal changed the catalog")
-        print("REFUSED|unexpected_search_path")
-
-        install(conn, crlf)
-        with conn.cursor() as cur:
-            cur.execute(
-                "ALTER FUNCTION public.validate_mo_transition(text, text) SET search_path = public, pg_temp"
-            )
-        before = snapshot(conn)
-        try:
-            run_script()
-        except psycopg.Error as exc:
-            if "PRE_M202_CRLF_ATTRIBUTE_REFUSED" not in str(exc):
-                raise
-        else:
-            raise SystemExit("CRLF with an unexpected search_path was replaced")
-        conn.rollback()
-        if snapshot(conn) != before:
-            raise SystemExit("CRLF unexpected search_path changed the catalog")
-        print("REFUSED|crlf_unexpected_search_path")
-
-        install(conn, lf)
-        with conn.cursor() as cur:
-            cur.execute("ALTER FUNCTION public.validate_mo_transition(text, text) COST 200")
-        before = snapshot(conn)
-        try:
-            run_script()
-        except psycopg.Error as exc:
-            if "PRE_M202_CRLF_ATTRIBUTE_REFUSED" not in str(exc):
-                raise
-        else:
-            raise SystemExit("unexpected cost was accepted")
-        conn.rollback()
-        if snapshot(conn) != before:
-            raise SystemExit("unexpected cost changed the catalog")
-        print("REFUSED|unexpected_cost")
-
-        def hold_then(change_sql: str, commit: bool, script_extra: list[str] | None = None):
-            install(conn, crlf)
-            before_hold = snapshot(conn)
-            holder = connect()
-            holder.autocommit = False
-            with holder.cursor() as cur:
-                cur.execute(change_sql)
-            box: dict[str, object] = {}
-
-            def target() -> None:
-                box["result"] = run_script_raw(script_extra)
-
-            worker = threading.Thread(target=target)
-            worker.start()
-            time.sleep(0.4)
-            if commit:
-                holder.commit()
-            worker.join(timeout=20)
-            if worker.is_alive():
-                holder.rollback()
-                holder.close()
-                raise SystemExit("compatibility script did not finish while a lock was held")
-            code, output = box["result"]
-            return before_hold, holder, code, output
-
-        # A committed settings change must stay visible. The script refuses it
-        # and must not write search_path back to public.
-        _before, holder, code, output = hold_then(
-            "ALTER FUNCTION public.validate_mo_transition(text, text) SET search_path = public, pg_temp",
-            True,
-        )
-        holder.close()
-        if code == 0 or "PRE_M202_CRLF_ATTRIBUTE_REFUSED" not in output:
-            raise SystemExit(f"concurrent settings change was not refused: {code} {output}")
-        seen = snapshot(conn)
-        if seen[0] != CRLF_MD5 or seen[5] != "search_path=public, pg_temp":
-            raise SystemExit(f"concurrent settings change was masked: {seen}")
-        print("REFUSED|concurrent_search_path")
-
-        bad = crlf + "\n"
-        bad_md5 = __import__("hashlib").md5(bad.encode("utf-8")).hexdigest()
-        _before, holder, code, output = hold_then(
-            "CREATE OR REPLACE FUNCTION public.validate_mo_transition(p_from text, p_to text) "
-            "RETURNS void LANGUAGE plpgsql SECURITY INVOKER "
-            "SET search_path = public AS $canonical$" + bad + "$canonical$",
-            True,
-        )
-        holder.close()
-        if code == 0 or "PRE_M202_CRLF_BODY_REFUSED" not in output:
-            raise SystemExit(f"concurrent body change was not refused: {code} {output}")
-        seen = snapshot(conn)
-        if seen[0] != bad_md5 or "PRE_M202_CRLF_REPLACED" in output:
-            raise SystemExit(f"concurrent body change was replaced: {seen} {output}")
-        print("REFUSED|concurrent_body")
-
-        install(conn, crlf)
-        before = snapshot(conn)
-        holder = connect()
-        holder.autocommit = False
-        with holder.cursor() as cur:
-            cur.execute(
-                "ALTER FUNCTION public.validate_mo_transition(text, text) "
-                "SET search_path = public, pg_temp"
-            )
-        code, output = run_script_raw(["-v", "pre_m202_lock_timeout=400ms"])
+    worker = threading.Thread(target=target)
+    worker.start()
+    time.sleep(0.4)
+    if commit:
+        holder.commit()
+    worker.join(timeout=20)
+    if worker.is_alive():
         holder.rollback()
         holder.close()
-        if code == 0 or "lock timeout" not in output:
-            raise SystemExit(f"script did not wait on the owner lock: {code} {output}")
-        if snapshot(conn) != before:
-            raise SystemExit("lock timeout changed the catalog")
-        print("PRE_M202_CRLF_OWNER_LOCK_TIMEOUT_OK")
-        print("PRE_M202_CRLF_CHECKS_PASS")
+        raise SystemExit("compatibility script did not finish while a lock was held")
+    code, output = box["result"]
+    return before_hold, holder, code, output
 
+
+def prepare_database(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DO $roles$
+            BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+                CREATE ROLE authenticated;
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+                CREATE ROLE anon;
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+                CREATE ROLE service_role;
+              END IF;
+            END
+            $roles$
+            """
+        )
+        cur.execute(
+            """
+            DO $cleanup$
+            BEGIN
+              IF to_regprocedure('public.validate_mo_transition(text,text)') IS NOT NULL THEN
+                ALTER FUNCTION public.validate_mo_transition(text, text) OWNER TO postgres;
+              END IF;
+            END
+            $cleanup$
+            """
+        )
+        cur.execute("DROP ROLE IF EXISTS pre_m202_other_owner")
+        cur.execute("DROP ROLE IF EXISTS pre_m202_extra")
+
+
+def load_canonical_bodies() -> tuple[str, str]:
+    # The LF bytes are the migration-78 body embedded in the script's own pin,
+    # taken from the v_lf assignment up to its closing tag.
+    text = SCRIPT.read_text(encoding="utf-8")
+    marker = "v_lf pg_catalog.text := $canonical$"
+    start = text.index(marker) + len(marker)
+    end = text.index("$canonical$;", start)
+    lf = text[start:end]
+    if md5_hex(lf) != LF_MD5:
+        raise SystemExit("embedded LF pin drifted")
+    crlf = lf.replace("\n", "\r\n")
+    if md5_hex(crlf) != CRLF_MD5:
+        raise SystemExit("approved CRLF variant drifted")
+    return lf, crlf
+
+
+def phase_lf_noop(conn, lf: str) -> None:
+    install(conn, lf)
+    before = snapshot(conn)
+    notes = run_script()
+    after = snapshot(conn)
+    if "PRE_M202_CRLF_NOOP" not in notes:
+        raise SystemExit(f"LF no-op missing marker: {notes}")
+    if after[0] != LF_MD5 or after[6] != before[6]:
+        raise SystemExit(f"LF no-op mutated the row: {before} -> {after}")
+    print("PRE_M202_CRLF_NOOP")
+
+
+def phase_crlf_replaced(conn, crlf: str) -> None:
+    install(conn, crlf)
+    notes = run_script()
+    after = snapshot(conn)
+    if "PRE_M202_CRLF_REPLACED" not in notes or after[0] != LF_MD5 or after[5] != "search_path=public":
+        raise SystemExit(f"CRLF replace failed: {notes} {after}")
+    if after[3] != "postgres" or after[4] != "false" or after[7] != ACL:
+        raise SystemExit(f"attributes not preserved: {after}")
+    print("PRE_M202_CRLF_REPLACED")
+
+
+def phase_byte_refusals(conn, lf: str) -> None:
+    expect_refuse(conn, lf + "\r", "trailing_cr")
+    expect_refuse(conn, lf.replace("\n", "\r", 1), "standalone_cr")
+    expect_refuse(conn, lf.replace("\n", "\r\r\n", 1), "cr_cr")
+    expect_refuse(conn, lf + "\n", "added_lf")
+    expect_refuse(conn, lf.replace("\n", "", 1), "removed_lf")
+    expect_refuse(conn, lf.replace("'draft'", "'drafx'", 1), "business_rule")
+    literal = lf.replace("'done'", "'do\rne'", 1)
+    expect_refuse(conn, literal, "cr_inside_literal")
+    literal_crlf = lf.replace("'done'", "'do\r\nne'", 1)
+    expect_refuse(conn, literal_crlf, "crlf_inside_literal")
+
+
+def phase_unexpected_owner(conn, lf: str) -> None:
+    install(conn, lf)
+    with conn.cursor() as cur:
+        cur.execute("CREATE ROLE pre_m202_other_owner NOLOGIN")
+        cur.execute(
+            "GRANT pre_m202_other_owner TO postgres WITH SET TRUE, INHERIT FALSE"
+        )
+        cur.execute("GRANT CREATE ON SCHEMA public TO pre_m202_other_owner")
+        cur.execute("ALTER FUNCTION public.validate_mo_transition(text, text) OWNER TO pre_m202_other_owner")
+    expect_owner = snapshot(conn)
+    expect_attribute_refusal(
+        conn, expect_owner, "unexpected owner was accepted", "owner refusal changed the catalog"
+    )
+    with conn.cursor() as cur:
+        cur.execute("SET ROLE pre_m202_other_owner")
+        cur.execute("DROP FUNCTION public.validate_mo_transition(text, text)")
+        cur.execute("RESET ROLE")
+        cur.execute("REVOKE CREATE ON SCHEMA public FROM pre_m202_other_owner")
+        cur.execute("DROP ROLE pre_m202_other_owner")
+    install(conn, lf)
+    print("REFUSED|unexpected_owner")
+
+
+def phase_unexpected_acl(conn, lf: str) -> None:
+    install(conn, lf)
+    with conn.cursor() as cur:
+        cur.execute("CREATE ROLE pre_m202_extra NOLOGIN")
+        cur.execute("GRANT EXECUTE ON FUNCTION public.validate_mo_transition(text, text) TO pre_m202_extra")
+    before = snapshot(conn)
+    expect_attribute_refusal(conn, before, "unexpected ACL was accepted", "ACL refusal changed the catalog")
+    with conn.cursor() as cur:
+        cur.execute("REVOKE ALL ON FUNCTION public.validate_mo_transition(text, text) FROM pre_m202_extra")
+        cur.execute("DROP ROLE pre_m202_extra")
+    print("REFUSED|unexpected_acl")
+
+
+def phase_unexpected_search_path(conn, lf: str) -> None:
+    install(conn, lf)
+    with conn.cursor() as cur:
+        cur.execute("ALTER FUNCTION public.validate_mo_transition(text, text) SET search_path = public, pg_temp")
+    before = snapshot(conn)
+    expect_attribute_refusal(
+        conn, before, "unexpected search_path was accepted", "attribute refusal changed the catalog"
+    )
+    print("REFUSED|unexpected_search_path")
+
+
+def phase_crlf_unexpected_search_path(conn, crlf: str) -> None:
+    install(conn, crlf)
+    with conn.cursor() as cur:
+        cur.execute(
+            "ALTER FUNCTION public.validate_mo_transition(text, text) SET search_path = public, pg_temp"
+        )
+    before = snapshot(conn)
+    expect_attribute_refusal(
+        conn,
+        before,
+        "CRLF with an unexpected search_path was replaced",
+        "CRLF unexpected search_path changed the catalog",
+    )
+    print("REFUSED|crlf_unexpected_search_path")
+
+
+def phase_unexpected_cost(conn, lf: str) -> None:
+    install(conn, lf)
+    with conn.cursor() as cur:
+        cur.execute("ALTER FUNCTION public.validate_mo_transition(text, text) COST 200")
+    before = snapshot(conn)
+    expect_attribute_refusal(conn, before, "unexpected cost was accepted", "unexpected cost changed the catalog")
+    print("REFUSED|unexpected_cost")
+
+
+def phase_concurrent_search_path(conn, crlf: str) -> None:
+    # A committed settings change must stay visible. The script refuses it
+    # and must not write search_path back to public.
+    _before, holder, code, output = hold_then(
+        conn,
+        crlf,
+        "ALTER FUNCTION public.validate_mo_transition(text, text) SET search_path = public, pg_temp",
+        True,
+    )
+    holder.close()
+    if code == 0 or "PRE_M202_CRLF_ATTRIBUTE_REFUSED" not in output:
+        raise SystemExit(f"concurrent settings change was not refused: {code} {output}")
+    seen = snapshot(conn)
+    if seen[0] != CRLF_MD5 or seen[5] != "search_path=public, pg_temp":
+        raise SystemExit(f"concurrent settings change was masked: {seen}")
+    print("REFUSED|concurrent_search_path")
+
+
+def phase_concurrent_body(conn, crlf: str) -> None:
+    bad = crlf + "\n"
+    bad_md5 = md5_hex(bad)
+    change_body = sql.Composed(
+        [
+            sql.SQL(
+                "CREATE OR REPLACE FUNCTION public.validate_mo_transition(p_from text, p_to text) "
+                "RETURNS void LANGUAGE plpgsql SECURITY INVOKER "
+                "SET search_path = public AS "
+            ),
+            sql.Literal(bad),
+        ]
+    )
+    _before, holder, code, output = hold_then(conn, crlf, change_body, True)
+    holder.close()
+    if code == 0 or "PRE_M202_CRLF_BODY_REFUSED" not in output:
+        raise SystemExit(f"concurrent body change was not refused: {code} {output}")
+    seen = snapshot(conn)
+    if seen[0] != bad_md5 or "PRE_M202_CRLF_REPLACED" in output:
+        raise SystemExit(f"concurrent body change was replaced: {seen} {output}")
+    print("REFUSED|concurrent_body")
+
+
+def phase_owner_lock_timeout(conn, crlf: str) -> None:
+    install(conn, crlf)
+    before = snapshot(conn)
+    holder = connect()
+    holder.autocommit = False
+    with holder.cursor() as cur:
+        cur.execute(
+            "ALTER FUNCTION public.validate_mo_transition(text, text) "
+            "SET search_path = public, pg_temp"
+        )
+    code, output = run_script_raw(["-v", "pre_m202_lock_timeout=400ms"])
+    holder.rollback()
+    holder.close()
+    if code == 0 or "lock timeout" not in output:
+        raise SystemExit(f"script did not wait on the owner lock: {code} {output}")
+    if snapshot(conn) != before:
+        raise SystemExit("lock timeout changed the catalog")
+    print("PRE_M202_CRLF_OWNER_LOCK_TIMEOUT_OK")
+
+
+def main() -> None:
+    with connect() as conn:
+        prepare_database(conn)
+        lf, crlf = load_canonical_bodies()
+        phase_lf_noop(conn, lf)
+        phase_crlf_replaced(conn, crlf)
+        phase_byte_refusals(conn, lf)
+        phase_unexpected_owner(conn, lf)
+        phase_unexpected_acl(conn, lf)
+        phase_unexpected_search_path(conn, lf)
+        phase_crlf_unexpected_search_path(conn, crlf)
+        phase_unexpected_cost(conn, lf)
+        phase_concurrent_search_path(conn, crlf)
+        phase_concurrent_body(conn, crlf)
+        phase_owner_lock_timeout(conn, crlf)
+        print("PRE_M202_CRLF_CHECKS_PASS")
 
 if __name__ == "__main__":
     try:
