@@ -22,6 +22,7 @@ BEGIN
     true);
   BEGIN
     EXECUTE 'SET LOCAL ROLE authenticated';
+    RAISE NOTICE 'probe_identity current_user=% session_user=% probe_role=authenticated', current_user, session_user;
     EXECUTE p_sql INTO v_res;
     EXECUTE 'RESET ROLE';
     RETURN jsonb_build_object('ok', true, 'result', v_res);

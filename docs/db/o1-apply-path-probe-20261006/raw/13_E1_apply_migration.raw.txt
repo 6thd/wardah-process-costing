@@ -1,0 +1,11 @@
+[tool: apply_migration, project_id=kfzwgldukqmcvzhzysrx, name=o1_probe_07_e1_ledger_fail_after_own_commit, sent=sent/e1e2/D_e1_apply.sql bytes=876 sha256=39be4cf39bf54abde01f0f6d06bc039aca051568d8c950fa17cf4a484f5d9f0f]
+File: GUARD; BEGIN; CREATE TABLE o1_probe.e1_after_own_commit (id int); COMMIT;   (own BEGIN/COMMIT, the M203 shape)
+RAW RESPONSE (error, the intended one):
+{"error":{"name":"HttpException","message":"Failed to apply database migration: ERROR:  P0001: O1_PROBE_E1E2_LEDGER_INSERT_REFUSED (o1_probe_07_e1_ledger_fail_after_own_commit)\nCONTEXT:  PL/pgSQL function o1_probe.ledger_refuse_e1e2() line 5 at RAISE\n"}}
+The error is the trigger's own tag: the service DID attempt to insert a ledger row named o1_probe_07_… and the trigger refused it.
+
+READBACK after E1 (read-only; created_by never read)
+[RB1 tables] [{"obj":"e1_after_own_commit","exists_now":true},{"obj":"e2_plain","exists_now":false}]
+[RB2 ledger rows for the two names] []
+[fingerprint] [{"ledger_rows":3,"ledger_fingerprint":"d3b23eb8002394884fd3e3e592b04d09","user_triggers_on_ledger":1,"ledger_owner":"postgres","can_create_trigger":true}]
+OBSERVATION E1: the watched table e1_after_own_commit EXISTS; no ledger row exists for the name; the ledger fingerprint is unchanged.

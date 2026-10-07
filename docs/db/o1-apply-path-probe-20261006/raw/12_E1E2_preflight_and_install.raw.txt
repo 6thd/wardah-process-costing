@@ -1,0 +1,12 @@
+E1/E2 ledger-failure experiment on O1 (kfzwgldukqmcvzhzysrx) ONLY. Approved by the owner with changes: install/removal each in ONE transaction; preconditions checked and the run stopped on any violation; no CASCADE; no grants, no ownership change, no ledger-row edit. Sent texts and their SHA-256: sent/e1e2/ (e12_sent_manifest.txt, computed before sending).
+
+[A1 fingerprint BEFORE (execute_sql, read-only)]
+[{"ledger_rows":3,"ledger_fingerprint":"d3b23eb8002394884fd3e3e592b04d09","user_triggers_on_ledger":0,"ledger_owner":"postgres","can_create_trigger":true}]
+[A2 preconditions (read-only)]  -> all required values met (no trigger on the ledger, no function, no trigger of that name, no E1/E2 table)
+[{"ledger_user_triggers":0,"function_exists":false,"trigger_exists":false,"e1_table_exists":false,"e2_table_exists":false}]
+
+[B install, ONE transaction (BEGIN; GUARD; DO $pre$ precondition check RAISE; CREATE FUNCTION; CREATE TRIGGER; COMMIT) via execute_sql, sent/e1e2/B_install_txn.sql]
+RAW RESPONSE: {"result":"...[]..."}   (no error)
+[C verify (read-only)]
+[{"tgname":"o1_probe_ledger_refuse_e1e2","tgenabled":"O","definition":"CREATE TRIGGER o1_probe_ledger_refuse_e1e2 BEFORE INSERT ON supabase_migrations.schema_migrations FOR EACH ROW EXECUTE FUNCTION o1_probe.ledger_refuse_e1e2()"}]
+[fingerprint after install] [{"ledger_rows":3,"ledger_fingerprint":"d3b23eb8002394884fd3e3e592b04d09","user_triggers_on_ledger":1,"ledger_owner":"postgres","can_create_trigger":true}]  -> equal to BEFORE; exactly one user trigger.

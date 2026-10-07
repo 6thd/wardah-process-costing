@@ -1,0 +1,15 @@
+[tool: apply_migration, project_id=kfzwgldukqmcvzhzysrx, name=o1_probe_05_own_commit_success, sent=sent_P5.sql bytes=913 sha256=2254a8279985d9617c01d78368e2b5baf1edb3a2a6bc16454c41c704b801e4a9]
+RAW RESPONSE: {"success":true}
+
+=== READBACK AFTER P5 (created_by never selected)
+[R3 catalog] [{"obj":"commit_ok_d","exists_now":true,"owner":"postgres"},{"obj":"fail_after_commit_a","exists_now":true,"owner":"postgres"},{"obj":"fail_before_commit_b","exists_now":false,"owner":null},{"obj":"identity","exists_now":true,"owner":"postgres"},{"obj":"plain_fail_c","exists_now":false,"owner":null}]
+[R2 duplicates] [{"name":"o1_probe_01_identity","rows":1},{"name":"o1_probe_05_own_commit_success","rows":1}]
+[R1 ledger rows without `statements` and without created_by]
+[{"ledger_row_raw_without_statements":{"name":"o1_probe_01_identity","version":"20261006180959","rollback":null,"idempotency_key":null}},{"ledger_row_raw_without_statements":{"name":"o1_probe_05_own_commit_success","version":"20261006181948","rollback":null,"idempotency_key":null}}]
+[byte check, stored `statements` vs bytes sent]
+[{"name":"o1_probe_01_identity","version":"20261006180959","n_elems":1,"stored_bytes":4066,"stored_sha256":"f28c5e334582d368b462a44e5f8af564f03e89c163163a4e5e91709eadbbaedd"},
+ {"name":"o1_probe_05_own_commit_success","version":"20261006181948","n_elems":1,"stored_bytes":913,"stored_sha256":"2254a8279985d9617c01d78368e2b5baf1edb3a2a6bc16454c41c704b801e4a9"}]
+sent_P1 sha256 f28c5e33…edd (4066)  == stored  -> IDENTICAL
+sent_P5 sha256 2254a827…4a9 (913)   == stored  -> IDENTICAL   (single element; BEGIN/COMMIT kept verbatim; no split, no trimming)
+
+VERDICT P5: success => exactly ONE ledger row, statements byte-identical to the file including its own BEGIN/COMMIT.

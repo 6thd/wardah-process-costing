@@ -1,0 +1,10 @@
+[tool: apply_migration, project_id=kfzwgldukqmcvzhzysrx, name=o1_probe_03_fail_before_own_commit, sent=sent_P3.sql bytes=963 sha256=f125b1dd2bb5b9469344f952ad4074d8e492237795af10426b2697d7f8bf0d25]
+RAW RESPONSE (error):
+{"error":{"name":"HttpException","message":"Failed to apply database migration: ERROR:  P0001: O1_PROBE_03_INTENDED_FAILURE_BEFORE_OWN_COMMIT\nCONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE\n"}}
+EXPECTED: yes (intentional tag P0001, no other error).
+
+=== READBACK AFTER P3
+[R3 catalog] [{"obj":"commit_ok_d","exists_now":false,"owner":null},{"obj":"fail_after_commit_a","exists_now":true,"owner":"postgres"},{"obj":"fail_before_commit_b","exists_now":false,"owner":null},{"obj":"identity","exists_now":true,"owner":"postgres"},{"obj":"plain_fail_c","exists_now":false,"owner":null}]
+[R2 duplicates] [{"name":"o1_probe_01_identity","rows":1}]      <- NO row for o1_probe_03_fail_before_own_commit
+
+OBSERVATION P3 (scope: only these two things were inspected): the watched table fail_before_commit_b is absent and no ledger row exists for the name. No other system object was inspected; this does not prove a complete rollback.

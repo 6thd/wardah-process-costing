@@ -1,0 +1,8 @@
+P0  (execute_sql)                          bytes= 1317 sha256=9ea4d165bbafde52f770071abaea4ca712b05e0c43e0fe2d55a764d485659e86 md5=0f74c6fe7d3f3b2194c8b617b7c6ae01
+P1  o1_probe_01_identity                   bytes= 4066 sha256=f28c5e334582d368b462a44e5f8af564f03e89c163163a4e5e91709eadbbaedd md5=fa316ba7c3df853b3de135b145a7fec0
+P2  o1_probe_02_fail_after_own_commit      bytes=  961 sha256=c48f84ae895d611d6bfd4f2f55e129922a9eebe8ec0125edba84b00618e1acca md5=6d7a57a97b18f0f7c7414490ad65f554
+P3  o1_probe_03_fail_before_own_commit     bytes=  963 sha256=f125b1dd2bb5b9469344f952ad4074d8e492237795af10426b2697d7f8bf0d25 md5=d0d1976fe3311e2f43906c946d616665
+P4  o1_probe_04_plain_fail                 bytes=  928 sha256=4e0e85385a39816908e42934026847d5810d387076de7aab734d74e1399c15e5 md5=26c8c6730b221fd455f3167ead7f9ce9
+P5  o1_probe_05_own_commit_success         bytes=  913 sha256=2254a8279985d9617c01d78368e2b5baf1edb3a2a6bc16454c41c704b801e4a9 md5=9a3655f46eaa32e0b52d8da483542892
+R   (execute_sql)                          bytes= 1346 sha256=2d8f1fb605fb56a7ac52139366953bc183c11617938cbc6a18ca17a9868c77f2 md5=8104a54e890139c6a15d07ea694c70d2
+C   (execute_sql)                          bytes= 1207 sha256=af094667d204903f68af9d05132e0a374011327ee32e66b98146ea993dbf0747 md5=a722e9d9cf941172f598ca5a47f62cc2

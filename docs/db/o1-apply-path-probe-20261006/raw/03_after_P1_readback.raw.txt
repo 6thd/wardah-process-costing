@@ -1,0 +1,16 @@
+=== READBACK AFTER P1 (project kfzwgldukqmcvzhzysrx). created_by never selected.
+NOTE: execute_sql returns ONLY the last non-empty result set of a multi-statement query, so R1/R2/R3 were
+re-issued one statement per call, text verbatim.
+
+[identity table, raw]
+[{"probe":"application_name","value":"mgmt-api"},{"probe":"backend_pid","value":"11763"},{"probe":"can_create_role","value":"true"},{"probe":"current_user","value":"postgres"},{"probe":"function_owner","value":"postgres"},{"probe":"is_superuser","value":"false"},{"probe":"isolation","value":"read committed"},{"probe":"lock_timeout","value":"0"},{"probe":"same_xid_for_sampled_statements","value":"true"},{"probe":"search_path","value":"\"\\$user\", public, extensions"},{"probe":"session_user","value":"postgres"},{"probe":"set_role_postgres","value":"SET allowed; current_user inside = postgres"},{"probe":"set_role_supabase_admin","value":"SET denied: 42501 permission denied to set role \"supabase_admin\""},{"probe":"statement_timeout","value":"2min"},{"probe":"table_owner","value":"postgres"},{"probe":"xid_a","value":"1219"},{"probe":"xid_b","value":"1219"}]
+
+[R1 ledger row, raw — `statements` array content elided here ONLY because it is byte-identical to sent_P1.sql, proven below]
+[{"ledger_row_raw":{"name":"o1_probe_01_identity","version":"20261006180959","rollback":null,"statements":["<ONE element = full text of sent_P1.sql, see byte check>"],"idempotency_key":null}}]
+
+[R2 duplicates] [{"name":"o1_probe_01_identity","rows":1}]
+[R3 catalog] [{"obj":"commit_ok_d","exists_now":false,"owner":null},{"obj":"fail_after_commit_a","exists_now":false,"owner":null},{"obj":"fail_before_commit_b","exists_now":false,"owner":null},{"obj":"identity","exists_now":true,"owner":"postgres"},{"obj":"plain_fail_c","exists_now":false,"owner":null}]
+
+[byte check: stored `statements` vs bytes sent]
+[{"name":"o1_probe_01_identity","version":"20261006180959","n_elems":1,"stored_bytes":4066,"stored_sha256":"f28c5e334582d368b462a44e5f8af564f03e89c163163a4e5e91709eadbbaedd"}]
+sent_P1.sql: bytes=4066 sha256=f28c5e334582d368b462a44e5f8af564f03e89c163163a4e5e91709eadbbaedd  => IDENTICAL (1 element, no normalisation, trailing LF kept)

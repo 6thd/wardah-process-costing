@@ -1,0 +1,10 @@
+[tool: apply_migration, project_id=kfzwgldukqmcvzhzysrx, name=o1_probe_04_plain_fail, sent=sent_P4.sql bytes=928 sha256=4e0e85385a39816908e42934026847d5810d387076de7aab734d74e1399c15e5]
+RAW RESPONSE (error):
+{"error":{"name":"HttpException","message":"Failed to apply database migration: ERROR:  P0001: O1_PROBE_04_INTENDED_FAILURE_PLAIN\nCONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE\n"}}
+EXPECTED: yes (intentional tag P0001, no other error).
+
+=== READBACK AFTER P4
+[R3 catalog] [{"obj":"commit_ok_d","exists_now":false,"owner":null},{"obj":"fail_after_commit_a","exists_now":true,"owner":"postgres"},{"obj":"fail_before_commit_b","exists_now":false,"owner":null},{"obj":"identity","exists_now":true,"owner":"postgres"},{"obj":"plain_fail_c","exists_now":false,"owner":null}]
+[R2 duplicates] [{"name":"o1_probe_01_identity","rows":1}]      <- NO row for o1_probe_04_plain_fail
+
+OBSERVATION P4 (scope: only these two things were inspected): the watched table plain_fail_c is absent and no ledger row exists for the name. No other system object was inspected; this does not prove a complete rollback.

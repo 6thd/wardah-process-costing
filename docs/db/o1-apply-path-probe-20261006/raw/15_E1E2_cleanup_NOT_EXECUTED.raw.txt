@@ -1,0 +1,13 @@
+E1/E2 cleanup on O1 (kfzwgldukqmcvzhzysrx): NOT EXECUTED — the tool call stopped at a permission prompt.
+
+[tool: execute_sql, project_id=kfzwgldukqmcvzhzysrx, sent=sent/e1e2/F_cleanup_txn.sql bytes=972 sha256=bbb34aa3c26ccc777147b7b05af4f1feb4404c0769eea15637dedb30a50d301a]
+Content: BEGIN; GUARD; DROP TRIGGER IF EXISTS o1_probe_ledger_refuse_e1e2 ON supabase_migrations.schema_migrations; DROP FUNCTION IF EXISTS o1_probe.ledger_refuse_e1e2(); COMMIT;   (two named objects only, no CASCADE)
+RAW RESPONSE: MCP tool call requires approval
+Prompt scope recorded (not generalized): the single tool call above, execute_sql on project kfzwgldukqmcvzhzysrx, whose statements are DROP TRIGGER / DROP FUNCTION. No blanket permission for Supabase tools was requested or assumed. The call was NOT retried.
+
+STATE after the stop (read-only readbacks):
+[objects] [{"ledger_user_triggers":1,"function_exists":true,"trigger_exists":true}]
+[fingerprint] [{"ledger_rows":3,"ledger_fingerprint":"d3b23eb8002394884fd3e3e592b04d09","user_triggers_on_ledger":1,"ledger_owner":"postgres","can_create_trigger":true}]
+=> the fingerprint equals the BEFORE value (3 rows, d3b23eb8…); the trigger o1_probe_ledger_refuse_e1e2 and the function o1_probe.ledger_refuse_e1e2() REMAIN installed on O1.
+Effect while it remains: the trigger raises only for the two literal names o1_probe_07_e1_ledger_fail_after_own_commit and o1_probe_08_e2_ledger_fail_plain; every other ledger insert passes unchanged. Tables left on O1: o1_probe.e1_after_own_commit (E1). Nothing was written to the ledger.
+To finish: the owner (or a session the owner authorizes) runs sent/e1e2/F_cleanup_txn.sql, then sent/e1e2/G_cleanup_verify.sql (expects 0 triggers, no function, no trigger) and the fingerprint query (expects 3 rows and d3b23eb8002394884fd3e3e592b04d09).

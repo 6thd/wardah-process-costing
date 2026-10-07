@@ -4,6 +4,32 @@
 > عند وجود نسخ متعددة لنفس الرقم، هذا الدليل يحدد **القانونية** منها.
 > النسخ المتجاوزة تبقى في المستودع للتاريخ — لا تُحذف ولا تُطبَّق.
 
+## Local candidate 203 and the unnumbered pre-M202 script (2026-10-05)
+
+`origin/main` at `eb67705098c0bd14c22700296fffc8001011a435` has no migration
+above 202. Number 203 is allocated by this change for
+[203_stage_wip_mo_lock_under_m195_containment](203_stage_wip_mo_lock_under_m195_containment.sql).
+It is not applied to Production or Staging.
+
+The CRLF compatibility action is intentionally unnumbered:
+[pre_m202_validate_mo_transition_crlf.sql](../../scripts/ops/pre_m202_validate_mo_transition_crlf.sql).
+It must run before unmodified 202, so it cannot be 203 or any later number,
+and merged 202 is not edited. It writes no `schema_migrations` row.
+See [the CRLF note](../../docs/db/PRE_M202_VALIDATE_MO_TRANSITION_CRLF.md)
+and [the lock note](../../docs/db/STAGE_WIP_MO_LOCK_203.md).
+
+Local check: `scripts/ci/fresh-db/run_m203_local.sh`; operator plan for 195-201, the CRLF script, 202 and 203
+(review text only, no ledger row inserted): [ROLLOUT_OPERATOR_PLAN_195_203](../../docs/db/ROLLOUT_OPERATOR_PLAN_195_203.md).
+
+The M202 acceptance membership check is a local contract correction, not a
+migration. `docs/db/qc-privileged-write-closure-202/acceptance.sql` now calls
+`pg_temp.m202_membership_contract()` from
+`acceptance_admin_membership_contract.sql`. That predicate is the admin-only
+DDL-owner exception already enforced by `qc_assert_closed_graph_202()`.
+Migration 202 is not edited. The admin option can create a SET edge; the
+write guard then refuses the insert. See
+[the membership note](../../docs/db/QC_ADMIN_MEMBERSHIP_ACCEPTANCE_202.md).
+
 ## تخصيص 195–198 — Draft للمراجعة، غير مطبّق (2026-10-02)
 
 قبل هذه الدفعة، أعلى ملف قانوني في `main@94400e1b` هو 194. تقترح هذه

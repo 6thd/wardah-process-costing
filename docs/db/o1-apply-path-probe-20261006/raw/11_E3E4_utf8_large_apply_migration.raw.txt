@@ -1,0 +1,22 @@
+[tool: apply_migration, project_id=kfzwgldukqmcvzhzysrx, name=o1_probe_06_utf8_large_success, sent=sent/sent_E34.sql bytes=84278 chars=84221(UTF-8, multibyte present) sha256=090dcecd1b64334b2539278f7b729d17fa649f19c8fa5b396951b41822de9668 md5=d527d96547133b371f7b78d970f7284a]
+Content: the standard GUARD, then BEGIN; CREATE TABLE o1_probe.utf8_large; 5 rows with Arabic text, an em dash, a section sign and a 4-byte character; 690 padding comment lines (120 bytes each); a tail marker row; COMMIT;  (own BEGIN/COMMIT, the M203 shape). Writes only o1_probe.utf8_large. No grant, no ledger edit.
+RAW RESPONSE: {"success":true}
+
+=== READBACK (execute_sql, read-only; created_by never selected)
+[ledger row, stored `statements` vs the bytes sent]
+{"name":"o1_probe_06_utf8_large_success","version":"20261006185935","n_elems":1,"stored_bytes":84278,"stored_chars":84221,"stored_sha256":"090dcecd1b64334b2539278f7b729d17fa649f19c8fa5b396951b41822de9668","stored_md5":"d527d96547133b371f7b78d970f7284a"}
+  (the same query also returned the P1 and P5 rows, unchanged: 4066/f28c5e33…edd and 913/2254a827…4a9)
+=> IDENTICAL to the local values (84278 bytes, sha256 and md5 equal; 57 more bytes than characters, i.e. multibyte text was stored as UTF-8 and not altered); exactly ONE element; one ledger row for the name.
+
+[o1_probe.utf8_large rows: bytes, chars, md5(UTF-8 bytes), first 40 hex chars]
+[{"id":1,"label":"arabic_permission","val_bytes":40,"val_chars":21,"val_md5":"e6b691c575db35fabc06d05acc1a09c2","val_hex40":"d982d8b1d8a7d8a1d8a920d8a5d8b9d8afd8a7d8"},
+ {"id":2,"label":"arabic_role_label","val_bytes":42,"val_chars":22,"val_md5":"90987d9acda872a5dbfbfa01b1f97ad4","val_hex40":"d985d8b3d8a4d988d98420d8a7d984d985d8a4d8"},
+ {"id":3,"label":"em_dash","val_bytes":16,"val_chars":14,"val_md5":"ddeb4fb5a1cd981711d40c2f3a2ee759","val_hex40":"6265666f726520e28094206166746572"},
+ {"id":4,"label":"section_sign","val_bytes":18,"val_chars":15,"val_md5":"83e27d867f0bee7fe4eda353888ff3c4","val_hex40":"c2a7203420e280942063616e6f6e6963616c"},
+ {"id":5,"label":"mixed","val_bytes":47,"val_chars":34,"val_md5":"1e91ef7b3a41a2257ecc2809f5942f5c","val_hex40":"41534349492c20d8a7d984d8b9d8b1d8a8d98ad8"},
+ {"id":6,"label":"tail_marker","val_bytes":18,"val_chars":18,"val_md5":"a960caa98802a8d33464892b311ad395","val_hex40":"454e445f4f465f4c415247455f50524f4245"}]
+Expected values computed locally BEFORE sending (UTF-8 md5): 1 e6b691c5…09c2 (40 B) | 2 90987d9a…7ad4 (42 B) | 3 ddeb4fb5…e759 (16 B) | 4 83e27d86…f3c4 (18 B) | 5 1e91ef7b…2f5c (47 B) | 6 a960caa9…d395 (18 B)  => ALL SIX EQUAL.
+
+VERDICT E3 (multibyte): Arabic text, U+2014, U+00A7 and a 4-byte character were transported and stored byte-exactly, both as data (literals) and inside the ledger `statements`.
+VERDICT E4 (size): an 84,278-byte file (> the 79,953 bytes of 202) was transported, executed and stored byte-exactly in one element.
+LIMITS: one run, one project, one date; ASCII-only padding in the bulk of the file; says nothing about concurrency, a ledger-side failure (E1/E2), or Production.

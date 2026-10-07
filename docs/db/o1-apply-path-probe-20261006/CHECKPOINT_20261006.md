@@ -1,0 +1,55 @@
+# Checkpoint — PR #317, O1 apply-path work (2026-10-06)
+
+Review text and state record. It authorizes nothing: no Production application, no restore, no acceptance of the G11 risk, no merge.
+
+## 1. Branch state
+- Branch `claude/clever-turing-ur1q95` (PR #317, Draft). Base `eb67705098c0bd14c22700296fffc8001011a435`.
+- Commits added in this stretch, in order: `5294b5f` (drift test via psycopg, CRLF md5 server-side), `2982d57` (pylint E0601 fix in `run_mutant`), `1357c02` (27 documentation files: O1 evidence and decision request), `2c774f1` (hardening of the psql call in the CRLF test: one validated local target, allowlisted environment, per-line `nosec B404`/`nosec B603`). This checkpoint is committed on top of `2c774f1`.
+- A further code-only commit follows (`ci: keep a literal argv[0] in the CRLF test's psql call`), and this checkpoint is updated in a last documentation commit. The branch head after the push is the PR's current head.
+- No migration, ops SQL, Codacy configuration or workflow file was changed by any of these commits.
+
+## 2. Checks recorded
+- Local, PG 17.11 on a disposable cluster, full runner `scripts/ci/fresh-db/run_m203_local.sh`: `PASS=12 FAIL=0`, 241 acceptance notices, 2292 probe identities, both orders (restored and alternate). Re-run after each code change, last time with the final code.
+- `bandit`: no findings with `nosec` honoured; with `--ignore-nosec` exactly B404 and B603 remain (the two Codacy findings). `pylint`, `ruff` and `git diff --check` clean for the changed files.
+- Target guard: 15 refused inputs and 3 accepted inputs (`selftest_target_guard`), plus a mock proof that `PGHOST=/tmp,remote.example` is refused before any `subprocess.run` or `psycopg.connect`. Windows was **not** exercised.
+- Documentation package: `sha256sum -c` 25/25, sanitizer 0 hits (the only IPv4-shaped string is the Postgres version `17.11.0.003`), `git diff --check` clean, staged list exactly the intended files.
+- **Reference code head `a75421764e0caa5eb24531c178da0cacb9f81c2e`** (12 commits, 64 files, +4,985/−20, Draft, unmerged). Evidence read for exactly this head:
+  - **Codacy:** check-run `success` ("Your pull request is up to standards!", head SHA matches) and the Codacy API `analyzed: true`, 0 new issues. History: on `2982d57` two findings (`Bandit_B404` Info line 99, `Bandit_B603` Warning line 100); on `c4176a9` Bandit no longer reported (per-line `nosec` honoured) but Semgrep `dangerous-subprocess-use-audit` (Error, line 187) appeared because the refactor passed a variable argv — reproduced locally with the exact registry rule and fixed in `05d544c` (fixed argv written out, `executable=` carries the verified absolute path). `nosec` and a passing analyser are not proof of security.
+  - **SonarCloud:** Quality Gate passed, 0 Security Hotspots, **10 new issues reported non-blocking** (not zero).
+  - **Check-runs (check-runs API, 30; snapshot ~20:40 UTC):** 25 `success`, 3 `neutral` (Netlify), **1 failing: `SonarQube Scan` (GitHub Actions job)**, 1 in progress: `Test & Build`. The Sonar job failed in *Run tests with coverage*: 1 failed / 4,680 passed — `src/components/auth/__tests__/ModuleGuard.recovery-scope.test.tsx` (#239; `expected [] to deeply equal ['orders-page']`), after which the scan steps were skipped. Evidence that it is not this diff: since `5952196` (last all-green head) only `docs/db` and `scripts/ci` changed, and the PR touches one `src/` file (`database.generated.ts`). That is an inference, not a proof of a flake; the job was re-run **once** (attempt 2) and `Test & Build` runs the same suite. A second failure is real and must be investigated.
+
+## 3. Results on the throwaway project O1 (not Production)
+P1–P5, E3/E4 and E1/E2 are recorded in `../APPLY_PATH_O1_RESULTS_AND_DECISION_20261006.md` and `raw/`. In short: `apply_migration` ran as the non-superuser `postgres`; transport was byte-exact for ASCII, multibyte text and an 84 KB file; a file's own `COMMIT` can separate the catalog change from the ledger row (P2); when the ledger `INSERT` raised an error, a file with its own `COMMIT` kept its catalog change with no row (E1) and a plain file kept nothing (E2) — consistent with a mechanism, not a proof of one implementation. G11 stays open.
+
+## 4. State left on O1
+- Present: schema `o1_probe` with tables `identity`, `fail_after_commit_a`, `commit_ok_d`, `utf8_large`, `e1_after_own_commit`; functions `owner_probe()` and `ledger_refuse_e1e2()`; the trigger `o1_probe_ledger_refuse_e1e2` on `supabase_migrations.schema_migrations` (raises only for `o1_probe_07_e1_ledger_fail_after_own_commit` and `o1_probe_08_e2_ledger_fail_plain`); three ledger rows (`o1_probe_01_identity`, `o1_probe_05_own_commit_success`, `o1_probe_06_utf8_large_success`). Ledger fingerprint `d3b23eb8002394884fd3e3e592b04d09` (3 rows) before, during and after E1/E2.
+- **Blocked approval (exact).** The E1/E2 removal (`sent/e1e2/F_cleanup_txn.sql`, one transaction, two named objects, no `CASCADE`) was **not executed**. The tool call (`execute_sql`, project `kfzwgldukqmcvzhzysrx`, statements `DROP TRIGGER IF EXISTS … ON supabase_migrations.schema_migrations; DROP FUNCTION IF EXISTS o1_probe.ledger_refuse_e1e2();` inside `BEGIN … COMMIT`) returned the text `MCP tool call requires approval` and was **not retried and not routed through another tool**. The earlier `DROP SCHEMA o1_probe` returned `{"status":"cancelled"}` and was likewise not repeated. No blanket permission for Supabase tools was requested or assumed. To finish: run `F_cleanup_txn.sql`, then `G_cleanup_verify.sql` (expects 0 ledger triggers, no function, no trigger) and the fingerprint query (expects 3 rows and the fingerprint above).
+
+## 5. Decisions that remain with the owner
+1. **D1 (G8).** Whether O1 plus the read-only Production identity supplement is a conditional basis for G8, valid only with the in-window owner check after step 1 (plan §1.1).
+2. **D2 (G11 mechanism).** Option A with the reconciliation plan (§7.1 of the analysis), a changed mechanism (B1 or C, each needing its own rule change or review), or stop.
+3. **D3 (hole policy).** What follows *ledger absent / catalog changed* (restore from B0/B1, a reviewed documented exception, other). Nothing here chooses a restore or accepts the risk.
+4. **D4/D5.** Who removes the E1/E2 trigger and function from O1, and whether `o1_probe` stays.
+**Recommendation for D2/D3 (a recommendation, not a decision; it accepts no risk and selects no restore).**
+- *D2.* Proceed, if at all, only with option A (canonical bytes through `apply_migration`, one file per call), because B1/B2/C each need a rule change or their own review. E1/E2 support the catalog/ledger split for files with their own `COMMIT`; they do not show the service's whole implementation or any Production behaviour.
+- *Per-call procedure the owner must approve:* (1) before each call, a read-only readback of the ledger names, a ledger fingerprint and the catalog pins named in the plan; (2) send the file bytes verbatim from `main`, name = file stem, one call, several seconds between calls; (3) after each call, ledger count for the name (exactly 1), `cardinality(statements) = 1` and stored SHA-256 = the file's SHA-256, the file's own postflight, the plan's catalog and business invariants against the baseline.
+- *Stop conditions (stop, do not retry, do not edit the ledger):* any tool error or timeout; a missing or duplicate ledger row; a hash or element-count mismatch; an unexpected NOTICE; any invariant drift; the apply role not `postgres` at the in-window owner check after step 1.
+- *Reconciliation states* (table in `../APPLY_PATH_O1_RESULTS_AND_DECISION_20261006.md` §7.1): ledger absent / catalog unchanged → report, no retry; present / hash equal → continue; **absent / catalog changed → hole → stop**; present / no effect or wrong hash → stop; each needs owner and reviewer.
+- *D3 options for the owner to choose between, before any window:* (a) restore from B0/B1 (owner-preserving, roles first; needs the restore rehearsal passed) — it needs no ledger row to be created, which is why I would weigh it first, but it is the owner's decision; (b) a documented ledger exception reviewed by the reviewer (it cannot be created by editing the ledger); (c) an additive forward-fix migration. Not chosen here.
+5b. Still gating any Production action: plan gates G1–G7, G9, G10; repository-first merge with hashes read from `main`; B0/B1 with restore rehearsal; a maintenance window; the step-8 `psql` operator; an independent read-only verifier. Durations of 196 and 199 under the 2 min default are unmeasured.
+
+## 6. Follow-up limits
+Follow-up on this PR is event-driven only (a subscription to PR events delivers CI, Codacy and review activity); there is no periodic polling, and no continuous monitoring is claimed.
+
+## 7. Handoff for a new session
+- Work only on branch `claude/clever-turing-ur1q95` (PR #317, Draft); the session branch `claude/wardah-pr-317-codacy-ri6fw6` is local-only by design (the stop hook's "unpushed commits" warning comes from that name and is not a real backlog).
+- Do **not**: apply anything to Production or Staging; merge or mark Ready; change the migrations 190–202, `scripts/ops` SQL or Codacy configuration; retry the blocked O1 cleanup or use another tool for it; push a code change before showing its diff to the reviewer (Codex) and the owner (Mujahid).
+- Read-only helpers that worked: `gh api repos/6thd/wardah-process-costing/commits/<sha>/check-runs`, `gh api …/check-runs/<id>/annotations`, and the public Codacy API `https://api.codacy.com/api/v3/analysis/organizations/gh/6thd/repositories/wardah-process-costing/pull-requests/317/issues?status=new`.
+- Pending owner actions: the D1/D2/D3 decisions; whether and who removes the E1/E2 trigger and function from O1 (`sent/e1e2/F_cleanup_txn.sql`, then `G_cleanup_verify.sql`, expecting 0 ledger triggers and fingerprint `d3b23eb8002394884fd3e3e592b04d09` with 3 rows).
+
+## 8. Final CI state of the reference head
+Read from the check-runs API for `a75421764e0caa5eb24531c178da0cacb9f81c2e` after the single re-run: 30 check-runs, **26 `success`, 3 `neutral` (Netlify), 1 `skipped` (`Deploy to Production`), 0 failing, 0 pending**. `SonarQube Scan` (Actions run `37526942141`, attempt 2) completed `success`; `Test & Build` `success`; `Codacy Static Code Analysis` `success` (0 new issues); `SonarCloud Code Analysis` `success` (Quality Gate passed, 10 non-blocking issues, not zero).
+
+The attempt-1 failure (`ModuleGuard.recovery-scope.test.tsx`, 1 of 4,681) did not recur on attempt 2 and is unrelated to the diff, which touches no `src/` test or component. That is consistent with a flaky test, **not proven** to be one; it is recorded here and should be handled on its own issue (#239), not hidden by the re-run.
+
+**Reference code head: `a75421764e0caa5eb24531c178da0cacb9f81c2e`.** The commit carrying this section is documentation only and becomes the branch tip; it did not change any code, migration, ops SQL, Codacy configuration or workflow, and its own checks are not claimed here.
