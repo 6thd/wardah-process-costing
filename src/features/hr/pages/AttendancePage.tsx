@@ -1,5 +1,5 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getEmployees } from '@/services/hr/hr-service';
 import { usePermissions } from '@/hooks/usePermissions';
-import { listAttendanceForPeriod } from '@/services/hr/attendance-service';
+import { listAttendanceForPeriod, setDayStatus } from '@/services/hr/attendance-service';
 import { ATTENDANCE_COLORS } from '../types';
 import {
   Calendar,
@@ -41,6 +41,7 @@ import '../translations/ui';
 
 export const AttendancePage: React.FC = () => {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { hasPermissionKey } = usePermissions();
   const canReadEmployees = hasPermissionKey('hr.employees.read');
   const { t, i18n } = useHrTranslation();
@@ -146,18 +147,40 @@ export const AttendancePage: React.FC = () => {
     [t],
   );
 
+  const checkInMutation = useMutation({
+    mutationFn: ({ employeeId, date }: { employeeId: string; date: string }) =>
+      setDayStatus(employeeId, date, {
+        status: 'present',
+        in: checkInTime || null,
+        out: checkOutTime || null,
+        notes: notes || null,
+        source: 'manual',
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['hr', 'attendance-monthly', selectedPeriod.year, selectedPeriod.month],
+      });
+      toast({ title: `✅ ${t('attendance.saved')}` });
+      setCheckInDialogOpen(false);
+      setSelectedEmployee('');
+      setCheckInTime(format(new Date(), 'HH:mm'));
+      setCheckOutTime('');
+      setNotes('');
+    },
+    onError: () => {
+      toast({ title: `⚠️ ${t('attendance.saveFailed')}`, variant: 'destructive' });
+    },
+  });
+
   const handleCheckIn = () => {
     if (!selectedEmployee) {
       toast({ title: `⚠️ ${t('attendance.selectEmployeeWarning')}`, variant: 'destructive' });
       return;
     }
-    // TODO: Connect the existing attendance mutation when the backend endpoint is enabled.
-    toast({ title: `✅ ${t('attendance.saved')}` });
-    setCheckInDialogOpen(false);
-    setSelectedEmployee('');
-    setCheckInTime(format(new Date(), 'HH:mm'));
-    setCheckOutTime('');
-    setNotes('');
+    checkInMutation.mutate({
+      employeeId: selectedEmployee,
+      date: format(new Date(), 'yyyy-MM-dd'),
+    });
   };
 
   const handleExport = () => {
@@ -450,7 +473,7 @@ export const AttendancePage: React.FC = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCheckInDialogOpen(false)}>{t('common.cancel')}</Button>
-            <Button onClick={handleCheckIn} className="bg-teal-600 hover:bg-teal-700">
+            <Button onClick={handleCheckIn} disabled={checkInMutation.isPending} className="bg-teal-600 hover:bg-teal-700">
               <Clock className={`h-4 w-4 ${iconSpacing}`} />
               {t('attendance.submit')}
             </Button>
