@@ -1,0 +1,28 @@
+{
+  "state": "candidate_not_allocated_or_applied",
+  "base_head": "c6255e03536d2dff1ffa0a9130cdab6778fa5637",
+  "requires_order": [
+    190,
+    191,
+    192,
+    193,
+    194,
+    195,
+    196,
+    197,
+    198
+  ],
+  "frozen_package_sha256": "01b584008d4b9b82fa05c78b5d9e91d9f76e9f45cb2036a94f21ef046c786ffb",
+  "candidate_sha256": "2cf867dfa5c9a473f0e6e05528d0603aa8885736dd31c3210b58030b616240a5",
+  "before_prosrc_md5": "1576b6962409787f3dcdc5f783c89faf",
+  "after_prosrc_md5": "b2576a5e9cf4dbab07be959434add8ab",
+  "version_trigger_prosrc_md5": "aa8a4559e9d1f2a465e2e56aa1d87011",
+  "scope": [
+    "reserve",
+    "create_work_order"
+  ],
+  "lease": false,
+  "release_ready": false,
+  "before_prosrc_sha256": "2bf24a6983d7eb44f0f89d38b7ebb505243f7e8500712842e02967f5ec544261",
+  "after_prosrc_sha256": "e2be81216a7e6e6d7638f7c356644c9742e714e8152409a28376ffec9c1bff08"
+}

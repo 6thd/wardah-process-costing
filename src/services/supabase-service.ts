@@ -13,6 +13,8 @@ import {
   type SalesOrderItem
 } from '../lib/supabase'
 import { PerformanceMonitor } from '../lib/performance-monitor'
+import { isolatedMaterialIssueEnabled } from '@/features/manufacturing/material-issue/gate'
+import { manageMaterialIssueSetup } from './manufacturing/materialIssueMaintenance'
 import { updateManufacturingOrderStatus, createManufacturingOrder, getManufacturingOrderById } from './manufacturing'
 import {
   isTableNotFoundError as isManufacturingTableNotFound,
@@ -987,6 +989,12 @@ export const stageWipLogService = {
   },
 
   create: async (wipLog: Record<string, unknown>) => {
+    if (isolatedMaterialIssueEnabled()) {
+      if (Object.keys(wipLog).some(k => !['mo_id', 'stage_id', 'period_start', 'period_end'].includes(k))) {
+        throw new Error('ISSUE_SETUP_PRISTINE_WIP_ONLY')
+      }
+      return manageMaterialIssueSetup({ operation: 'open_stage_wip', ...wipLog })
+    }
     try {
       const config = await getConfig()
       const tenantId = await getTenantId()

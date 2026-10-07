@@ -1,0 +1,11 @@
+.material-issue-page { max-width: 64rem; margin-inline: auto; }
+.material-issue-page label { display: flex; flex-direction: column; gap: .4rem; font-size: .875rem; }
+.material-issue-page select, .material-issue-page input:not([type="checkbox"]) {
+  width: 100%; min-height: 2.5rem; padding: .5rem .75rem;
+  border: 1px solid hsl(var(--border)); border-radius: .375rem;
+  background: hsl(var(--background)); color: inherit;
+}
+.material-issue-page fieldset:disabled { opacity: .65; }
+.material-issue-page .policy-options { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; }
+.material-issue-page .policy-options label { flex-direction: row; align-items: center; }
+.material-issue-page [role="alert"] { color: hsl(var(--destructive)); }

@@ -1,0 +1,18 @@
+RBAC mutation baseline: candidates=356, signatures=330
+RBAC mutation signature SHA-256: 4816e12aae045d7e029c18f81849592f938838c75d7142a612725772423eed0f
+RBAC_MUTATION_BASELINE_PASS
+RBAC mutation matrix written to ../issue-rbac-matrix.json
+Matrix rows: 356
+  follow_up_required: 76
+  pending_review: 6
+  scanner_false_positive: 1
+  server_covered_admin_boundary: 19
+  server_covered_exact_permission: 15
+  server_covered_member_read: 3
+  server_covered_rls_needs_acceptance: 2
+  server_covered_token_boundary: 1
+  server_fail_closed_rls: 64
+  server_invoker_no_privilege_escalation: 1
+  stale_not_in_production: 22
+  verified_gap: 146
+RBAC_MUTATION_MATRIX_COMPLETE
