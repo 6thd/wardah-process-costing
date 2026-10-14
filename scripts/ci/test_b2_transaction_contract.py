@@ -3,7 +3,8 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
+# Execute the fixed repository runner against a disposable fake psql only.
+import subprocess  # nosec B404
 import tempfile
 import unittest
 
@@ -47,9 +48,9 @@ class B2Controls(unittest.TestCase):
             (root / 'order').write_text('\n'.join(names) + '\n')
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
                        ARGV_LOG=str(root / 'argv'), FAKE_RC=str(rc), REPORT=str(root / 'report'))
-            result = subprocess.run(['bash', str(ROOT / 'scripts/ci/fresh-db/run_chain.sh'),
+            result = subprocess.run(['/usr/bin/bash', str(ROOT / 'scripts/ci/fresh-db/run_chain.sh'),  # nosec B603
                                      str(root), str(root / 'order')], env=env,
-                                    capture_output=True, text=True, timeout=30)
+                                    capture_output=True, text=True, shell=False, timeout=30)
             return result, (root / 'argv').read_text().splitlines(), (root / 'report').read_text()
 
     def test_chain_wraps_only_b2_and_disables_psqlrc(self):

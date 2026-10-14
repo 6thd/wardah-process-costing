@@ -2,7 +2,8 @@
 import hashlib
 import json
 from pathlib import Path
-import subprocess
+# Fixed read-only Git argv; manifest paths must equal the canonical allowlist.
+import subprocess  # nosec B404
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = 'd022ba3484d1737c693bab9e2724fab396499a72'
@@ -20,8 +21,8 @@ def verify(root=ROOT):
         raise ValueError('B2_FILE_SET_DRIFT')
     for entry in data['migrations']:
         old = subprocess.check_output(
-            ['git', '--no-optional-locks', 'show', SOURCE + ':' + entry['path']],
-            cwd=ROOT, timeout=30)
+            ['/usr/bin/git', '--no-optional-locks', 'show', SOURCE + ':' + entry['path']],  # nosec B603
+            cwd=ROOT, shell=False, timeout=30)
         if old.count(b'\nBEGIN;\n') != 1 or old.count(b'\nCOMMIT;\n') != 1:
             raise ValueError('B2_ORIGINAL_TRANSACTION_SHAPE_DRIFT')
         expected = old.replace(b'\nBEGIN;\n', b'\n', 1).replace(b'\nCOMMIT;\n', b'\n', 1)
