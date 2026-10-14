@@ -4,7 +4,6 @@
 -- org admin turns the gate on from Settings > Quality. Inventory and decision
 -- record: docs/architecture/MANUFACTURING_QUALITY_CONTROL_INVENTORY_20261002.md;
 -- runbook: docs/db/MANUFACTURING_QUALITY_CONTROL_199_RUNBOOK.md.
-BEGIN;
 SET LOCAL lock_timeout = '10s';
 
 DO $preflight$
@@ -1025,4 +1024,3 @@ BEGIN
 END
 $postflight$;
 
-COMMIT;

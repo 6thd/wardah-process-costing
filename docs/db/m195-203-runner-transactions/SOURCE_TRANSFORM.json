@@ -1,0 +1,72 @@
+{
+  "format_version": 1,
+  "source_commit": "d022ba3484d1737c693bab9e2724fab396499a72",
+  "transform": "remove unique LF top-level BEGIN and COMMIT lines only",
+  "hosted_verified": false,
+  "production_authorized": false,
+  "migrations": [
+    {
+      "path": "sql/migrations/195_material_issue_scope.sql",
+      "old_sha256": "d906c72a96468d4869d8341e1cc61c8b20383e5dd43284be0070c876c80987ca",
+      "sha256": "a059271918c5d42fc3edf11f4ff1b0f99a3ae00882c4b673baa467dd10428102",
+      "old_bytes": 8859,
+      "bytes": 8844
+    },
+    {
+      "path": "sql/migrations/196_material_issue_maintenance.sql",
+      "old_sha256": "cf61b346c56b7e18dbe5bbcc994e3494a330ffbacf9315f81863e7796e44c648",
+      "sha256": "88578735da82ebb1c9082b79be7621259ccd2584cdd7943abc467ec9533eed33",
+      "old_bytes": 31796,
+      "bytes": 31781
+    },
+    {
+      "path": "sql/migrations/197_material_issue_stale_version.sql",
+      "old_sha256": "e7eb602688c2503a9d6313a0d1525d083e3909b74293805947a078d01fb2ff52",
+      "sha256": "f1536d9b2a339bc79b1e687118c0a10d9c650f7feb10d84e5ce405f8b90b7f2d",
+      "old_bytes": 20170,
+      "bytes": 20155
+    },
+    {
+      "path": "sql/migrations/198_material_issue_parent_version.sql",
+      "old_sha256": "2cf867dfa5c9a473f0e6e05528d0603aa8885736dd31c3210b58030b616240a5",
+      "sha256": "2e0fe396acdbb0a490b8b0b28366d81101926319a7b43a40f51c5e785f716723",
+      "old_bytes": 21998,
+      "bytes": 21983
+    },
+    {
+      "path": "sql/migrations/199_manufacturing_quality_control.sql",
+      "old_sha256": "a02a5831c4581eabee20b8c19cb8fef1116252ae2dd2bce512c727f4177f1b77",
+      "sha256": "77c80daf12c4a33fc24e9b2361f3b23fe9f46767658e6391ff4b7719078dd9ba",
+      "old_bytes": 52429,
+      "bytes": 52414
+    },
+    {
+      "path": "sql/migrations/200_gl_event_mapping_write_closure.sql",
+      "old_sha256": "90b63836be37cd283e7fded0aab23debfeeaa275787c080c90c38d91f22b9c05",
+      "sha256": "0370bce8ec17e15061396d3a6272947c27195df1a0a39c63d62e05f65acbb866",
+      "old_bytes": 11845,
+      "bytes": 11830
+    },
+    {
+      "path": "sql/migrations/201_manufacturing_settings_permissions.sql",
+      "old_sha256": "7207173740a2b766ab9a6dbf46c34da61ae80cc4f1d99a059fcd91057689d421",
+      "sha256": "74bdecc4d004d5b7c9b50a70935e125d5c28878743e844e842ca55e9e9df24bf",
+      "old_bytes": 28918,
+      "bytes": 28903
+    },
+    {
+      "path": "sql/migrations/202_qc_privileged_write_closure.sql",
+      "old_sha256": "32f8b62ffe2851e0a16103b2a09434b2aa19be902eb940ea650145e0827f328a",
+      "sha256": "9ffb7b45d406b1daccbd0df03c4f9a837b430e38d66c7907f7e2ce10410fe777",
+      "old_bytes": 79953,
+      "bytes": 79938
+    },
+    {
+      "path": "sql/migrations/203_stage_wip_mo_lock_under_m195_containment.sql",
+      "old_sha256": "8589d97e18d8cbec8c4b266195307917b0f94b18a7db06ec6f173656c8ecea95",
+      "sha256": "7ef383c1ddbd46812dc1421bcf06cae5f00fdaf95f77a18998e89a39daff19bb",
+      "old_bytes": 11914,
+      "bytes": 11899
+    }
+  ]
+}

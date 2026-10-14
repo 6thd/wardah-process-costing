@@ -1,0 +1,36 @@
+name: B2 transaction contract
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'sql/migrations/**'
+      - 'scripts/ci/**'
+      - 'docs/db/m195-203-runner-transactions/**'
+      - 'docs/db/material-issue-canonical-195-198/**'
+      - '.github/workflows/b2-transaction-contract.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'sql/migrations/**'
+      - 'scripts/ci/**'
+      - 'docs/db/m195-203-runner-transactions/**'
+      - '.github/workflows/b2-transaction-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/ci/check_b2_transaction_contract.py
+      - run: python3 scripts/ci/test_b2_transaction_contract.py
+      - run: python3 docs/db/material-issue-canonical-195-198/test_package.py
+      - run: python3 scripts/ci/test_material_issue_canonical_delegations.py

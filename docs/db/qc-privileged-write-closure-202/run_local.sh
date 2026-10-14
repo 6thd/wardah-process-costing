@@ -145,7 +145,7 @@ BODY_BEFORE="$(q1 "${P}_base" "$BODY_SQL")"
 # --------------------------------------------- preflight and atomicity controls
 expect_refusal() { # $1 label, $2 db, $3 expected text
   local out
-  if out="$("${PSQL[@]}" -d "$2" -f "$M202" 2>&1)"; then
+  if out="$("${PSQL[@]}" --single-transaction -d "$2" -f "$M202" 2>&1)"; then
     echo "CONTROL FAIL: $1 was not refused" >&2; exit 1
   fi
   if ! grep -qF "$3" <<<"$out"; then
@@ -224,7 +224,7 @@ echo 'control ok: failed 202 rolled back completely (no role, tables or function
 dropdb "${P}_ctl"
 # Re-run and pre-existing role.
 copy_db "${P}_base" "${P}_ctl"
-"${PSQL[@]}" -d "${P}_ctl" -f "$M202" >/dev/null
+"${PSQL[@]}" --single-transaction -d "${P}_ctl" -f "$M202" >/dev/null
 expect_refusal 'second application' "${P}_ctl" 'M202_ALREADY_APPLIED'
 dropdb "${P}_ctl"
 psql -X -qc 'DROP ROLE IF EXISTS wardah_qc_entry_202' -d postgres
@@ -236,7 +236,7 @@ dropdb "${P}_ctl"
 echo 'M202_PREFLIGHT_CONTROLS_PASS'
 
 # ------------------------------------------------------------ apply 202 (GREEN)
-"${PSQL[@]}" -d "${P}_base" -f "$M202"
+"${PSQL[@]}" --single-transaction -d "${P}_base" -f "$M202"
 [[ "$(q1 "${P}_base" "$ACL_SQL")" == "$ACL_BEFORE" ]] || { echo 'FAIL: ACL/owner of the five M201 functions changed' >&2; exit 1; }
 [[ "$(q1 "${P}_base" "$BODY_SQL")" == "$BODY_BEFORE" ]] || { echo 'FAIL: a body of the five M201 functions changed' >&2; exit 1; }
 echo 'M202_M201_FUNCTIONS_UNCHANGED owner+ACL+body of all five identical before and after'

@@ -41,7 +41,6 @@
 -- No UI depends on these keys yet; the /settings/manufacturing UI PR waits
 -- for 201 to be applied and verified on Production (DB-first).
 
-BEGIN;
 
 SET LOCAL lock_timeout = '30s';
 SET LOCAL statement_timeout = '5min';
@@ -603,4 +602,3 @@ BEGIN
 END
 $postflight$;
 
-COMMIT;

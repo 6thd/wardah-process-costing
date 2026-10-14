@@ -28,7 +28,6 @@
 -- appends a supersession (revision + 1) that raises the partition's revision, so a
 -- forged or NULL-sequence row is bypassed without deleting history, and the gate
 -- stays closed until a genuine inspection is recorded at the new revision.
-BEGIN;
 SET LOCAL lock_timeout = '30s';
 SET LOCAL statement_timeout = '5min';
 
@@ -1423,4 +1422,3 @@ GRANT EXECUTE ON FUNCTION wardah_internal.evaluate_quality_release_199(uuid,uuid
 REVOKE ALL ON FUNCTION wardah_internal.qc_marker_orphan_check_202()
   FROM PUBLIC, anon, authenticated, service_role;
 
-COMMIT;

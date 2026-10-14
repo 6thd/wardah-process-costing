@@ -2,7 +2,6 @@
 -- PostgREST 14 retries SQLSTATE 40001 indefinitely. A stale displayed version
 -- is a permanent business rejection; P0001 is already recognized by the client.
 -- Only the three deliberate ISSUE_SETUP_STALE_VERSION codes change below.
-BEGIN;
 CREATE TEMP TABLE issue_stale_197_before ON COMMIT DROP AS
 SELECT oid,proowner,proacl,prosecdef,proconfig,provolatile,proparallel,prorettype,proargtypes
 FROM pg_proc WHERE oid='public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)'::regprocedure;
@@ -272,4 +271,3 @@ BEGIN
     IS DISTINCT FROM '1576b6962409787f3dcdc5f783c89faf' THEN
   RAISE EXCEPTION 'M197_REPLACEMENT_FINGERPRINT_MISMATCH'; END IF;
 END $guard$;
-COMMIT;

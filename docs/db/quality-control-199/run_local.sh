@@ -49,7 +49,7 @@ REPORT="$TASK_DIR/chain.txt" bash scripts/ci/fresh-db/run_chain.sh sql/migration
 python3 "$HERE/test_prerequisites.py" "$DB"
 "${PSQL[@]}" -q -f docs/db/manufacturing-inventory-red-20260925/00_fixture.sql >/dev/null
 "${PSQL[@]}" -f "$HERE/red.sql"
-"${PSQL[@]}" -q -f sql/migrations/199_manufacturing_quality_control.sql >/dev/null
+"${PSQL[@]}" --single-transaction -q -f sql/migrations/199_manufacturing_quality_control.sql >/dev/null
 "${PSQL[@]}" -f "$HERE/acceptance.sql"
 # The catalog-wide DEFINER contract must stay green with M199 installed.
 bash scripts/ci/fresh-db/selftest_definer_guard_contract.sh

@@ -125,9 +125,11 @@ def main():
         verify_start(conn)
         snapshot_controls(conn)
         refuse(conn, migration, "chain_196", setup_error)
-        conn.execute((ROOT / "sql/migrations/197_material_issue_stale_version.sql").read_text())
+        with conn.transaction():
+            conn.execute((ROOT / "sql/migrations/197_material_issue_stale_version.sql").read_text())
         refuse(conn, migration, "chain_197", setup_error)
-        conn.execute((ROOT / "sql/migrations/198_material_issue_parent_version.sql").read_text())
+        with conn.transaction():
+            conn.execute((ROOT / "sql/migrations/198_material_issue_parent_version.sql").read_text())
         controls = [
             ("setup_body", setup_error, changed_body(SETUP)),
             ("setup_invoker", setup_error, "ALTER FUNCTION public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid) SECURITY INVOKER"),
