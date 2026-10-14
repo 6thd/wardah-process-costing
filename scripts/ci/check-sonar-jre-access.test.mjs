@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { checkJreAccess } from './check-sonar-jre-access.mjs'
+import { checkJreAccess, diagnoseAuthentication } from './check-sonar-jre-access.mjs'
 
 test('missing token rejects before making a request', async () => {
   let called = false
@@ -30,4 +30,23 @@ test('network exception is sanitized rather than exposing request details', asyn
   await assert.rejects(checkJreAccess('synthetic-test-token', async () => {
     throw new Error('request metadata with synthetic-test-token')
   }), { message: 'SONAR_JRE_ACCESS_NETWORK_ERROR' })
+})
+
+for (const valid of [true, false]) {
+  test(`authentication diagnostic reports boolean ${valid} only`, async () => {
+    assert.equal(await diagnoseAuthentication('synthetic-test-token', async () => ({
+      status: 200, json: async () => ({ valid, extra: 'never emit response content' }),
+    })), `SONAR_AUTH_VALID_${valid}`)
+  })
+}
+
+test('authentication HTTP denial reports status only', async () => {
+  assert.equal(await diagnoseAuthentication('synthetic-test-token', async () => ({ status: 401 })),
+    'SONAR_AUTH_HTTP_401')
+})
+
+test('authentication network exception never exposes credentials', async () => {
+  assert.equal(await diagnoseAuthentication('synthetic-test-token', async () => {
+    throw new Error('synthetic-test-token')
+  }), 'SONAR_AUTH_DIAGNOSTIC_UNAVAILABLE')
 })
