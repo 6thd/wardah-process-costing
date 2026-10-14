@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+import shutil
 # Fixed read-only Git argv; manifest paths must equal the canonical allowlist.
 import subprocess  # nosec B404
 
@@ -10,7 +11,17 @@ SOURCE = 'd022ba3484d1737c693bab9e2724fab396499a72'
 MANIFEST = 'docs/db/m195-203-runner-transactions/SOURCE_TRANSFORM.json'
 
 
+def require_program(name):
+    if name not in ('git', 'bash'):
+        raise ValueError('B2_PROGRAM_NOT_ALLOWLISTED')
+    executable = shutil.which(name)
+    if executable is None:
+        raise RuntimeError('B2_REQUIRED_PROGRAM_MISSING: ' + name)
+    return str(Path(executable).resolve(strict=True))
+
+
 def verify(root=ROOT):
+    git = require_program('git')
     data = json.loads((root / MANIFEST).read_text())
     if (data['source_commit'] != SOURCE or data['hosted_verified'] is not False
             or data['production_authorized'] is not False):
@@ -21,7 +32,7 @@ def verify(root=ROOT):
         raise ValueError('B2_FILE_SET_DRIFT')
     for entry in data['migrations']:
         old = subprocess.check_output(
-            ['/usr/bin/git', '--no-optional-locks', 'show', SOURCE + ':' + entry['path']],  # nosec B603
+            [git, '--no-optional-locks', 'show', SOURCE + ':' + entry['path']],  # nosec B603
             cwd=ROOT, shell=False, timeout=30)
         if old.count(b'\nBEGIN;\n') != 1 or old.count(b'\nCOMMIT;\n') != 1:
             raise ValueError('B2_ORIGINAL_TRANSACTION_SHAPE_DRIFT')

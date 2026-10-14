@@ -7,11 +7,29 @@ import shutil
 import subprocess  # nosec B404
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from check_b2_transaction_contract import ROOT, MANIFEST, verify
+from check_b2_transaction_contract import ROOT, MANIFEST, require_program, verify
 
 
 class B2Controls(unittest.TestCase):
+    def test_program_lookup_missing_rejects_before_execution(self):
+        for name in ('git', 'bash'):
+            with patch('check_b2_transaction_contract.shutil.which', return_value=None):
+                with self.assertRaisesRegex(RuntimeError, 'B2_REQUIRED_PROGRAM_MISSING: ' + name):
+                    require_program(name)
+
+    def test_program_lookup_uses_resolved_available_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / 'program with spaces'
+            executable.touch()
+            with patch('check_b2_transaction_contract.shutil.which', return_value=str(executable)):
+                self.assertEqual(require_program('git'), str(executable.resolve()))
+
+    def test_program_names_are_allowlisted(self):
+        with self.assertRaisesRegex(ValueError, 'B2_PROGRAM_NOT_ALLOWLISTED'):
+            require_program('other')
+
     def test_transform_and_body_mutations(self):
         self.assertEqual(verify(), 9)
         with tempfile.TemporaryDirectory() as directory:
@@ -38,6 +56,7 @@ class B2Controls(unittest.TestCase):
                 path.write_bytes(original)
 
     def run_chain(self, rc):
+        bash = require_program('bash')
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'psql').write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$ARGV_LOG"\nexit "$FAKE_RC"\n')
@@ -48,7 +67,7 @@ class B2Controls(unittest.TestCase):
             (root / 'order').write_text('\n'.join(names) + '\n')
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
                        ARGV_LOG=str(root / 'argv'), FAKE_RC=str(rc), REPORT=str(root / 'report'))
-            result = subprocess.run(['/usr/bin/bash', str(ROOT / 'scripts/ci/fresh-db/run_chain.sh'),  # nosec B603
+            result = subprocess.run([bash, str(ROOT / 'scripts/ci/fresh-db/run_chain.sh'),  # nosec B603
                                      str(root), str(root / 'order')], env=env,
                                     capture_output=True, text=True, shell=False, timeout=30)
             return result, (root / 'argv').read_text().splitlines(), (root / 'report').read_text()
