@@ -32,8 +32,8 @@ def verify(root=ROOT):
         raise ValueError('B2_FILE_SET_DRIFT')
     for entry in data['migrations']:
         old = subprocess.check_output(
-            [git, '--no-optional-locks', 'show', SOURCE + ':' + entry['path']],  # nosec B603
-            cwd=ROOT, shell=False, timeout=30)
+            ['git', '--no-optional-locks', 'show', SOURCE + ':' + entry['path']],  # nosec B603
+            executable=git, cwd=ROOT, shell=False, timeout=30)
         if old.count(b'\nBEGIN;\n') != 1 or old.count(b'\nCOMMIT;\n') != 1:
             raise ValueError('B2_ORIGINAL_TRANSACTION_SHAPE_DRIFT')
         expected = old.replace(b'\nBEGIN;\n', b'\n', 1).replace(b'\nCOMMIT;\n', b'\n', 1)

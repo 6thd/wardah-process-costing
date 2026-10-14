@@ -30,6 +30,16 @@ class B2Controls(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'B2_PROGRAM_NOT_ALLOWLISTED'):
             require_program('other')
 
+    def test_git_uses_resolved_executable_and_fixed_argv(self):
+        with patch('check_b2_transaction_contract.subprocess.check_output',
+                   wraps=subprocess.check_output) as run:
+            self.assertEqual(verify(), 9)
+        self.assertEqual(run.call_count, 9)
+        for call in run.call_args_list:
+            self.assertEqual(call.args[0][:3], ['git', '--no-optional-locks', 'show'])
+            self.assertEqual(call.kwargs['executable'], require_program('git'))
+            self.assertIs(call.kwargs['shell'], False)
+
     def test_transform_and_body_mutations(self):
         self.assertEqual(verify(), 9)
         with tempfile.TemporaryDirectory() as directory:
@@ -67,13 +77,17 @@ class B2Controls(unittest.TestCase):
             (root / 'order').write_text('\n'.join(names) + '\n')
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
                        ARGV_LOG=str(root / 'argv'), FAKE_RC=str(rc), REPORT=str(root / 'report'))
-            result = subprocess.run([bash, str(ROOT / 'scripts/ci/fresh-db/run_chain.sh'),  # nosec B603
+            result = subprocess.run(['bash', str(ROOT / 'scripts/ci/fresh-db/run_chain.sh'),  # nosec B603
                                      str(root), str(root / 'order')], env=env,
-                                    capture_output=True, text=True, shell=False, timeout=30)
+                                    executable=bash, capture_output=True, text=True, shell=False, timeout=30)
             return result, (root / 'argv').read_text().splitlines(), (root / 'report').read_text()
 
     def test_chain_wraps_only_b2_and_disables_psqlrc(self):
-        result, calls, report = self.run_chain(0)
+        with patch('subprocess.run', wraps=subprocess.run) as run:
+            result, calls, report = self.run_chain(0)
+        self.assertEqual(run.call_args.args[0][0], 'bash')
+        self.assertEqual(run.call_args.kwargs['executable'], require_program('bash'))
+        self.assertIs(run.call_args.kwargs['shell'], False)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(len(calls), 10)
         self.assertNotIn('--single-transaction', calls[0])
