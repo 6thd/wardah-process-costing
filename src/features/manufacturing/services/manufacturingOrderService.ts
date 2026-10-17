@@ -2,6 +2,7 @@ import { manufacturingService } from '@/services/supabase-service';
 import { getEffectiveTenantId, type ManufacturingOrder } from '@/lib/supabase';
 import { toast } from 'sonner';
 import type { ManufacturingOrderStatus } from '@/utils/manufacturing-order-status';
+import { isolatedMaterialIssueEnabled } from '../material-issue/gate';
 // Removed unused import: useTranslation
 
 interface CreateOrderData {
@@ -31,7 +32,9 @@ export async function createManufacturingOrder(data: CreateOrderData, t: any): P
       org_id: orgId,
       order_number: data.orderNumber.trim() || `MO-${Date.now()}`,
       product_id: data.productId,
-      item_id: data.productId,
+      // The selector supplies products.id, not an items.id mapping. The isolated
+      // creator accepts product identity directly; do not invent a second ID.
+      ...(isolatedMaterialIssueEnabled() ? {} : { item_id: data.productId }),
       quantity: Number(data.quantity) || 0,
       status: data.status,
       start_date: data.startDate || null,
@@ -79,4 +82,3 @@ export async function getOrderDetails(orderId: string): Promise<ManufacturingOrd
     throw error;
   }
 }
-
