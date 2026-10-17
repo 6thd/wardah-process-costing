@@ -43,6 +43,12 @@ jobs:
         if: steps.sonar_cfg.outputs.configured == 'true'
         run: npm ci --ignore-scripts
 
+      - name: Check scanner JRE endpoint access without exposing credentials
+        if: steps.sonar_cfg.outputs.configured == 'true'
+        run: |
+          node --test scripts/ci/check-sonar-jre-access.test.mjs
+          node scripts/ci/check-sonar-jre-access.mjs
+
       - name: Run tests with coverage
         if: steps.sonar_cfg.outputs.configured == 'true'
         run: npm run test:coverage
