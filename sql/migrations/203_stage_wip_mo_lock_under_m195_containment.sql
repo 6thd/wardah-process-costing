@@ -19,7 +19,6 @@
 -- The preflight pins the M194 guard body, its attributes and owner, and the
 -- zz_guard_stage_wip_write_194 binding. Any other pre-image raises before
 -- the helper is created.
-BEGIN;
 SET LOCAL lock_timeout = '30s';
 SET LOCAL statement_timeout = '5min';
 
@@ -279,4 +278,3 @@ BEGIN
   END IF;
 END
 $postflight$;
-COMMIT;

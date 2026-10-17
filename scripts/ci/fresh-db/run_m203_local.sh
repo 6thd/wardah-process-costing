@@ -42,12 +42,14 @@ PSQL=(psql -X -v ON_ERROR_STOP=1 -q)
 # run_checked LABEL DB FILE OUT MARKER [WORKDIR]: psql exit 0, no ERROR/FATAL/PANIC line, marker present.
 run_checked() {
   local label="$1" db="$2" file="$3" out="$4" marker="$5" dir="${6:-.}" rc=0
-  ( cd "$dir" && psql -X -v ON_ERROR_STOP=1 -d "$db" -f "$file" ) >"$out" 2>&1 || rc=$?
+  local txn=()
+  case "$file" in sql/migrations/203_*.sql) txn=(--single-transaction);; esac
+  ( cd "$dir" && psql -X -v ON_ERROR_STOP=1 "${txn[@]}" -d "$db" -f "$file" ) >"$out" 2>&1 || rc=$?
   if [[ "$rc" != 0 ]]; then
     echo "REFUSED: $label psql exit code $rc" >&2; grep -E '(ERROR|FATAL|PANIC):' "$out" | head -3 >&2 || true; return 1
   fi
   if grep -qE '(ERROR|FATAL|PANIC):' "$out"; then echo "REFUSED: $label emitted a psql error although the exit code was 0" >&2; return 1; fi
-  if ! grep -q -- "$marker" "$out"; then echo "REFUSED: $label marker $marker missing" >&2; return 1; fi
+  if [[ -n "$marker" ]] && ! grep -q -- "$marker" "$out"; then echo "REFUSED: $label marker $marker missing" >&2; return 1; fi
   echo "$label: psql rc=0, no psql error, marker ok: $marker"
 }
 # run_py LABEL DB OUT MARKER SCRIPT: python check with PGDATABASE, exit 0 and marker.
@@ -83,8 +85,9 @@ run_py '203 pre-image drift' "${P}_drift" "$TASK_DIR/drift.out" STAGE_WIP_203_PR
 # --- restored order: CRLF script (no-op on a fresh DB) -> 202 -> 203
 copy_db "${P}_base" "${P}_a"
 run_checked 'CRLF script' "${P}_a" scripts/ops/pre_m202_validate_mo_transition_crlf.sql "$TASK_DIR/a_crlf.out" PRE_M202_CRLF_NOOP
-"${PSQL[@]}" -d "${P}_a" -f sql/migrations/202_qc_privileged_write_closure.sql >/dev/null
-run_checked '203 apply' "${P}_a" sql/migrations/203_stage_wip_mo_lock_under_m195_containment.sql "$TASK_DIR/a_203.out" COMMIT
+"${PSQL[@]}" --single-transaction -d "${P}_a" -f sql/migrations/202_qc_privileged_write_closure.sql >/dev/null
+# psql --single-transaction commits outside file output; no printed COMMIT tag.
+run_checked '203 apply' "${P}_a" sql/migrations/203_stage_wip_mo_lock_under_m195_containment.sql "$TASK_DIR/a_203.out" ''
 run_checked '203 acceptance (restored order)' "${P}_a" scripts/ci/fresh-db/acceptance_203_stage_wip_mo_lock.sql "$TASK_DIR/a_acc203.out" STAGE_WIP_203_ACCEPTANCE_PASS
 run_py '203 concurrency' "${P}_a" "$TASK_DIR/a_conc.out" STAGE_WIP_203_CONCURRENCY_PASS scripts/ci/fresh-db/acceptance_203_stage_wip_lock_concurrency.py
 # Revised M202 acceptance (try_role/try_as/try_connected controls and the membership
@@ -103,7 +106,7 @@ echo "M202 acceptance ok-notices: $(grep -c 'NOTICE:  ok ' "$TASK_DIR/a_acc202.o
 # --- alternate order: 203 before 202 (the cluster-wide role belongs to one database at a time)
 dropdb "${P}_a"; psql -X -qc 'DROP ROLE wardah_qc_entry_202' -d postgres
 copy_db "${P}_base" "${P}_b"
-run_checked '203 apply (before 202)' "${P}_b" sql/migrations/203_stage_wip_mo_lock_under_m195_containment.sql "$TASK_DIR/b_203.out" COMMIT
-"${PSQL[@]}" -d "${P}_b" -f sql/migrations/202_qc_privileged_write_closure.sql >/dev/null
+run_checked '203 apply (before 202)' "${P}_b" sql/migrations/203_stage_wip_mo_lock_under_m195_containment.sql "$TASK_DIR/b_203.out" ''
+"${PSQL[@]}" --single-transaction -d "${P}_b" -f sql/migrations/202_qc_privileged_write_closure.sql >/dev/null
 run_checked '203 acceptance (203 before 202)' "${P}_b" scripts/ci/fresh-db/acceptance_203_stage_wip_mo_lock.sql "$TASK_DIR/b_acc203.out" STAGE_WIP_203_ACCEPTANCE_PASS
 echo 'M203_LOCAL_RUN_PASS crlf=unit drift=3 order=restored+alternate acceptance_202=post-203'

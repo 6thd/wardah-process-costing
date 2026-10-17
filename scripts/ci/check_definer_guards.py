@@ -5812,10 +5812,10 @@ def _identity_mutation_errors(path, raw: str, masked: str, definitions,
 # match the independently reviewed artifacts. Catalog/body/ACL enforcement and
 # runtime denial/race probes are mandatory in material-issue-canonical CI.
 REVIEWED_MATERIAL_ISSUE_FILES = {
-    "195_material_issue_scope.sql": "d906c72a96468d4869d8341e1cc61c8b20383e5dd43284be0070c876c80987ca",
-    "196_material_issue_maintenance.sql": "cf61b346c56b7e18dbe5bbcc994e3494a330ffbacf9315f81863e7796e44c648",
-    "197_material_issue_stale_version.sql": "e7eb602688c2503a9d6313a0d1525d083e3909b74293805947a078d01fb2ff52",
-    "198_material_issue_parent_version.sql": "2cf867dfa5c9a473f0e6e05528d0603aa8885736dd31c3210b58030b616240a5",
+    "195_material_issue_scope.sql": "a059271918c5d42fc3edf11f4ff1b0f99a3ae00882c4b673baa467dd10428102",
+    "196_material_issue_maintenance.sql": "88578735da82ebb1c9082b79be7621259ccd2584cdd7943abc467ec9533eed33",
+    "197_material_issue_stale_version.sql": "f1536d9b2a339bc79b1e687118c0a10d9c650f7feb10d84e5ce405f8b90b7f2d",
+    "198_material_issue_parent_version.sql": "2e0fe396acdbb0a490b8b0b28366d81101926319a7b43a40f51c5e785f716723",
 }
 REVIEWED_MATERIAL_ISSUE_DELEGATIONS = {
     "196_material_issue_maintenance.sql": frozenset({

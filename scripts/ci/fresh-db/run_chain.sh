@@ -33,10 +33,15 @@ while IFS= read -r f; do
         continue
     fi
 
-    ERR=$(psql -v ON_ERROR_STOP=1 -q -f "$DIR/$f" 2>&1 >/dev/null \
-          | grep -m1 -E 'ERROR|FATAL' \
-          | tr -d '|' \
-          | cut -c1-200)
+    # B2 files require a runner-owned transaction; older files retain theirs.
+    TXN=()
+    case "$f" in 19[5-9]_*.sql|20[0-3]_*.sql) TXN=(--single-transaction);; esac
+    RC=0
+    OUTPUT=$(psql -X -v ON_ERROR_STOP=1 "${TXN[@]}" -q -f "$DIR/$f" 2>&1) || RC=$?
+    ERR=$(printf '%s\n' "$OUTPUT" | grep -m1 -E 'ERROR|FATAL|PANIC' | tr -d '|' | cut -c1-200)
+    if [ "$RC" -ne 0 ] && [ -z "$ERR" ]; then
+        ERR="PSQL_EXIT_${RC}"
+    fi
 
     if [ -z "$ERR" ]; then
         PASS=$((PASS+1))

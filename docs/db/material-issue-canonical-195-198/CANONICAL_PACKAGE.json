@@ -28,28 +28,28 @@
       "number": 195,
       "path": "sql/migrations/195_material_issue_scope.sql",
       "source_path": "docs/db/material-issue-release/migrations/195_material_issue_scope.sql",
-      "sha256": "d906c72a96468d4869d8341e1cc61c8b20383e5dd43284be0070c876c80987ca",
+      "sha256": "a059271918c5d42fc3edf11f4ff1b0f99a3ae00882c4b673baa467dd10428102",
       "application_name": "195_material_issue_scope"
     },
     {
       "number": 196,
       "path": "sql/migrations/196_material_issue_maintenance.sql",
       "source_path": "docs/db/material-issue-release/migrations/196_material_issue_maintenance.sql",
-      "sha256": "cf61b346c56b7e18dbe5bbcc994e3494a330ffbacf9315f81863e7796e44c648",
+      "sha256": "88578735da82ebb1c9082b79be7621259ccd2584cdd7943abc467ec9533eed33",
       "application_name": "196_material_issue_maintenance"
     },
     {
       "number": 197,
       "path": "sql/migrations/197_material_issue_stale_version.sql",
       "source_path": "docs/db/material-issue-release/migrations/197_material_issue_stale_version.sql",
-      "sha256": "e7eb602688c2503a9d6313a0d1525d083e3909b74293805947a078d01fb2ff52",
+      "sha256": "f1536d9b2a339bc79b1e687118c0a10d9c650f7feb10d84e5ce405f8b90b7f2d",
       "application_name": "197_material_issue_stale_version"
     },
     {
       "number": 198,
       "path": "sql/migrations/198_material_issue_parent_version.sql",
       "source_path": "docs/db/material-issue-parent-version-198/candidate.sql",
-      "sha256": "2cf867dfa5c9a473f0e6e05528d0603aa8885736dd31c3210b58030b616240a5",
+      "sha256": "2e0fe396acdbb0a490b8b0b28366d81101926319a7b43a40f51c5e785f716723",
       "application_name": "198_material_issue_parent_version"
     }
   ]

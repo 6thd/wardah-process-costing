@@ -2,7 +2,6 @@
 -- DB-first split: safe UI reads and quarantine of the twelve documented legacy
 -- writers. Quarantine disables MO/WO/reservation maintenance, including Admin.
 -- This is containment, not implementation of the proposed #170/#154 permissions.
-BEGIN;
 SET LOCAL lock_timeout = '10s';
 DO $$ BEGIN
  IF to_regprocedure('public.rpc_consume_material_event(uuid,uuid,uuid,jsonb)') IS NULL
@@ -127,4 +126,3 @@ BEGIN
   END LOOP;
  END LOOP;
 END $$;
-COMMIT;

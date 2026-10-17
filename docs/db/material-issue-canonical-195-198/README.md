@@ -1,20 +1,20 @@
 # Canonical material-issue allocation: 195–198
 
 **Draft allocation, final independent sign-off/application pending. NO-GO.**
-This DB-only PR starts at `main@94400e1b78f7f5f1716568df96dba7cde2558d12`,
-whose maximum canonical file is 194. It copies the accepted SQL bytes into the
+The original allocation started at `main@94400e1b78f7f5f1716568df96dba7cde2558d12`,
+whose maximum canonical file was 194. It copied the accepted SQL bytes into the
 canonical directory and adds pending MANIFEST rows. It changes no application
 source, client contract, existing SQL/baseline, grants policy or Production hold.
-Historical candidate comments inside the unchanged SQL remain provenance, not
+Historical candidate comments inside the SQL remain provenance, not
 evidence of target application. The numbers remain proposed until this PR is
 accepted and merged; recheck allocation collisions before merge.
 
-| Canonical file / application stem | Accepted source | SHA-256 prefix |
+| Canonical file / application stem | Historical accepted source | B2 candidate SHA-256 prefix |
 |---|---|---|
-| `195_material_issue_scope` | #291 containment, frozen release package | `d906c72a` |
-| `196_material_issue_maintenance` | #293 maintenance/reconciliation | `cf61b346` |
-| `197_material_issue_stale_version` | accepted #294 compatibility correction | `e7eb6026` |
-| `198_material_issue_parent_version` | accepted #295 parent-version candidate | `2cf867df` |
+| `195_material_issue_scope` | #291 containment, frozen release package | `a0592719` |
+| `196_material_issue_maintenance` | #293 maintenance/reconciliation | `88578735` |
+| `197_material_issue_stale_version` | accepted #294 compatibility correction | `f1536d9b` |
+| `198_material_issue_parent_version` | accepted #295 parent-version candidate | `2e0fe396` |
 
 Full digests, source paths and application names are in `CANONICAL_PACKAGE.json`.
 The verified order is cutoff-189 baseline/reference pair, then **190→191→192→193→194→195→196→197→198**.
@@ -46,7 +46,12 @@ temporary file: its command gains the fixture MO's current `expected_version`
 required by M198, and its fixture include points to the pinned checkout. The
 adapter refuses source SHA-256 drift and proves every original assertion is
 unchanged, including fence/replay, actor/payload/permission denials and financial
-state checks. The pinned harness, RPCs and canonical migration bytes are unchanged.
+state checks. The pinned harness and RPC bodies remain unchanged. B2 removes
+only the two outer transaction lines from the canonical files; `verify_package.py`
+compares them with that exact transformation of the frozen harness artifacts.
+Direct applications require a runner-owned transaction. See
+[the B2 contract](../m195-203-runner-transactions/README.md); the new file bytes
+require independent review and hosted proof before rollout.
 
 The generic DEFINER scanner recognizes public membership/assertion helpers, but
 does not infer the private `wardah_internal.assert_issue_maintenance_permission`

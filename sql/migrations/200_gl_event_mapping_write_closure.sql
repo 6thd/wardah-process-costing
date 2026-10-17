@@ -40,7 +40,6 @@
 -- the new RPC yet; a later UI PR must wait for this migration to be applied
 -- and verified on Production (DB-first).
 
-BEGIN;
 
 SET LOCAL lock_timeout = '30s';
 SET LOCAL statement_timeout = '5min';
@@ -277,4 +276,3 @@ BEGIN
 END
 $postflight$;
 
-COMMIT;

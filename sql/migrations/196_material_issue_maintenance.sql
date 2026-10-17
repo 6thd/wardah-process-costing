@@ -1,6 +1,5 @@
 -- REVIEW CANDIDATE, no migration number allocated. Requires #291 containment.
 -- Material-issue preparation only; not general MES or terminal completion.
-BEGIN;
 SET LOCAL lock_timeout = '10s';
 DO $$ BEGIN
  IF to_regprocedure('public.rpc_get_material_issue_context(uuid)') IS NULL
@@ -464,4 +463,3 @@ DO $$ DECLARE role_name text; table_name text; privilege_name text; BEGIN
  OR NOT has_function_privilege('authenticated','public.rpc_reconcile_material_issue_setup(uuid,uuid,jsonb,uuid)','EXECUTE')
  THEN RAISE EXCEPTION 'RECONCILE_RPC_GRANT_REGRESSION'; END IF;
 END $$;
-COMMIT;

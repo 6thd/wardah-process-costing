@@ -1,6 +1,5 @@
 -- Proposed M198 parent-version guard. No canonical allocation or live application.
 -- Requires exact frozen M197 and the enabled frozen MO version trigger.
-BEGIN;
 CREATE TEMP TABLE issue_parent_198_before ON COMMIT DROP AS
 SELECT oid,proowner,proacl,prosecdef,proconfig,provolatile,proparallel,prorettype,proargtypes
 FROM pg_proc WHERE oid='public.rpc_manage_material_issue_setup(uuid,uuid,jsonb,uuid)'::regprocedure;
@@ -298,4 +297,3 @@ BEGIN
     IS DISTINCT FROM 'b2576a5e9cf4dbab07be959434add8ab' THEN
   RAISE EXCEPTION 'M198_REPLACEMENT_FINGERPRINT_MISMATCH'; END IF;
 END $guard$;
-COMMIT;
