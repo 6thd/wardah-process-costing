@@ -44,7 +44,7 @@ vi.mock('@/lib/config', () => ({
   loadConfig: vi.fn(() => Promise.resolve({ ORG_ID: 'test-org-id' })),
 }));
 
-import { processCostingService, type ProcessCostingParams, type StageCostResult } from '../process-costing-service';
+import { processCostingService, STAGE_COSTING_UNAVAILABLE_CODE, type ProcessCostingParams, type StageCostResult } from '../process-costing-service';
 import { supabase } from '@/lib/supabase';
 
 describe('ProcessCostingService', () => {
@@ -56,334 +56,33 @@ describe('ProcessCostingService', () => {
     vi.restoreAllMocks();
   });
 
-  describe('applyLaborTime', () => {
-    it('should throw error if moId is missing', async () => {
-      const params: ProcessCostingParams = {
-        moId: '',
-        stageNo: 1,
-        laborHours: 8,
-        hourlyRate: 50,
-      };
+  describe('stage-costing writes are unavailable until #260 (fail closed)', () => {
+    // Before #260 these suites mocked `labor_time_logs`, `moh_applied` and stage_costs columns that do not exist on the
+    // schema in Production, so they passed while every real call failed. The writes now refuse before any request.
+    const cases = [
+      ['applyLaborTime', () => processCostingService.applyLaborTime({ moId: 'mo-1', stageNo: 1, laborHours: 8, hourlyRate: 50 })],
+      ['applyOverhead', () => processCostingService.applyOverhead({ moId: 'mo-1', stageNo: 1, baseQty: 100, overheadRate: 0.5 })],
+      ['upsertStageCost', () => processCostingService.upsertStageCost({ moId: 'mo-1', stageNo: 1, goodQty: 10, directMaterialCost: 100 })],
+    ] as const
 
-      await expect(processCostingService.applyLaborTime(params)).rejects.toThrow(
-        'Missing required parameters'
-      );
-    });
+    it.each(cases)('%s refuses with STAGE_COSTING_UNAVAILABLE_PENDING_260', async (operation, call) => {
+      await expect(call()).rejects.toMatchObject({
+        code: STAGE_COSTING_UNAVAILABLE_CODE,
+        name: 'StageCostingUnavailableError',
+        operation,
+      })
+    })
 
-    it('should throw error if stageId and stageNo are both missing', async () => {
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        laborHours: 8,
-        hourlyRate: 50,
-      };
+    it.each(cases)('%s sends no request and writes nothing', async (_operation, call) => {
+      await call().catch(() => undefined)
+      expect(supabase.from).not.toHaveBeenCalled()
+    })
 
-      await expect(processCostingService.applyLaborTime(params)).rejects.toThrow(
-        'Missing required parameters'
-      );
-    });
-
-    it('should throw error if laborHours is missing', async () => {
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        stageNo: 1,
-        hourlyRate: 50,
-      };
-
-      await expect(processCostingService.applyLaborTime(params)).rejects.toThrow(
-        'Missing required parameters'
-      );
-    });
-
-    it('should throw error if hourlyRate is missing', async () => {
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        stageNo: 1,
-        laborHours: 8,
-      };
-
-      await expect(processCostingService.applyLaborTime(params)).rejects.toThrow(
-        'Missing required parameters'
-      );
-    });
-
-    it('should calculate total labor cost correctly', async () => {
-      const mockInsert = vi.fn().mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: { id: 'labor-123' },
-            error: null,
-          }),
-        }),
-      });
-
-      const mockSelect = vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({
-            single: vi.fn().mockResolvedValue({
-              data: { id: 'wc-123' },
-              error: null,
-            }),
-          }),
-        }),
-      });
-
-      vi.mocked(supabase.from).mockImplementation((table: string) => {
-        if (table === 'work_centers') {
-          return { select: mockSelect } as any;
-        }
-        if (table === 'labor_time_logs') {
-          return { insert: mockInsert } as any;
-        }
-        return {} as any;
-      });
-
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        stageNo: 1,
-        laborHours: 8,
-        hourlyRate: 50,
-        employeeName: 'محمد أحمد',
-      };
-
-      const result = await processCostingService.applyLaborTime(params);
-
-      expect(result.success).toBe(true);
-      expect(result.data.totalLaborCost).toBe(400); // 8 * 50
-      expect(result.data.hours).toBe(8);
-      expect(result.data.hourlyRate).toBe(50);
-    });
-
-    it('should handle overtime calculation', async () => {
-      const mockInsert = vi.fn().mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: { id: 'labor-123' },
-            error: null,
-          }),
-        }),
-      });
-
-      const mockSelect = vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({
-            single: vi.fn().mockResolvedValue({
-              data: { id: 'wc-123' },
-              error: null,
-            }),
-          }),
-        }),
-      });
-
-      vi.mocked(supabase.from).mockImplementation((table: string) => {
-        if (table === 'work_centers') {
-          return { select: mockSelect } as any;
-        }
-        if (table === 'labor_time_logs') {
-          return { insert: mockInsert } as any;
-        }
-        return {} as any;
-      });
-
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        stageNo: 1,
-        laborHours: 12,
-        hourlyRate: 75,
-      };
-
-      const result = await processCostingService.applyLaborTime(params);
-
-      expect(result.data.totalLaborCost).toBe(900); // 12 * 75
-    });
-  });
-
-  describe('applyOverhead', () => {
-    it('should throw error if moId is missing', async () => {
-      const params: ProcessCostingParams = {
-        moId: '',
-        stageNo: 1,
-        baseQty: 100,
-        overheadRate: 0.15,
-      };
-
-      await expect(processCostingService.applyOverhead(params)).rejects.toThrow(
-        'Missing required parameters'
-      );
-    });
-
-    it('should throw error if baseQty is missing', async () => {
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        stageNo: 1,
-        overheadRate: 0.15,
-      };
-
-      await expect(processCostingService.applyOverhead(params)).rejects.toThrow(
-        'Missing required parameters'
-      );
-    });
-
-    it('should throw error if overheadRate is missing', async () => {
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        stageNo: 1,
-        baseQty: 100,
-      };
-
-      await expect(processCostingService.applyOverhead(params)).rejects.toThrow(
-        'Missing required parameters'
-      );
-    });
-
-    it('should calculate overhead amount correctly', async () => {
-      const mockInsert = vi.fn().mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: { id: 'moh-123' },
-            error: null,
-          }),
-        }),
-      });
-
-      const mockSelect = vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({
-            single: vi.fn().mockResolvedValue({
-              data: { id: 'wc-123' },
-              error: null,
-            }),
-          }),
-        }),
-      });
-
-      vi.mocked(supabase.from).mockImplementation((table: string) => {
-        if (table === 'work_centers') {
-          return { select: mockSelect } as any;
-        }
-        if (table === 'moh_applied') {
-          return { insert: mockInsert } as any;
-        }
-        return {} as any;
-      });
-
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        stageNo: 1,
-        baseQty: 1000,
-        overheadRate: 0.25,
-        overheadType: 'variable',
-      };
-
-      const result = await processCostingService.applyOverhead(params);
-
-      expect(result.success).toBe(true);
-      expect(result.data.overheadAmount).toBe(250); // 1000 * 0.25
-      expect(result.data.baseQty).toBe(1000);
-      expect(result.data.rate).toBe(0.25);
-    });
-  });
-
-  describe('upsertStageCost', () => {
-    it('should throw error if moId is missing', async () => {
-      const params: ProcessCostingParams = {
-        moId: '',
-        stageNo: 1,
-        goodQty: 100,
-      };
-
-      await expect(processCostingService.upsertStageCost(params)).rejects.toThrow(
-        'Missing required parameters'
-      );
-    });
-
-    it('should throw error if goodQty is missing', async () => {
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        stageNo: 1,
-      };
-
-      await expect(processCostingService.upsertStageCost(params)).rejects.toThrow(
-        'Missing required parameters'
-      );
-    });
-
-    it('should calculate unit cost correctly', async () => {
-      const mockLaborData = [
-        { total_cost: 500 },
-        { total_cost: 300 },
-      ];
-
-      const mockOverheadData = [
-        { amount: 200 },
-        { amount: 150 },
-      ];
-
-      vi.mocked(supabase.from).mockImplementation((table: string) => {
-        if (table === 'labor_time_logs') {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                eq: vi.fn().mockResolvedValue({
-                  data: mockLaborData,
-                  error: null,
-                }),
-              }),
-            }),
-          } as any;
-        }
-        if (table === 'moh_applied') {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                eq: vi.fn().mockResolvedValue({
-                  data: mockOverheadData,
-                  error: null,
-                }),
-              }),
-            }),
-          } as any;
-        }
-        if (table === 'stage_costs') {
-          return {
-            upsert: vi.fn().mockReturnValue({
-              select: vi.fn().mockReturnValue({
-                single: vi.fn().mockResolvedValue({
-                  data: { id: 'stage-cost-123' },
-                  error: null,
-                }),
-              }),
-            }),
-          } as any;
-        }
-        return {} as any;
-      });
-
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        stageNo: 1,
-        goodQty: 100,
-        directMaterialCost: 1000,
-      };
-
-      const result = await processCostingService.upsertStageCost(params);
-
-      expect(result.success).toBe(true);
-      // Total: 1000 (material) + 800 (labor) + 350 (overhead) = 2150
-      // Unit: 2150 / 100 = 21.5
-    });
-
-    it('should handle zero good quantity', async () => {
-      const params: ProcessCostingParams = {
-        moId: 'mo-123',
-        stageNo: 1,
-        goodQty: 0,
-      };
-
-      await expect(processCostingService.upsertStageCost(params)).rejects.toThrow(
-        'Missing required parameters'
-      );
-    });
-  });
+    it('refuses even when the input is incomplete: no validation path or lookup runs first', async () => {
+      await expect(processCostingService.upsertStageCost({ moId: '' })).rejects.toMatchObject({ code: STAGE_COSTING_UNAVAILABLE_CODE })
+      expect(supabase.from).not.toHaveBeenCalled()
+    })
+  })
 
   describe('getStageCosts', () => {
     it('should throw error if moId is missing', async () => {

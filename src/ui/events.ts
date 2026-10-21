@@ -309,138 +309,24 @@ export const unregisterAction = (action: string) => {
 // MANUFACTURING ACTIONS
 // ===================================================================
 
-// Create manufacturing order
-registerAction('mo-create', async (context: ActionContext): Promise<ActionResult> => {
-  const { data } = context
-  
-  try {
-    const createMO = createSecureRPC('create_manufacturing_order')
-    const result = await createMO({
-      p_item_id: data.itemId,
-      p_quantity: Number.parseFloat(data.quantity),
-      p_start_date: data.startDate,
-      p_due_date: data.dueDate
-    })
+// The five manufacturing actions below previously called RPCs that do not exist on the schema now in Production
+// (observed after M203, 2026-10-21): create_manufacturing_order, apply_labor_time, apply_overhead and
+// complete_manufacturing_order are absent, and upsert_stage_cost exists only as upsert_stage_cost(p_tenant, p_mo, p_stage,
+// p_wc, p_good_qty, p_dm, p_mode, ...). Nothing in src dispatches them. They now refuse without sending any request:
+//  - stage costing (labor, overhead, recalculation) waits for the DB-first engine repair in #260;
+//  - completion must go through the single authorized, idempotent completion orchestrator of #230 (FG stock, cost, WIP,
+//    GL and MO status in one transaction), never through a client-side call.
+const unavailableManufacturingAction = (issue: '#230' | '#260', code: string) =>
+  async (_context: ActionContext): Promise<ActionResult> => ({
+    success: false,
+    error: `${code}: unavailable pending ${issue}; no request was sent`
+  })
 
-    return {
-      success: true,
-      data: result,
-      message: `Manufacturing order ${result.mo_number} created successfully`
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to create manufacturing order'
-    }
-  }
-})
-
-// Save labor hours to stage
-registerAction('stage-save-labor', async (context: ActionContext): Promise<ActionResult> => {
-  const { data } = context
-  
-  try {
-    const applyLabor = createSecureRPC('apply_labor_time')
-    const result = await applyLabor({
-      p_mo_id: data.moId,
-      p_stage_no: Number.parseInt(data.stageNo, 10),
-      p_hours: Number.parseFloat(data.hours),
-      p_hourly_rate: Number.parseFloat(data.hourlyRate),
-      p_worker_name: data.workerName
-    })
-
-    return {
-      success: true,
-      data: result,
-      message: `Labor time recorded: ${data.hours} hours @ ${data.hourlyRate}/hr`
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to record labor time'
-    }
-  }
-})
-
-// Apply overhead to stage
-registerAction('stage-apply-oh', async (context: ActionContext): Promise<ActionResult> => {
-  const { data } = context
-  
-  try {
-    const applyOverhead = createSecureRPC('apply_overhead')
-    const result = await applyOverhead({
-      p_mo_id: data.moId,
-      p_stage_no: Number.parseInt(data.stageNo, 10),
-      p_base_qty: Number.parseFloat(data.baseQty),
-      p_overhead_rate: Number.parseFloat(data.overheadRate),
-      p_basis: data.basis || 'labor_hours'
-    })
-
-    return {
-      success: true,
-      data: result,
-      message: `Overhead applied: ${data.baseQty} × ${data.overheadRate} = ${result}`
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to apply overhead'
-    }
-  }
-})
-
-// Recalculate stage costs
-registerAction('stage-recalc', async (context: ActionContext): Promise<ActionResult> => {
-  const { data } = context
-  
-  try {
-    const upsertStage = createSecureRPC('upsert_stage_cost')
-    const result = await upsertStage({
-      p_mo_id: data.moId,
-      p_stage_no: Number.parseInt(data.stageNo, 10),
-      p_work_center_id: data.workCenterId,
-      p_good_qty: Number.parseFloat(data.goodQty || 0),
-      p_scrap_qty: Number.parseFloat(data.scrapQty || 0),
-      p_dm_cost: Number.parseFloat(data.dmCost || 0)
-    })
-
-    return {
-      success: true,
-      data: result,
-      message: `Stage ${data.stageNo} recalculated - Unit cost: ${result.unit_cost}`
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to recalculate stage'
-    }
-  }
-})
-
-// Complete manufacturing order
-registerAction('mo-finish', async (context: ActionContext): Promise<ActionResult> => {
-  const { data } = context
-  
-  try {
-    const completeMO = createSecureRPC('complete_manufacturing_order')
-    const result = await completeMO({
-      p_mo_id: data.moId,
-      p_completed_qty: Number.parseFloat(data.completedQty),
-      p_scrap_qty: Number.parseFloat(data.scrapQty || 0)
-    })
-
-    return {
-      success: true,
-      data: result,
-      message: `Manufacturing order completed - ${data.completedQty} units transferred to finished goods`
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to complete manufacturing order'
-    }
-  }
-})
+registerAction('mo-create', unavailableManufacturingAction('#230', 'MO_CREATE_ACTION_UNAVAILABLE'))
+registerAction('stage-save-labor', unavailableManufacturingAction('#260', 'STAGE_COSTING_UNAVAILABLE_PENDING_260'))
+registerAction('stage-apply-oh', unavailableManufacturingAction('#260', 'STAGE_COSTING_UNAVAILABLE_PENDING_260'))
+registerAction('stage-recalc', unavailableManufacturingAction('#260', 'STAGE_COSTING_UNAVAILABLE_PENDING_260'))
+registerAction('mo-finish', unavailableManufacturingAction('#230', 'MO_COMPLETION_UNAVAILABLE_PENDING_230'))
 
 // ===================================================================
 // INVENTORY ACTIONS

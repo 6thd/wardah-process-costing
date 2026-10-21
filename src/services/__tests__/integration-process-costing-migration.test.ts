@@ -75,7 +75,7 @@ describe('Process Costing Migration Integration Tests', () => {
       expect(typeof newService.getStageCosts).toBe('function');
     });
 
-    it('should accept same parameter structure', () => {
+    it('should accept same parameter structure', async () => {
       const params = {
         moId: 'mo-123',
         stageId: 'stage-456',
@@ -88,8 +88,11 @@ describe('Process Costing Migration Integration Tests', () => {
       };
 
       // Both services should accept same params structure
-      // Legacy
-      expect(() => processCostingService.applyLaborTime(params)).not.toThrow();
+      // Legacy: accepts the structure, then refuses explicitly until #260 (no request is sent). Awaited, so the
+      // refusal is asserted instead of escaping as an unhandled rejection.
+      const legacy = processCostingService.applyLaborTime(params);
+      expect(legacy).toBeInstanceOf(Promise);
+      await expect(legacy).rejects.toMatchObject({ code: 'STAGE_COSTING_UNAVAILABLE_PENDING_260' });
       
       // New
       const repository = new SupabaseProcessCostingRepository();
