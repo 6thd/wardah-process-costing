@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 354,
-  "signature_count": 328,
-  "signature_sha256": "e400feb32313f1acd801f01ab9d7930115a2a863bb5a9e1dfaa3dcec05fe1b7c",
-  "note": "Reviewed #278 boundary change: in supabase-service.ts the direct stage_wip_log close UPDATE was replaced by the audited rpc_close_stage_wip_194 RPC. The direct stage_wip_log update count goes 2 to 1 and one rpc_call signature is added; the candidate total stays 354 and every other signature is unchanged."
+  "candidate_count": 360,
+  "signature_count": 334,
+  "signature_sha256": "e57131fcb6eabc40745bc0b82264298aeaa77035b7e00e9d94781217c63b7fe8",
+  "note": "Mounted isolated preparation adds one occurrence of the existing read-only rpc_get_material_reservation_setup, scoped by org/item with exact reserve grant and user/org revalidation before and after. All prior signatures remain; classification stays follow_up_required under #170 until canonical/live sign-off."
 }

@@ -2,6 +2,7 @@
 // React Query hooks for manufacturing orders
 // ✅ Updated to use manufacturingService.getAll for better performance
 
+import { isolatedMaterialIssueEnabled } from '@/features/manufacturing/material-issue/gate'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { manufacturingService } from '@/services/supabase-service'
 import { getSupabase, type ManufacturingOrder } from '@/lib/supabase'
@@ -25,6 +26,7 @@ export const useCreateManufacturingOrder = () => {
   
   return useMutation({
     mutationFn: async (order: Omit<ManufacturingOrder, 'id' | 'created_at' | 'updated_at'>) => {
+      if (isolatedMaterialIssueEnabled()) return manufacturingService.create(order)
       const supabase = getSupabase()
       if (!supabase) throw new Error('Supabase client not initialized')
       const { data, error } = await supabase
