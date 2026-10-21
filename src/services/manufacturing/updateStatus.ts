@@ -3,6 +3,8 @@
  * Refactored from supabase-service.ts to reduce complexity
  */
 
+import { isolatedMaterialIssueEnabled } from '@/features/manufacturing/material-issue/gate';
+import { issueSetupSnapshot, manageMaterialIssueSetup } from './materialIssueMaintenance';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   normalizeStatus,
@@ -199,6 +201,15 @@ export async function updateManufacturingOrderStatus(
   params: UpdateStatusParams
 ): Promise<Record<string, unknown> | null> {
   const { id, status, providedUpdateData } = params;
+  // Outside the legacy catch/fallback: a denied candidate request must stop here.
+  if (isolatedMaterialIssueEnabled()) {
+    if (providedUpdateData && Object.keys(providedUpdateData).some(k => k !== 'status')) {
+      throw new Error('ISSUE_SETUP_STATUS_ONLY');
+    }
+    const row = await issueSetupSnapshot('manufacturing_orders', id);
+    return manageMaterialIssueSetup({ operation: 'set_order_status', mo_id: id,
+      status, expected_version: row.maintenance_version });
+  }
 
   try {
     const supabase = await getClient();

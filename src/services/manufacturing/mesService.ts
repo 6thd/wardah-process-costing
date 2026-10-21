@@ -3,6 +3,9 @@
  * Manufacturing Execution System
  */
 
+import { isolatedMaterialIssueEnabled } from '@/features/manufacturing/material-issue/gate'
+import { issueSetupSnapshot, manageMaterialIssueSetup } from './materialIssueMaintenance'
+import { displayedParentVersion } from './materialIssuePreparation'
 import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase'
 const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
@@ -327,6 +330,12 @@ export async function updateWorkOrderStatus(
   status: WorkOrderStatus,
   notes?: string
 ): Promise<WorkOrder> {
+  if (isolatedMaterialIssueEnabled()) {
+    if (notes) throw new Error('ISSUE_SETUP_ELIGIBILITY_ONLY');
+    const row = await issueSetupSnapshot('work_orders', workOrderId);
+    return await manageMaterialIssueSetup({ operation: 'set_work_order_status', mo_id: row.mo_id,
+      work_order_id: workOrderId, status, expected_version: row.maintenance_version }) as unknown as WorkOrder;
+  }
   const { data, error } = await supabase
     .from('work_orders')
     .update({
@@ -346,6 +355,7 @@ export async function updateWorkOrderStatus(
  * إيقاف مؤقت لأمر العمل
  */
 export async function pauseWorkOrder(workOrderId: string, reason?: string): Promise<WorkOrder> {
+  if (isolatedMaterialIssueEnabled()) throw new Error('ISSUE_SETUP_MES_EXECUTION_DEFERRED')
   const orgId = await getEffectiveTenantId()
   
   // تسجيل حدث الإيقاف
@@ -602,60 +612,23 @@ export async function getMaterialConsumption(workOrderId: string): Promise<Mater
  * تنفيذ Backflushing للمواد
  */
 export async function backflushMaterials(
-  workOrderId: string,
-  quantityProduced: number
+  _workOrderId: string,
+  _quantityProduced: number
 ): Promise<MaterialConsumption[]> {
-  const { data, error } = await supabase
-    .rpc('backflush_materials', {
-      p_work_order_id: workOrderId,
-      p_quantity_produced: quantityProduced
-    })
-  
-  if (error) throw error
-  return data || []
+  throw new Error('BACKFLUSH_RETIRED_USE_REVIEWED_234_IMPLEMENTATION')
 }
 
 /**
  * استهلاك مواد يدوي
  */
 export async function consumeMaterial(
-  workOrderId: string,
-  itemId: string,
-  quantity: number,
-  unitCost?: number,
-  notes?: string
+  _workOrderId: string,
+  _itemId: string,
+  _quantity: number,
+  _unitCost?: number,
+  _notes?: string
 ): Promise<MaterialConsumption> {
-  const orgId = await getEffectiveTenantId()
-  
-  // الحصول على mo_id من أمر العمل
-  const { data: workOrder } = await supabase
-    .from('work_orders')
-    .select('mo_id')
-    .eq('id', workOrderId)
-    .single()
-  
-  if (!workOrder) throw new Error('Work order not found')
-  
-  const { data, error } = await supabase
-    .from('material_consumption')
-    .insert({
-      org_id: orgId,
-      work_order_id: workOrderId,
-      mo_id: workOrder.mo_id,
-      item_id: itemId,
-      consumed_quantity: quantity,
-      consumption_type: 'MANUAL',
-      unit_cost: unitCost,
-      total_cost: unitCost ? unitCost * quantity : undefined,
-      status: 'PENDING',
-      consumption_date: new Date().toISOString(),
-      notes
-    })
-    .select()
-    .single()
-  
-  if (error) throw error
-  return data
+  throw new Error('MATERIAL_ISSUE_LEGACY_RETIRED')
 }
 
 // =====================================================
@@ -953,3 +926,8 @@ export const mesService = {
 
 export default mesService
 
+/** Explicit manual-issue preparation; never generates or starts MES operations. */
+export async function createMaterialIssueWorkOrder(moId: string, workCenterId: string, name: string, quantity: number, expectedVersion: number): Promise<WorkOrder> {
+  return await manageMaterialIssueSetup({ operation: 'create_work_order', mo_id: moId,
+    work_center_id: workCenterId, name, quantity, expected_version: displayedParentVersion(expectedVersion) }) as unknown as WorkOrder
+}

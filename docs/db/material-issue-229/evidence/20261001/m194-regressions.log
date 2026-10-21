@@ -1,0 +1,127 @@
+checkout: 960f2c77ad6651cdaaf134a3310cb1255546989c
+server: 17.11
+baseline: sql/baseline/000_schema_baseline_20260905_184634.sql cutoff: 189
+PASS=4 FAIL=0 NOT_RUN=0 TOTAL=4
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "material_consumption"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "work_orders"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "material_reservations"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "stage_wip_log"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "schedule_details"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "labor_time_tracking"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "machine_downtime"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "operation_execution_logs"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "operator_sessions"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "quality_inspections"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "scheduling_constraints"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "material_consumption"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "schedule_details"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "labor_time_tracking"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "machine_downtime"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "operation_execution_logs"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "operator_sessions"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "quality_inspections"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "scheduling_constraints"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  truncate cascades to table "material_consumption"
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  GREEN_273_EIGHT_TABLE_TRUNCATE_AND_CROSS_ORG_HISTORY
+psql:docs/db/posted-history-193/acceptance.sql:247: NOTICE:  GREEN_273_POSTED_HISTORY_PRESERVED
+GREEN_278_FRESH_BACKEND_OWNER_COST_OVERWRITE
+GREEN_278_FRESH_BACKEND_OWNER_DIRECT_CLOSE
+GREEN_278_FRESH_BACKEND_OWNER_ID_REKEY
+GREEN_278_FRESH_BACKEND_OWNER_PERIOD_CHANGE
+GREEN_278_FRESH_BACKEND_OWNER_INSERT_WITH_COST
+GREEN_278_FRESH_BACKEND_M192_ISSUE_STILL_POSTS
+GREEN_278_FRESH_BACKEND_CLOSE_RPC_STILL_CLOSES
+BEGIN
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+psql:/workspace/scratch/8fdbf991ee75/wardah-issue-ui/docs/db/stage-wip-278/acceptance.sql:165: NOTICE:  GREEN_278_POSTED_WIP_BOUNDARY
+DO
+psql:/workspace/scratch/8fdbf991ee75/wardah-issue-ui/docs/db/stage-wip-278/acceptance.sql:191: NOTICE:  GREEN_278_HISTORICAL_OVERLAP_PRESERVED
+DO
+psql:/workspace/scratch/8fdbf991ee75/wardah-issue-ui/docs/db/stage-wip-278/acceptance.sql:214: NOTICE:  GREEN_278_AMBIGUOUS_ISSUE_REJECTED
+DO
+ROLLBACK
+BEGIN
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+DO
+psql:/workspace/scratch/8fdbf991ee75/wardah-issue-ui/docs/db/stage-wip-278/acceptance_roles.sql:342: NOTICE:  GREEN_278_ROLES_COST_IDENTITY_CLOSE_FIELDS
+DO
+psql:/workspace/scratch/8fdbf991ee75/wardah-issue-ui/docs/db/stage-wip-278/acceptance_roles.sql:458: NOTICE:  GREEN_278_ROLES_WRITES_INTERVALS_LEGACY_NULL
+DO
+psql:/workspace/scratch/8fdbf991ee75/wardah-issue-ui/docs/db/stage-wip-278/acceptance_roles.sql:526: NOTICE:  GREEN_278_ROLES_CLOSE_RPC
+DO
+psql:/workspace/scratch/8fdbf991ee75/wardah-issue-ui/docs/db/stage-wip-278/acceptance_roles.sql:570: NOTICE:  GREEN_278_ROLES_FUNCTION_ACL
+DO
+psql:/workspace/scratch/8fdbf991ee75/wardah-issue-ui/docs/db/stage-wip-278/acceptance_roles.sql:595: NOTICE:  GREEN_278_ROLES_AMBIGUITY_INCLUDING_NULL_OPEN
+DO
+psql:/workspace/scratch/8fdbf991ee75/wardah-issue-ui/docs/db/stage-wip-278/acceptance_roles.sql:608: NOTICE:  GREEN_278_ROLE_MATRIX
+DO
+ROLLBACK
+psql:docs/db/material-consumption-192/acceptance.sql:261: NOTICE:  GREEN_192_SEQUENTIAL_ACCEPTANCE
+psql:docs/db/material-consumption-192/acceptance_matrix.sql:109: NOTICE:  GREEN_192_STATUS_MATRIX_288
+GREEN_192_TWO_SESSION_ACCEPTANCE
+GREEN_278_TWO_INSERTS_ONE_INTERVAL
+GREEN_278_ISSUE_INSERT_ISSUE_FIRST
+GREEN_278_ISSUE_INSERT_INSERT_FIRST
+GREEN_278_ISSUE_LABOR_LABOR_FIRST
+GREEN_278_ISSUE_LABOR_ISSUE_FIRST
+GREEN_278_ISSUE_PAUSED_BETWEEN_MO_AND_WIP
+GREEN_278_CLOSE_FIRST_ISSUE_REFUSED
+GREEN_278_ISSUE_FIRST_CLOSE_KEEPS_COST
+GREEN_278_WIP_BOUNDARY_AND_REGRESSIONS
