@@ -167,7 +167,12 @@
     },
     "equivalentUnitsPage": {
       "title": "Equivalent Units",
-      "subtitle": "Calculate equivalent units and analyze costs"
+      "subtitle": "Equivalent-unit calculation is unavailable until the costing engine is repaired",
+      "unavailable": {
+        "title": "Equivalent-unit calculation is currently unavailable",
+        "body": "The equivalent-unit and cost engine (weighted average, FIFO and scrap) cannot run on the current database, so this page shows no figures and offers no actions.",
+        "next": "Calculation will be enabled after the engine is repaired in the database and the labor and overhead cost sources are approved (tracked in #260)."
+      }
     },
     "varianceAlertsPage": {
       "title": "Variance Alerts",
