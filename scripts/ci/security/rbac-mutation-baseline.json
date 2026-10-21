@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 354,
-  "signature_count": 328,
-  "signature_sha256": "e400feb32313f1acd801f01ab9d7930115a2a863bb5a9e1dfaa3dcec05fe1b7c",
-  "note": "Reviewed #278 boundary change: in supabase-service.ts the direct stage_wip_log close UPDATE was replaced by the audited rpc_close_stage_wip_194 RPC. The direct stage_wip_log update count goes 2 to 1 and one rpc_call signature is added; the candidate total stays 354 and every other signature is unchanged."
+  "candidate_count": 351,
+  "signature_count": 325,
+  "signature_sha256": "73e6aeb80664a784a9d002b19f0bd5fc5938cb88b72c7c448c3df19f92ce8969",
+  "note": "Reviewed #260 interim boundary change: in process-costing-service.ts the three direct writes to targets that are absent or not accepted after M195-M203 were removed (insert into labor_time_logs, insert into moh_applied, upsert into stage_costs); applyLaborTime, applyOverhead and upsertStageCost now refuse before any request. Candidates 354 to 351 and signatures 328 to 325; nothing is added and every other signature is unchanged. Previous note: Reviewed #278 boundary change: in supabase-service.ts the direct stage_wip_log close UPDATE was replaced by the audited rpc_close_stage_wip_194 RPC. The direct stage_wip_log update count goes 2 to 1 and one rpc_call signature is added; the candidate total stays 354 and every other signature is unchanged."
 }
