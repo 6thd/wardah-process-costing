@@ -378,18 +378,23 @@ isRTL ? 'نص عربي' : 'English text'
 
 1. i18n legacy gate.
 2. generated types presence.
-3. TypeScript.
-4. ESLint.
-5. unit/integration tests.
-6. pglast migration syntax.
-7. migration numbering.
-8. migration governance: أسماء قانونية + أرقام غير مكررة + استثناءات سجل حية دقيقة + اقتران طبقتَي الـBaseline.
-9. SECURITY DEFINER guard.
-10. Fresh DB على PostgreSQL 17.
-11. البيانات المرجعية النظامية: حدود دنيا + بصمة محتوى لكل جدول + رفض تسرب صفوف org-scoped.
-12. قبول دلالي للبيانات المرجعية: حراسة UoM المحجوزة، وترابط RBAC وبنية مفاتيحه.
-13. build.
-14. SonarCloud Quality Gate عند توفر `SONAR_TOKEN`.
+3. حدّ كتابة RBAC المدقَّق (`scripts/ci/check-rbac-direct-writes.mjs`).
+4. TypeScript.
+5. ESLint.
+6. unit/integration tests.
+7. pglast migration syntax.
+8. migration numbering.
+9. migration governance: أسماء قانونية + أرقام غير مكررة + استثناءات سجل حية دقيقة + اقتران طبقتَي الـBaseline.
+10. SECURITY DEFINER guard.
+11. Fresh DB على PostgreSQL 17.
+12. البيانات المرجعية النظامية: حدود دنيا + بصمة محتوى لكل جدول + رفض تسرب صفوف org-scoped.
+13. قبول دلالي للبيانات المرجعية: حراسة UoM المحجوزة، وترابط RBAC وبنية مفاتيحه.
+14. build، ويشمل `check:no-demo-passwords`.
+15. SonarCloud Quality Gate عند توفر `SONAR_TOKEN`.
+
+بوابة منفصلة: `RBAC Mutation Inventory` (`.github/workflows/rbac-mutation-inventory.yml`). تعمل على كل PR يمس `src/**`، أو سكربتات الجرد والـbaseline والتصنيف وملفاتها في `scripts/ci/security/`، أو الـworkflow نفسه، مهما كان الفرع الأساس. تقارن الجرد بـ`scripts/ci/security/rbac-mutation-baseline.json`، وتفشل عند أي انحراف في عدد المرشحين أو التواقيع أو بصمتها. يُحدَّث الـbaseline بسكربتات المستودع نفسها، لا يدويًا.
+
+`ci-cd.yml` لا يعمل على PR إلا إذا كان أساسه `main` أو `develop` أو `f2/m191-stock-concurrency-implementation`. لذلك لا تظهر البوابات أعلاه على PR مكدَّس على فرع آخر حتى يُحوَّل أساسه.
 
 التدقيق الحي لسجل Production يعمل أسبوعيًا وبشكل يدوي عبر
 `Audit Production Migration Ledger`، وهو قراءة فقط ويرفع Artifact لمدة 90 يومًا.
@@ -473,6 +478,8 @@ Production عند 169، فبقيت الثغرات الثلاث **حية بالك
 
 - `SUPABASE_DB_URL`: baseline workflow + تدقيق سجل Production للقراءة فقط.
 - `SONAR_TOKEN`: SonarCloud.
-- E2E: staging URL وحسابات اختبار.
+- E2E: staging URL (`STAGING_URL`) وحسابات اختبار (`E2E_*`).
+- `VERCEL_AUTOMATION_BYPASS_SECRET`: `e2e-nightly.yml` و`reports-insights-vercel-preview-check.yml`.
+- `SUPABASE_ANON_KEY`: `keep-supabase-alive.yml`.
 
 لا تطبع أو تحفظ كلمات المرور في الوثائق أو commits.
