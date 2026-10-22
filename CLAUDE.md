@@ -251,6 +251,14 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   أيًا من دوال 201 الخمس (بصماتها بعد 201 مثبتة في preflight)، وتستبدل ثلاثًا من M199 بعد تثبيت أجسامها.
   **قبل أي Baseline يطوي 202 ولأي استعادة منطقية اقرأ §6 من الـrunbook** (المالك والدور لا يظهران في
   `pg_dump --no-owner`). لا يغلق سياج الإيقاف G05 ولا تدريب Supabase المستضاف.
+- `sql/migrations/204_manufacturing_cost_policies.sql` +
+  `docs/db/MANUFACTURING_COST_POLICIES_204_RUNBOOK.md` +
+  `.github/workflows/manufacturing-cost-policy-204-acceptance.yml` — **Migration 204 (مستودع
+  فقط، غير مطبّقة؛ بعد 201–203، بمعاملة يملكها المشغّل)**: سياسات تكلفة التصنيع لكل شركة — إصدارات مؤرخة غير
+  قابلة للتعديل (مصدر العمالة، مجمعات أوفرهيد على ساعات العمالة أو الماكينة، قواعد مراكز العمل)، تثبيت الإصدار على
+  كل أمر عند إنشائه، ودالة حساب واحدة `mfg_cost_policy_compute_204` يستدعيها محرك #260 ومنسق #230. حارس M201؛
+  لا كتابة على `stage_costs` ولا قيود. **عقد التكلفة المنقولة بين المراحل وفصل تقييم المخزون عن تكلفة المراحل في
+  §5 من الـrunbook — اقرأه قبل إصلاح #260**.
 
 ## Baseline
 
