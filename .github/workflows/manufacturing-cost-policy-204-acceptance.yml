@@ -14,6 +14,7 @@ on:
     paths:
       - 'sql/migrations/204_manufacturing_cost_policies.sql'
       - 'scripts/ci/fresh-db/acceptance_204_*'
+      - 'scripts/ci/fresh-db/run_chain.sh'
       - '.github/workflows/manufacturing-cost-policy-204-acceptance.yml'
       - 'sql/baseline/**'
       - 'sql/migrations/**'
@@ -77,6 +78,13 @@ jobs:
           psql -v ON_ERROR_STOP=1 -d wardah_pre204 -f "$REFERENCE" -q
           REPORT=/tmp/chain_report.txt PGDATABASE=wardah_pre204 \
             bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/pre_order.txt
+
+      - name: Runner-owned transaction for 204 (fault injected through run_chain.sh)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PRE_DB=wardah_pre204 bash scripts/ci/fresh-db/acceptance_204_runner_atomicity.sh | tee /tmp/atomicity.out
+          grep -q 'CP204_RUNNER_ATOMICITY_PASS' /tmp/atomicity.out
 
       - name: RED before 204
         shell: bash
