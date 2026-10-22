@@ -169,4 +169,50 @@ describe('CostPolicyTab', () => {
     expect(within(result).getByText('680.00')).toBeInTheDocument()
     expect(within(result).getByText(/excluded at this work center/)).toBeInTheDocument()
   })
+
+  it('hides a previous result as soon as the version, work center or hours change', async () => {
+    service.getCostPolicy.mockResolvedValue(state())
+    const preview = (total: number) => ({
+      labor: { source: 'work_center_rate', hours: 10, rate_per_hour: 30, rate_source: 'policy_default', amount: 300 },
+      overhead: [], excluded_pools: [], overhead_total: total - 300, total,
+    })
+    service.previewAbsorption.mockResolvedValueOnce(preview(540)).mockResolvedValueOnce(preview(777))
+    const user = userEvent.setup({ delay: null })
+    render(<CostPolicyTab />)
+
+    await screen.findByTestId('cp-version-1')
+    const workCenter = screen.getAllByLabelText('Work center').at(-1) as HTMLSelectElement
+    await waitFor(() => expect(within(workCenter).getAllByRole('option').length).toBeGreaterThan(1))
+    await user.selectOptions(screen.getByLabelText('Version'), 'v1')
+    await user.selectOptions(workCenter, 'wc-a')
+    await user.type(screen.getByLabelText('Labor hours'), '10')
+    await user.type(screen.getByLabelText('Machine hours'), '6')
+    await user.click(screen.getByRole('button', { name: 'Calculate' }))
+    expect(within(await screen.findByRole('table', { name: 'Absorption result' })).getByText('540.00')).toBeInTheDocument()
+
+    // Changing a driver hides the old figure.
+    await user.clear(screen.getByLabelText('Machine hours'))
+    await user.type(screen.getByLabelText('Machine hours'), '7')
+    expect(screen.queryByRole('table', { name: 'Absorption result' })).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('The inputs changed after the last calculation')
+
+    // Restoring the same inputs shows the result again; changing the version or work center hides it.
+    await user.clear(screen.getByLabelText('Machine hours'))
+    await user.type(screen.getByLabelText('Machine hours'), '6')
+    expect(screen.getByRole('table', { name: 'Absorption result' })).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Version'), 'v2')
+    expect(screen.queryByRole('table', { name: 'Absorption result' })).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Version'), 'v1')
+    await user.selectOptions(workCenter, 'wc-b')
+    expect(screen.queryByRole('table', { name: 'Absorption result' })).not.toBeInTheDocument()
+
+    // A new calculation shows the new figure, not the old one.
+    await user.click(screen.getByRole('button', { name: 'Calculate' }))
+    const fresh = await screen.findByRole('table', { name: 'Absorption result' })
+    expect(within(fresh).getByText('777.00')).toBeInTheDocument()
+    expect(within(fresh).queryByText('540.00')).not.toBeInTheDocument()
+    expect(service.previewAbsorption).toHaveBeenLastCalledWith({
+      versionId: 'v1', workCenterId: 'wc-b', laborHours: 10, machineHours: 6, recordedLaborCost: null,
+    })
+  }, 20_000)
 })

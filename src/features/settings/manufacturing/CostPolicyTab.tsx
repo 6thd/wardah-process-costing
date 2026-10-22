@@ -227,14 +227,18 @@ function AbsorptionPreviewCard({ versions, workCenters }: {
   // Empty means "not measured" (NULL), which the database refuses; 0 is a measured zero.
   const toNumber = (value: string) => value.trim() === '' ? null : Number(value)
 
-  const preview = useMutation({
-    mutationFn: () => previewAbsorption({
-      versionId, workCenterId,
-      laborHours: toNumber(laborHours), machineHours: toNumber(machineHours),
-      recordedLaborCost: usesRecorded ? toNumber(recordedCost) : null,
-    }),
-  })
-  const result: AbsorptionPreview | undefined = preview.data
+  const inputs = {
+    versionId, workCenterId,
+    laborHours: toNumber(laborHours), machineHours: toNumber(machineHours),
+    recordedLaborCost: usesRecorded ? toNumber(recordedCost) : null,
+  }
+  const preview = useMutation({ mutationFn: (vars: typeof inputs) => previewAbsorption(vars) })
+  // A result (or error) is shown only for the exact inputs it was computed from. Any change to the
+  // version, work center or a driver hides it, so an old figure never sits under new inputs; this
+  // also covers a response that arrives after the inputs changed.
+  const matchesInputs = preview.variables !== undefined && JSON.stringify(preview.variables) === JSON.stringify(inputs)
+  const result: AbsorptionPreview | undefined = matchesInputs ? preview.data : undefined
+  const stale = !matchesInputs && (preview.data !== undefined || preview.isError)
 
   return (
     <Card>
@@ -243,7 +247,7 @@ function AbsorptionPreviewCard({ versions, workCenters }: {
         <p className="text-sm text-muted-foreground">{t('manufacturingSettings.costPolicy.preview.description')}</p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <form className="grid gap-3 md:grid-cols-5" onSubmit={(e) => { e.preventDefault(); preview.mutate() }}>
+        <form className="grid gap-3 md:grid-cols-5" onSubmit={(e) => { e.preventDefault(); preview.mutate(inputs) }}>
           <select aria-label={t('manufacturingSettings.costPolicy.preview.version')} className={SELECT_CLASS}
             value={versionId} onChange={(e) => setVersionId(e.target.value)}>
             {versions.map(v => <option key={v.id} value={v.id}>#{v.version_no} · {v.effective_from}</option>)}
@@ -265,7 +269,10 @@ function AbsorptionPreviewCard({ versions, workCenters }: {
             {t('manufacturingSettings.costPolicy.preview.run')}
           </Button>
         </form>
-        {preview.isError && <p role="alert" className="text-sm text-destructive">{costPolicyErrorMessage(t, preview.error)}</p>}
+        {matchesInputs && preview.isError && (
+          <p role="alert" className="text-sm text-destructive">{costPolicyErrorMessage(t, preview.error)}</p>
+        )}
+        {stale && <p role="status" className="text-sm text-muted-foreground">{t('manufacturingSettings.costPolicy.preview.stale')}</p>}
         {result && (
           <table className="w-full text-sm" aria-label={t('manufacturingSettings.costPolicy.preview.result')}>
             <tbody>

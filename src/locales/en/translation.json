@@ -1914,7 +1914,8 @@
         "labor": "Labor",
         "line": "{{hours}} h × {{rate}}",
         "excluded": "excluded at this work center",
-        "total": "Total"
+        "total": "Total",
+        "stale": "The inputs changed after the last calculation. Calculate again to see the result."
       },
       "errors": {
         "COST_POLICY_NOT_DEPLOYED": "Cost policies are not available yet: Migration 204 has not been applied to this environment.",
