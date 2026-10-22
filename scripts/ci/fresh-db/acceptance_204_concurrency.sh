@@ -59,7 +59,7 @@ sleep 1
 { as_admin "$ADMIN"; echo "SELECT public.rpc_create_mfg_cost_policy_version('$A', $(policy "$A" 5), 1, '$KEY')->>'replayed';"; } \
   | "${PSQL[@]}" >"$work/c2b.out" 2>&1
 wait
-grep -qx 'false' "$work/c2a.out" && grep -qx 'true' "$work/c2b.out" || { echo "CASE2_FAILED"; cat "$work/c2a.out" "$work/c2b.out"; exit 1; }
+{ grep -qx 'false' "$work/c2a.out" && grep -qx 'true' "$work/c2b.out"; } || { echo "CASE2_FAILED"; cat "$work/c2a.out" "$work/c2b.out"; exit 1; }
 [ "$("${PSQL[@]}" -c "SELECT count(*) FROM wardah_internal.mfg_cost_policy_versions WHERE org_id = '$A'")" = 2 ] || { echo CASE2_COUNT; exit 1; }
 echo "CP204_CONC_IDEMPOTENT_REPLAY_OK"
 
