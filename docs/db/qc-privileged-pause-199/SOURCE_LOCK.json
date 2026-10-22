@@ -7,7 +7,7 @@
     "scripts/ci/fresh-db/acceptance_195_legacy_mo_quarantine.sql": "154c9082014980da9b78706d8fb2da2a448da254bf3a567ffd632f87e356bc97",
     "scripts/ci/fresh-db/build_apply_order.py": "d34b1cb4e743e9e7470c88262e48f93a50120a7436635f42982286097a94b5ff",
     "scripts/ci/fresh-db/resolve_baseline_pair.sh": "56cc961af96c88e6bb11ffedfe64852e955d486961394bd801ea2dbe3ef7e742",
-    "scripts/ci/fresh-db/run_chain.sh": "dd727e0f23c6924f7e1b70ec255f3c74b310cc468343280e1edfffa0f5214caf",
+    "scripts/ci/fresh-db/run_chain.sh": "d4a7da026b30d19bf318f3b8bc4214c626642f43d78b4c6736c56670de036c58",
     "scripts/ci/fresh-db/supabase_shim.sql": "e156c31588ed736745099587e9e709fc13dba64c1a52f188afbef13589ad1b78",
     "scripts/ci/fresh-db/test_195_legacy_mo_quarantine_column_grants.sh": "4bd21436d906837047a4781e81485055b2323f5bdd25a79fe0322dc1fc43a7a1",
     "sql/baseline/000_schema_baseline_20260717.sql": "571fe7d7ce612fdd2fb4f5bbe1fed96ae75e129bfa5d1939da9d1865ee53db54",
