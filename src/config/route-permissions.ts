@@ -352,7 +352,16 @@ const SETTINGS_ORGANIZATION: RouteRequirement = { key: 'settings.organization.re
 // أي منها كافٍ لدخول الشاشة نفسها، لا organization.read وحده. مطابق لنمط anyOf
 // المستخدم في نظرة كل موديول آخر (sales/purchasing/inventory/...).
 const SETTINGS_OVERVIEW: RouteRequirement = {
-  anyOf: ['settings.organization.read', 'settings.users.read', 'settings.roles.read'],
+  anyOf: [
+    'settings.organization.read', 'settings.users.read', 'settings.roles.read',
+    'manufacturing.settings.read', 'manufacturing.settings.update',
+  ],
+};
+
+// إعدادات التصنيع (قرار المالك D1، مفاتيح M201). update وحده يكفي للدخول: من يُمنح
+// التعديل يجب أن يرى ما يعدّله، كما يفعل محدِّد M201 في قاعدة البيانات.
+const SETTINGS_MANUFACTURING: RouteRequirement = {
+  anyOf: ['manufacturing.settings.read', 'manufacturing.settings.update'],
 };
 
 const SETTINGS_ROUTES: RoutePattern[] = [
@@ -377,6 +386,7 @@ const SETTINGS_ROUTES: RoutePattern[] = [
   { pattern: '/system', requirement: SETTINGS_ORGANIZATION },
   { pattern: '/integrations', requirement: SETTINGS_ORGANIZATION },
   { pattern: '/backup', requirement: SETTINGS_ORGANIZATION },
+  { pattern: '/manufacturing', requirement: SETTINGS_MANUFACTURING },
 ];
 
 // ============================================================
