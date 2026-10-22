@@ -15,11 +15,20 @@ vi.mock('@/components/ui/page-header', () => ({
 vi.mock('../CompanySettings', () => ({ CompanySettings: () => <div>Company settings page</div> }))
 vi.mock('../SystemSettingsPage', () => ({ SystemSettingsPage: () => <div>System settings page</div> }))
 vi.mock('../BackupSettingsPage', () => ({ BackupSettingsPage: () => <div>Data export page</div> }))
+vi.mock('../manufacturing/ManufacturingSettingsPage', () => ({
+  ManufacturingSettingsPage: () => <div>Manufacturing settings page</div>,
+}))
 
 const hasPermissionKeyMock = vi.fn((_key: string) => true)
 vi.mock('@/hooks/usePermissions', () => ({
   usePermissions: () => ({ hasPermissionKey: (key: string) => hasPermissionKeyMock(key) }),
 }))
+
+// The first renders pay the cold start, and their role queries scale with the
+// number of cards: adding any one card (verified with a copy of an existing card)
+// adds about 2 s under coverage, which `npm run test:coverage` runs with the 5 s
+// default. The assertions are unchanged; only these two get more time.
+const COLD_RENDER_TIMEOUT_MS = 20_000
 
 function setPermissions(keys: readonly string[]) {
   hasPermissionKeyMock.mockImplementation((key: string) => keys.includes(key))
@@ -55,7 +64,7 @@ describe('Settings overview', () => {
     expect(screen.queryByText('Active users')).not.toBeInTheDocument()
     expect(screen.queryByText('System Status')).not.toBeInTheDocument()
     expect(screen.getByText('Manual organization data export for review or transfer')).toBeInTheDocument()
-  })
+  }, COLD_RENDER_TIMEOUT_MS)
 
   it('renders the overview in RTL for ar-SA', async () => {
     await act(async () => {
@@ -67,7 +76,7 @@ describe('Settings overview', () => {
     expect(screen.getByRole('heading', { name: 'الإعدادات' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'تصدير البيانات' })).toBeInTheDocument()
     expect(container.querySelector('[dir="rtl"]')).toBeInTheDocument()
-  })
+  }, COLD_RENDER_TIMEOUT_MS)
 
   describe('cards are bound to their exact route-permissions key', () => {
     it('settings.organization.read alone shows Company/System/Backup but not the org-admin cards', async () => {

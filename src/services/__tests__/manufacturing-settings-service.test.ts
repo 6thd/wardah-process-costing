@@ -5,17 +5,18 @@ const tenant = vi.fn()
 const queryResult = { current: { data: [] as unknown[], error: null as null | { message: string } } }
 const queries: Array<{ table: string; calls: Array<[string, unknown[]]> }> = []
 
+// The query builder is awaited at any point of its chain, so the mock is a real
+// Promise carrying the chain methods (no hand-written `then`).
 function builder(table: string) {
   const record = { table, calls: [] as Array<[string, unknown[]]> }
   queries.push(record)
-  const chain: Record<string, unknown> = {}
+  const chain = Promise.resolve().then(() => queryResult.current) as Promise<unknown> & Record<string, unknown>
   for (const method of ['select', 'eq', 'in', 'order']) {
     chain[method] = (...args: unknown[]) => {
       record.calls.push([method, args])
       return chain
     }
   }
-  chain.then = (resolve: (value: unknown) => unknown) => resolve(queryResult.current)
   return chain
 }
 
