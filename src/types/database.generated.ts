@@ -11101,6 +11101,15 @@ export type Database = {
         Args: { p_payload: Json }
         Returns: Json
       }
+      rpc_create_mfg_cost_policy_version: {
+        Args: {
+          p_expected_latest_version_no: number
+          p_idempotency_key: string
+          p_org_id: string
+          p_policy: Json
+        }
+        Returns: Json
+      }
       rpc_create_mo_with_reservation: {
         Args: { p_materials?: Json; p_order: Json; p_tenant?: string }
         Returns: Json
@@ -11158,6 +11167,7 @@ export type Database = {
         Args: { p_item_id: string; p_org_id: string }
         Returns: Json
       }
+      rpc_get_mfg_cost_policy: { Args: { p_org_id: string }; Returns: Json }
       rpc_get_mo_quality_status: { Args: { p_mo_id: string }; Returns: Json }
       rpc_get_org_uom_engine_enabled: {
         Args: { p_org_id: string }
@@ -11312,6 +11322,17 @@ export type Database = {
           p_work_center: string
         }
         Returns: string
+      }
+      rpc_preview_mfg_cost_absorption: {
+        Args: {
+          p_labor_hours: number
+          p_machine_hours: number
+          p_org_id: string
+          p_policy_version_id: string
+          p_recorded_labor_cost?: number
+          p_work_center_id: string
+        }
+        Returns: Json
       }
       rpc_reconcile_material_issue_setup: {
         Args: {
@@ -11474,6 +11495,14 @@ export type Database = {
         Returns: string
       }
       rpc_upsert_org_role: { Args: { p_payload: Json }; Returns: Json }
+      rpc_withdraw_mfg_cost_policy_version: {
+        Args: {
+          p_org_id: string
+          p_policy_version_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       schedule_work_order: {
         Args: {
           p_schedule_id?: string
