@@ -7,13 +7,15 @@ import { getQualityPolicy } from '@/services/manufacturing-settings-service'
 import { MaterialIssueTab } from './MaterialIssueTab'
 import { QualityTab } from './QualityTab'
 import { GlMappingsTab } from './GlMappingsTab'
+import { CostPolicyTab } from './CostPolicyTab'
 import { settingsErrorMessage } from './settingsError'
 import { QUALITY_POLICY_QUERY_KEY } from './queryKeys'
 
 /**
- * بيت إعدادات التصنيع (قرار المالك D1). كل تبويب يقرأ ويكتب بعقد قائم ومطبّق؛
- * لا يظهر هنا إعداد بلا مسار حفظ مأذون (معدلات مراكز العمل، المراحل، BOM —
- * انظر §0 في جرد إعدادات التصنيع).
+ * بيت إعدادات التصنيع (قرار المالك D1). التبويبات الثلاثة الأولى تقرأ وتكتب بعقود
+ * مطبّقة؛ تبويب سياسات التكلفة يعتمد على Migration 204 ويعرض «غير متاح» حيث لم
+ * تُطبَّق، ويأخذ قدرة الحفظ من `capabilities.can_manage` في 204. لا يظهر هنا إعداد
+ * بلا مسار حفظ مأذون (معدلات مراكز العمل، المراحل، BOM — انظر §0 في جرد إعدادات التصنيع).
  *
  * الحفظ يتبع `can_manage_policy` الذي تحسبه قاعدة البيانات بمحدِّد M201 نفسه
  * الذي يحرس الكتّاب الثلاثة، لا مفاتيح الواجهة.
@@ -48,6 +50,7 @@ export function ManufacturingSettingsPage() {
           <TabsTrigger value="material-issue">{t('manufacturingSettings.tabs.materialIssue')}</TabsTrigger>
           <TabsTrigger value="quality">{t('manufacturingSettings.tabs.quality')}</TabsTrigger>
           <TabsTrigger value="gl-mappings">{t('manufacturingSettings.tabs.glMappings')}</TabsTrigger>
+          <TabsTrigger value="cost-policies">{t('manufacturingSettings.tabs.costPolicies')}</TabsTrigger>
         </TabsList>
         <TabsContent value="material-issue">
           <MaterialIssueTab canManage={canManage} />
@@ -57,6 +60,9 @@ export function ManufacturingSettingsPage() {
         </TabsContent>
         <TabsContent value="gl-mappings">
           <GlMappingsTab canManage={canManage} />
+        </TabsContent>
+        <TabsContent value="cost-policies">
+          <CostPolicyTab />
         </TabsContent>
       </Tabs>
     </div>

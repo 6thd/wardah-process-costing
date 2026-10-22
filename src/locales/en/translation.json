@@ -1773,7 +1773,8 @@
     "tabs": {
       "materialIssue": "Material issue",
       "quality": "Quality",
-      "glMappings": "GL mappings"
+      "glMappings": "GL mappings",
+      "costPolicies": "Cost policies"
     },
     "materialIssue": {
       "title": "Work order statuses that allow material issue",
@@ -1837,6 +1838,114 @@
       "workCenterOverrideNotSupported": "Only OH_APPLIED accepts a work-center override.",
       "workCenterNotFound": "The work center was not found in this organization.",
       "invalidStatuses": "This combination of statuses is not allowed."
+    },
+    "costPolicy": {
+      "title": "Manufacturing cost policy",
+      "description": "How labor is costed and how overhead is absorbed, per company. Each change is a new dated version; a version in use is never edited.",
+      "scopeNotice": "Each new manufacturing order is pinned to the version in force on the day it is created. Stage costing (#260) will compute with the pinned version; until that repair lands, no stage cost is calculated from this policy.",
+      "stageMethod": "Stage costing method",
+      "inventoryValuation": "Inventory valuation",
+      "inventoryValuationNote": "Set per product in inventory (valuation method). It is a separate setting from stage costing.",
+      "methods": {
+        "weighted_average": "Weighted average (FIFO for stages is not implemented)"
+      },
+      "empty": "No cost policy has been published for this organization yet.",
+      "effectiveFrom": "Effective from",
+      "laborSource": "Labor cost source",
+      "laborSources": {
+        "work_center_rate": "Labor hours × work-center rate",
+        "recorded_entry_rate": "Recorded cost of time entries"
+      },
+      "defaultLaborRate": "Default labor rate per hour",
+      "pools": "Overhead pools",
+      "bases": {
+        "labor_hours": "Labor hours",
+        "machine_hours": "Machine hours"
+      },
+      "perHour": "{{rate}} / hour",
+      "workCenterRules": "Work-center rules",
+      "pinnedOrders": "Orders pinned",
+      "status": {
+        "current": "Current",
+        "scheduled": "Scheduled",
+        "superseded": "Superseded",
+        "withdrawn": "Withdrawn"
+      },
+      "withdraw": "Withdraw",
+      "withdrawReason": "Reason for withdrawal",
+      "confirmWithdraw": "Confirm withdrawal",
+      "withdrawn": "Version withdrawn",
+      "newVersion": "New version",
+      "created": "Version published",
+      "form": {
+        "aria": "New cost policy version",
+        "effectiveFrom": "Effective from",
+        "poolCode": "Pool code",
+        "poolName": "Pool name",
+        "poolNameAr": "Pool name (Arabic)",
+        "basis": "Absorption basis",
+        "poolRate": "Rate per hour",
+        "remove": "Remove",
+        "addPool": "Add pool",
+        "rulesHelp": "A work center without a rule uses the default labor rate and every pool at its rate. A rule may override the labor rate, override a pool rate, or exclude a pool. The basis always stays with the pool.",
+        "workCenter": "Work center",
+        "wcLaborRate": "Labor rate override",
+        "usesDefault": "Uses the default",
+        "poolMode": "Rule for {{pool}}",
+        "overrideRate": "Rate for {{pool}}",
+        "modes": {
+          "default": "Pool rate",
+          "override": "Own rate",
+          "exclude": "Excluded here"
+        },
+        "addRule": "Add work-center rule",
+        "note": "Note",
+        "submit": "Publish version"
+      },
+      "preview": {
+        "title": "Absorption preview",
+        "description": "What a version absorbs at one work center for the hours entered, using the same computation stage costing will use. Nothing is saved.",
+        "version": "Version",
+        "laborHours": "Labor hours",
+        "machineHours": "Machine hours",
+        "recordedCost": "Recorded labor cost",
+        "run": "Calculate",
+        "result": "Absorption result",
+        "labor": "Labor",
+        "line": "{{hours}} h × {{rate}}",
+        "excluded": "excluded at this work center",
+        "total": "Total"
+      },
+      "errors": {
+        "COST_POLICY_NOT_DEPLOYED": "Cost policies are not available yet: Migration 204 has not been applied to this environment.",
+        "MANUFACTURING_SETTINGS_READ_DENIED": "Viewing cost policies requires manufacturing.settings.read or the update permission.",
+        "MANUFACTURING_SETTINGS_UPDATE_DENIED": "You do not have permission to change manufacturing settings.",
+        "COST_POLICY_VERSION_CONFLICT": "Another version was created first. The list was reloaded; review and submit again.",
+        "COST_POLICY_IDEMPOTENCY_CONFLICT": "This submission was already used for different values. Reopen the form and submit again.",
+        "COST_POLICY_EFFECTIVE_DATE_IN_PAST": "The effective date cannot be before today.",
+        "COST_POLICY_EFFECTIVE_DATE_NOT_AFTER_LATEST": "The effective date must be after the start of the latest version.",
+        "COST_POLICY_LABOR_RATE_MISSING": "A default labor rate is required for the work-center rate source.",
+        "COST_POLICY_LABOR_RATE_NOT_APPLICABLE": "Labor rates do not apply when labor is costed at recorded entry rates.",
+        "COST_POLICY_RATE_INVALID": "Rates must be positive, at most 999,999,999 and at most 6 decimals.",
+        "COST_POLICY_WC_POOL_RATE_INVALID": "An overridden pool needs a positive rate; an excluded pool takes no rate.",
+        "COST_POLICY_POOLS_REQUIRED": "Add at least one overhead pool.",
+        "COST_POLICY_POOL_DUPLICATE": "Each pool code may appear once.",
+        "COST_POLICY_POOL_BASIS_UNSUPPORTED": "This absorption basis is not supported.",
+        "COST_POLICY_WORK_CENTER_UNKNOWN": "The work center is not an active work center of this organization.",
+        "COST_POLICY_WORK_CENTER_DUPLICATE": "Each work center may have one rule.",
+        "COST_POLICY_WC_POOL_UNKNOWN": "A work-center rule refers to a pool that is not in this version.",
+        "COST_POLICY_WC_POOL_DUPLICATE": "A work-center rule lists the same pool twice.",
+        "COST_POLICY_WC_RULE_EMPTY": "A work-center rule must set a labor rate or at least one pool.",
+        "COST_POLICY_VERSION_PINNED": "Manufacturing orders already use this version; it cannot be withdrawn.",
+        "COST_POLICY_VERSION_ALREADY_IN_FORCE": "This version is already in force; publish a new version instead.",
+        "COST_POLICY_VERSION_ALREADY_WITHDRAWN": "This version is already withdrawn.",
+        "COST_POLICY_WITHDRAW_REASON_REQUIRED": "A reason is required to withdraw a version.",
+        "COST_POLICY_DRIVER_MISSING": "A required driver was not entered. Leave a field empty only when it is not used; enter 0 for a measured zero.",
+        "COST_POLICY_DRIVER_INVALID": "Hours and costs cannot be negative.",
+        "COST_POLICY_INPUT_NOT_APPLICABLE": "This input is not used by the selected version.",
+        "COST_POLICY_ORG_TIMEZONE_INVALID": "The organization's timezone is not valid; fix it before publishing a policy.",
+        "COST_POLICY_INVALID": "The policy is not valid."
+      }
     }
   }
 }
