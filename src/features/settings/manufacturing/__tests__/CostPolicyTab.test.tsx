@@ -73,7 +73,7 @@ describe('CostPolicyTab', () => {
   it('offers withdrawal only for the scheduled, unpinned version, and requires a reason', async () => {
     service.getCostPolicy.mockResolvedValue(state())
     service.withdrawCostPolicyVersion.mockResolvedValue(state())
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CostPolicyTab />)
 
     const scheduled = await screen.findByTestId('cp-version-2')
@@ -90,7 +90,7 @@ describe('CostPolicyTab', () => {
     service.createCostPolicyVersion
       .mockRejectedValueOnce(new Error('Failed to fetch'))
       .mockResolvedValue({ state: state(), versionId: 'v2', replayed: true })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CostPolicyTab />)
 
     await user.click(await screen.findByRole('button', { name: 'New version' }))
@@ -138,7 +138,9 @@ describe('CostPolicyTab', () => {
         ],
       }],
     })
-  })
+    // Drives the whole form (about 15 interactions); under `npm run test:coverage`
+    // it takes about 3 s locally, close to the 5 s default.
+  }, 20_000)
 
   it('previews absorption and sends an empty driver as NULL, never as zero', async () => {
     service.getCostPolicy.mockResolvedValue(state())
@@ -147,7 +149,7 @@ describe('CostPolicyTab', () => {
       overhead: [{ pool_code: 'MACHINE_OH', basis: 'machine_hours', driver_hours: 6, rate_per_hour: 55, rate_source: 'work_center_rule', amount: 330 }],
       excluded_pools: ['LABOR_OH'], overhead_total: 330, total: 680,
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<CostPolicyTab />)
 
     await screen.findByTestId('cp-version-1')
