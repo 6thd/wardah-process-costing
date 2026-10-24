@@ -1,0 +1,132 @@
+{
+  "format_version": 1,
+  "canonical_base": "3acea30d83e182a2651b60b8696a658137bc0c92",
+  "reviewed_client": "d71a1657739d1660740ac931ef5f48bffbd4476f",
+  "scope": "Literal .rpc('name', ...) calls in src/**/*.ts(x), excluding tests and generated types; static inventory only",
+  "production_or_staging_access": false,
+  "release_ready": false,
+  "functions": [
+    {
+      "function": "rpc_create_mo_with_reservation",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/createOrder.ts",
+          "line": 183
+        }
+      ],
+      "disposition": "OPEN: owner-approved replacement or retirement required before live application"
+    },
+    {
+      "function": "create_mo_with_reservation",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [],
+      "disposition": "No literal source call found; external/scheduled/dynamic callers not verified"
+    },
+    {
+      "function": "release_expired_reservations",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [],
+      "disposition": "No literal source call found; external/scheduled/dynamic callers not verified"
+    },
+    {
+      "function": "generate_work_orders_from_mo",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/mesService.ts",
+          "line": 279
+        }
+      ],
+      "disposition": "OPEN: owner-approved replacement or retirement required before live application"
+    },
+    {
+      "function": "schedule_work_order",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/capacityService.ts",
+          "line": 533
+        }
+      ],
+      "disposition": "OPEN: owner-approved replacement or retirement required before live application"
+    },
+    {
+      "function": "auto_schedule_work_orders",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/capacityService.ts",
+          "line": 552
+        }
+      ],
+      "disposition": "OPEN: owner-approved replacement or retirement required before live application"
+    },
+    {
+      "function": "assign_routing_to_mo",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/efficiencyService.ts",
+          "line": 556
+        }
+      ],
+      "disposition": "OPEN: owner-approved replacement or retirement required before live application"
+    },
+    {
+      "function": "release_manufacturing_order",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/efficiencyService.ts",
+          "line": 569
+        }
+      ],
+      "disposition": "OPEN: owner-approved replacement or retirement required before live application"
+    },
+    {
+      "function": "start_operation",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/mesService.ts",
+          "line": 294
+        }
+      ],
+      "disposition": "OPEN: owner-approved replacement or retirement required before live application"
+    },
+    {
+      "function": "complete_operation",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/mesService.ts",
+          "line": 314
+        }
+      ],
+      "disposition": "OPEN: owner-approved replacement or retirement required before live application"
+    },
+    {
+      "function": "rpc_transition_mo_status",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/updateStatus.ts",
+          "line": 227
+        }
+      ],
+      "disposition": "OPEN: owner-approved replacement or retirement required before live application"
+    },
+    {
+      "function": "rpc_complete_manufacturing_order",
+      "quarantined_by": "195_material_issue_scope",
+      "literal_source_calls": [
+        {
+          "path": "src/services/manufacturing/updateStatus.ts",
+          "line": 58
+        }
+      ],
+      "disposition": "OPEN: owner-approved replacement or retirement required before live application"
+    }
+  ]
+}

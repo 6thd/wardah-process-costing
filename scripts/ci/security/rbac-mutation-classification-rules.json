@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "rules": [
+    {"id":"material-issue-scoped-read-candidate","priority":10,"targets":["rpc_list_material_issue_orders","rpc_get_material_issue_context"],"verdict":"follow_up_required","issue":229,"note":"Read-only selectors. Exact consume permission and active organization checks implemented only in docs/db/material-issue-229/195_material_issue_scope_candidate.sql; candidate is unallocated and unapplied. Real identity/read acceptance remains required."},
     {"id":"super-admin-service","file_prefix":"src/services/super-admin-service.ts","verdict":"server_covered_rls_needs_acceptance","issue":148,"note":"Production RLS restricts organization/super-admin mutations to org-admin or super-admin as applicable; dedicated super-admin acceptance remains required."},
     {"id":"journal-service","file_prefix":"src/services/accounting/journal-service.ts","verdict":"follow_up_required","issue":150,"note":"Journal create/post/approve/reverse service-level permission alignment tracked in #150."},
     {"id":"journal-rpc-create","target":"rpc_create_journal_entry","verdict":"verified_gap","issue":150,"note":"Authenticated SECURITY DEFINER create RPC has no exact permission assertion."},
