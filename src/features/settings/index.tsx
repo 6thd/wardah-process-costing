@@ -9,10 +9,12 @@ import {
   Shield,
   Cog,
   Database,
+  Factory,
 } from 'lucide-react'
 import { CompanySettings } from './CompanySettings'
 import { SystemSettingsPage } from './SystemSettingsPage'
 import { BackupSettingsPage } from './BackupSettingsPage'
+import { ManufacturingSettingsPage } from './manufacturing/ManufacturingSettingsPage'
 import { usePermissions } from '@/hooks/usePermissions'
 
 export function SettingsModule() {
@@ -25,6 +27,7 @@ export function SettingsModule() {
       <Route path="/system" element={<SystemSettingsPage />} />
       <Route path="/integrations" element={<Navigate to="/settings" replace />} />
       <Route path="/backup" element={<BackupSettingsPage />} />
+      <Route path="/manufacturing" element={<ManufacturingSettingsPage />} />
       <Route path="*" element={<Navigate to="/settings" replace />} />
     </Routes>
   )
@@ -38,6 +41,8 @@ function SettingsOverview() {
   const canReadOrganization = hasPermissionKey('settings.organization.read')
   const canReadUsers = hasPermissionKey('settings.users.read')
   const canReadRoles = hasPermissionKey('settings.roles.read')
+  const canReadManufacturingSettings =
+    hasPermissionKey('manufacturing.settings.read') || hasPermissionKey('manufacturing.settings.update')
 
   const settingsCategories = [
     {
@@ -113,6 +118,21 @@ function SettingsOverview() {
         tr('تصدير الجداول الرئيسية', 'Main-table export'),
       ],
       visible: canReadOrganization,
+    },
+    {
+      title: tr('إعدادات التصنيع', 'Manufacturing Settings'),
+      description: tr('سياسات الصرف والجودة وربط القيود المحاسبية للتصنيع', 'Material issue, quality and GL mapping policies for manufacturing'),
+      icon: Factory,
+      href: '/settings/manufacturing',
+      color: 'text-amber-600',
+      bgColor: 'bg-amber-50',
+      options: [
+        tr('صرف المواد', 'Material issue'),
+        tr('الجودة', 'Quality'),
+        tr('ربط القيود', 'GL mappings'),
+      ],
+      // يطابق متطلب /settings/manufacturing في route-permissions.ts
+      visible: canReadManufacturingSettings,
     },
   ].filter(category => category.visible)
 
