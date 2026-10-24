@@ -10,7 +10,7 @@ import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 
 export type LaborCostSource = 'work_center_rate' | 'recorded_entry_rate'
 export type OverheadBasis = 'labor_hours' | 'machine_hours'
-/** متى يُثبَّت إصدار التكلفة على الأوامر المنشأة تحت هذا الإصدار (runbook ‏§3.8). */
+/** متى يُثبَّت إصدار التكلفة على الأوامر المنشأة تحت هذا الإصدار (runbook §3.8). */
 export type PinEvent = 'mo_created' | 'production_started'
 export type CostPolicyStatus = 'scheduled' | 'current' | 'superseded' | 'withdrawn'
 
