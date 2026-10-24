@@ -1861,6 +1861,12 @@
       "perHour": "{{rate}} / ساعة",
       "workCenterRules": "قواعد مراكز العمل",
       "pinnedOrders": "أوامر مثبتة",
+      "pinEvent": "توقيت التثبيت",
+      "pinEvents": {
+        "mo_created": "عند إنشاء الأمر",
+        "production_started": "عند أول بدء للإنتاج"
+      },
+      "awaitingStart": "{{count}} بانتظار البدء",
       "status": {
         "current": "سارٍ",
         "scheduled": "مجدول",
@@ -1884,6 +1890,7 @@
         "remove": "حذف",
         "addPool": "إضافة مجمع",
         "rulesHelp": "مركز العمل بلا قاعدة يأخذ معدل العمالة الافتراضي وكل المجمعات بمعدلاتها. القاعدة قد تغيّر معدل العمالة، أو معدل مجمع، أو تستبعد مجمعًا. الأساس يبقى خاصية المجمع.",
+        "pinEventHelp": "كل أمر يحتفظ بتوقيت الإصدار الساري يوم إنشائه. تغييره في إصدار جديد لا يغيّر الأوامر القائمة.",
         "workCenter": "مركز العمل",
         "wcLaborRate": "معدل عمالة خاص",
         "usesDefault": "يأخذ الافتراضي",
@@ -1941,6 +1948,7 @@
         "COST_POLICY_DRIVER_INVALID": "لا تكون الساعات أو التكاليف سالبة.",
         "COST_POLICY_INPUT_NOT_APPLICABLE": "هذا المدخل لا يستخدمه الإصدار المختار.",
         "COST_POLICY_ORG_TIMEZONE_INVALID": "توقيت المؤسسة غير صالح؛ أصلحه قبل نشر سياسة.",
+        "COST_POLICY_PIN_EVENT_UNSUPPORTED": "توقيت التثبيت هذا غير مدعوم.",
         "COST_POLICY_INVALID": "السياسة غير صالحة."
       }
     }

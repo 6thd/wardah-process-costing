@@ -95,7 +95,7 @@ export function CostPolicyTab() {
   const base = live[0]
   const canWithdraw = (v: CostPolicyVersion) =>
     state.canManage && v.status !== 'withdrawn' && v.status !== 'superseded'
-    && v.pinned_order_count === 0 && v.effective_from >= state.today
+    && v.pinned_order_count === 0 && v.awaiting_start_order_count === 0 && v.effective_from >= state.today
 
   return (
     <div className="space-y-6">
@@ -131,6 +131,7 @@ export function CostPolicyTab() {
                     <th className="p-2 text-start">{t('manufacturingSettings.costPolicy.effectiveFrom')}</th>
                     <th className="p-2 text-start">{t('manufacturingSettings.gl.status')}</th>
                     <th className="p-2 text-start">{t('manufacturingSettings.costPolicy.laborSource')}</th>
+                    <th className="p-2 text-start">{t('manufacturingSettings.costPolicy.pinEvent')}</th>
                     <th className="p-2 text-start">{t('manufacturingSettings.costPolicy.pools')}</th>
                     <th className="p-2 text-start">{t('manufacturingSettings.costPolicy.workCenterRules')}</th>
                     <th className="p-2 text-start">{t('manufacturingSettings.costPolicy.pinnedOrders')}</th>
@@ -152,6 +153,7 @@ export function CostPolicyTab() {
                           <span className="block text-xs">{t('manufacturingSettings.costPolicy.perHour', { rate: v.default_labor_rate_per_hour })}</span>
                         )}
                       </td>
+                      <td className="p-2">{t(`manufacturingSettings.costPolicy.pinEvents.${v.pin_event}`)}</td>
                       <td className="p-2">
                         {v.overhead_pools.map(p => (
                           <span key={p.pool_code} className="block text-xs">
@@ -162,7 +164,14 @@ export function CostPolicyTab() {
                         ))}
                       </td>
                       <td className="p-2">{v.work_center_rules.length}</td>
-                      <td className="p-2">{v.pinned_order_count}</td>
+                      <td className="p-2">
+                        {v.pinned_order_count}
+                        {v.awaiting_start_order_count > 0 && (
+                          <span className="block text-xs text-muted-foreground">
+                            {t('manufacturingSettings.costPolicy.awaitingStart', { count: v.awaiting_start_order_count })}
+                          </span>
+                        )}
+                      </td>
                       <td className="p-2">
                         {canWithdraw(v) && (
                           <Button size="sm" variant="outline" onClick={() => setWithdrawing({ id: v.id, reason: '' })}>

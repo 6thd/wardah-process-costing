@@ -23,7 +23,7 @@ vi.mock('@/services/mfg-cost-policy-service', async (importOriginal) => ({
 const V1: CostPolicyVersion = {
   id: 'v1', version_no: 1, effective_from: '2026-10-22', status: 'current',
   labor_cost_source: 'work_center_rate', default_labor_rate_per_hour: 30, stage_costing_method: 'weighted_average',
-  note: null, pinned_order_count: 2, withdraw_reason: null,
+  pin_event: 'mo_created', note: null, pinned_order_count: 2, awaiting_start_order_count: 0, withdraw_reason: null,
   overhead_pools: [
     { pool_code: 'LABOR_OH', name: 'Labor overhead', name_ar: null, basis: 'labor_hours', rate: 12 },
     { pool_code: 'MACHINE_OH', name: 'Machine overhead', name_ar: null, basis: 'machine_hours', rate: 40 },
@@ -35,7 +35,7 @@ const V2: CostPolicyVersion = { ...V1, id: 'v2', version_no: 2, effective_from: 
 function state(overrides: Partial<CostPolicyState> = {}): CostPolicyState {
   return {
     today: '2026-10-22', currentVersionId: 'v1', latestVersionNo: 2, versions: [V2, V1],
-    supported: { labor_cost_sources: ['work_center_rate', 'recorded_entry_rate'], overhead_bases: ['labor_hours', 'machine_hours'], stage_costing_methods: ['weighted_average'] },
+    supported: { labor_cost_sources: ['work_center_rate', 'recorded_entry_rate'], overhead_bases: ['labor_hours', 'machine_hours'], stage_costing_methods: ['weighted_average'], pin_events: ['mo_created', 'production_started'] },
     canManage: true,
     ...overrides,
   }
@@ -98,6 +98,10 @@ describe('CostPolicyTab', () => {
     // Only implemented options are offered.
     expect(within(within(form).getByLabelText('Labor cost source')).getAllByRole('option').map(o => o.textContent))
       .toEqual(['Labor hours × work-center rate', 'Recorded cost of time entries'])
+    expect(within(within(form).getByLabelText('Pin timing')).getAllByRole('option').map(o => o.textContent))
+      .toEqual(['When the order is created', 'When production first starts'])
+    expect(within(form).getByLabelText('Pin timing')).toHaveValue('mo_created')
+    await user.selectOptions(within(form).getByLabelText('Pin timing'), 'production_started')
 
     const effective = within(form).getByLabelText('Effective from')
     await user.clear(effective)
@@ -125,6 +129,7 @@ describe('CostPolicyTab', () => {
       effective_from: '2026-11-01',
       labor_cost_source: 'work_center_rate',
       default_labor_rate_per_hour: 30,
+      pin_event: 'production_started',
       overhead_pools: [
         { pool_code: 'LABOR_OH', name: 'Labor overhead', basis: 'labor_hours', rate: 12 },
         { pool_code: 'MACHINE_OH', name: 'Machine overhead', basis: 'machine_hours', rate: 40 },
@@ -141,6 +146,18 @@ describe('CostPolicyTab', () => {
     // Drives the whole form (about 15 interactions); under `npm run test:coverage`
     // it takes about 3 s locally, close to the 5 s default.
   }, 20_000)
+
+  it('shows the pin timing of each version and the orders awaiting start, and offers no withdrawal while any wait', async () => {
+    const waiting: CostPolicyVersion = { ...V2, pin_event: 'production_started', awaiting_start_order_count: 3 }
+    service.getCostPolicy.mockResolvedValue(state({ versions: [waiting, V1] }))
+    render(<CostPolicyTab />)
+
+    const row2 = await screen.findByTestId('cp-version-2')
+    expect(within(row2).getByText('When production first starts')).toBeInTheDocument()
+    expect(within(row2).getByText('3 awaiting start')).toBeInTheDocument()
+    expect(within(row2).queryByRole('button', { name: 'Withdraw' })).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('cp-version-1')).getByText('When the order is created')).toBeInTheDocument()
+  })
 
   it('previews absorption and sends an empty driver as NULL, never as zero', async () => {
     service.getCostPolicy.mockResolvedValue(state())

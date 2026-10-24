@@ -10,6 +10,8 @@ import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 
 export type LaborCostSource = 'work_center_rate' | 'recorded_entry_rate'
 export type OverheadBasis = 'labor_hours' | 'machine_hours'
+/** متى يُثبَّت إصدار التكلفة على الأوامر المنشأة تحت هذا الإصدار (runbook ‏§3.8). */
+export type PinEvent = 'mo_created' | 'production_started'
 export type CostPolicyStatus = 'scheduled' | 'current' | 'superseded' | 'withdrawn'
 
 export interface OverheadPool {
@@ -43,8 +45,11 @@ export interface CostPolicyVersion {
   labor_cost_source: LaborCostSource
   default_labor_rate_per_hour: number | null
   stage_costing_method: 'weighted_average'
+  pin_event: PinEvent
   note: string | null
   pinned_order_count: number
+  /** أوامر أخذت توقيتها (`production_started`) من هذا الإصدار ولم تبدأ بعد. */
+  awaiting_start_order_count: number
   withdraw_reason: string | null
   overhead_pools: OverheadPool[]
   work_center_rules: WorkCenterRule[]
@@ -59,6 +64,7 @@ export interface CostPolicyState {
     labor_cost_sources: LaborCostSource[]
     overhead_bases: OverheadBasis[]
     stage_costing_methods: string[]
+    pin_events: PinEvent[]
   }
   canManage: boolean
 }
@@ -68,6 +74,7 @@ export interface CostPolicyDraft {
   effective_from: string
   labor_cost_source: LaborCostSource
   default_labor_rate_per_hour?: number
+  pin_event: PinEvent
   note?: string
   overhead_pools: Array<{ pool_code: string; name: string; name_ar?: string; basis: OverheadBasis; rate: number }>
   work_center_rules: Array<{
@@ -225,6 +232,7 @@ const COST_POLICY_ERRORS = [
   'COST_POLICY_DRIVER_INVALID',
   'COST_POLICY_INPUT_NOT_APPLICABLE',
   'COST_POLICY_ORG_TIMEZONE_INVALID',
+  'COST_POLICY_PIN_EVENT_UNSUPPORTED',
   'COST_POLICY_INVALID',
 ] as const
 

@@ -20,7 +20,7 @@ import {
 const ORG = '22222222-2222-2222-2222-222222222222'
 const STATE = {
   org_id: ORG, today: '2026-10-22', current_version_id: null, latest_version_no: 0, versions: [],
-  supported: { labor_cost_sources: ['work_center_rate', 'recorded_entry_rate'], overhead_bases: ['labor_hours', 'machine_hours'], stage_costing_methods: ['weighted_average'] },
+  supported: { labor_cost_sources: ['work_center_rate', 'recorded_entry_rate'], overhead_bases: ['labor_hours', 'machine_hours'], stage_costing_methods: ['weighted_average'], pin_events: ['mo_created', 'production_started'] },
   capabilities: { can_manage: true },
 }
 
@@ -40,6 +40,7 @@ describe('mfg-cost-policy-service', () => {
     expect(state.canManage).toBe(true)
     expect(state.latestVersionNo).toBe(0)
     expect(state.supported.overhead_bases).toEqual(['labor_hours', 'machine_hours'])
+    expect(state.supported.pin_events).toEqual(['mo_created', 'production_started'])
   })
 
   it('reports an environment without Migration 204 as COST_POLICY_NOT_DEPLOYED, not as a generic error', async () => {
@@ -54,7 +55,7 @@ describe('mfg-cost-policy-service', () => {
   it('creates a version with the expected latest version and the caller idempotency key', async () => {
     rpc.mockResolvedValue({ data: { ...STATE, latest_version_no: 1, policy_version_id: 'v1', replayed: false }, error: null })
     const draft: CostPolicyDraft = {
-      effective_from: '2026-11-01', labor_cost_source: 'work_center_rate', default_labor_rate_per_hour: 30,
+      effective_from: '2026-11-01', labor_cost_source: 'work_center_rate', default_labor_rate_per_hour: 30, pin_event: 'production_started',
       overhead_pools: [{ pool_code: 'MACHINE_OH', name: 'Machine', basis: 'machine_hours', rate: 40 }],
       work_center_rules: [{ work_center_id: 'wc-1', pools: [{ pool_code: 'MACHINE_OH', applies: false }] }],
     }
@@ -90,6 +91,9 @@ describe('mfg-cost-policy-service', () => {
       .toBe('manufacturingSettings.costPolicy.errors.COST_POLICY_INVALID')
     expect(costPolicyErrorKey('MANUFACTURING_SETTINGS_UPDATE_DENIED'))
       .toBe('manufacturingSettings.costPolicy.errors.MANUFACTURING_SETTINGS_UPDATE_DENIED')
+    expect(costPolicyErrorKey('COST_POLICY_PIN_EVENT_UNSUPPORTED'))
+      .toBe('manufacturingSettings.costPolicy.errors.COST_POLICY_PIN_EVENT_UNSUPPORTED')
+    expect(costPolicyErrorDetail('COST_POLICY_INVALID: pin_event')).toBe('pin_event')
     expect(costPolicyErrorKey('network down')).toBeNull()
   })
 })

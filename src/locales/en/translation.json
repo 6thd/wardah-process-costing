@@ -1865,6 +1865,12 @@
       "perHour": "{{rate}} / hour",
       "workCenterRules": "Work-center rules",
       "pinnedOrders": "Orders pinned",
+      "pinEvent": "Pin timing",
+      "pinEvents": {
+        "mo_created": "When the order is created",
+        "production_started": "When production first starts"
+      },
+      "awaitingStart": "{{count}} awaiting start",
       "status": {
         "current": "Current",
         "scheduled": "Scheduled",
@@ -1888,6 +1894,7 @@
         "remove": "Remove",
         "addPool": "Add pool",
         "rulesHelp": "A work center without a rule uses the default labor rate and every pool at its rate. A rule may override the labor rate, override a pool rate, or exclude a pool. The basis always stays with the pool.",
+        "pinEventHelp": "Each order keeps the timing of the version in force when it is created. Changing it in a new version does not change existing orders.",
         "workCenter": "Work center",
         "wcLaborRate": "Labor rate override",
         "usesDefault": "Uses the default",
@@ -1945,6 +1952,7 @@
         "COST_POLICY_DRIVER_INVALID": "Hours and costs cannot be negative.",
         "COST_POLICY_INPUT_NOT_APPLICABLE": "This input is not used by the selected version.",
         "COST_POLICY_ORG_TIMEZONE_INVALID": "The organization's timezone is not valid; fix it before publishing a policy.",
+        "COST_POLICY_PIN_EVENT_UNSUPPORTED": "This pin timing is not supported.",
         "COST_POLICY_INVALID": "The policy is not valid."
       }
     }

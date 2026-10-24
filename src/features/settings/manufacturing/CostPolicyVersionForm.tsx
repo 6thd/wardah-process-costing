@@ -10,6 +10,7 @@ import type {
   CostPolicyWorkCenter,
   LaborCostSource,
   OverheadBasis,
+  PinEvent,
 } from '@/services/mfg-cost-policy-service'
 
 const SELECT_CLASS =
@@ -36,6 +37,7 @@ export function CostPolicyVersionForm({
   const [laborSource, setLaborSource] = useState<LaborCostSource>(
     base?.labor_cost_source ?? state.supported.labor_cost_sources[0])
   const [defaultLaborRate, setDefaultLaborRate] = useState(base?.default_labor_rate_per_hour?.toString() ?? '')
+  const [pinEvent, setPinEvent] = useState<PinEvent>(base?.pin_event ?? state.supported.pin_events[0])
   const [note, setNote] = useState('')
   const [pools, setPools] = useState<PoolRow[]>(
     base?.overhead_pools.map(p => ({ pool_code: p.pool_code, name: p.name, name_ar: p.name_ar ?? '', basis: p.basis, rate: String(p.rate) }))
@@ -55,6 +57,7 @@ export function CostPolicyVersionForm({
     effective_from: effectiveFrom,
     labor_cost_source: laborSource,
     ...(usesRates ? { default_labor_rate_per_hour: Number(defaultLaborRate) } : {}),
+    pin_event: pinEvent,
     ...(note.trim() ? { note: note.trim() } : {}),
     overhead_pools: pools.map(p => ({
       pool_code: p.pool_code.trim().toUpperCase(),
@@ -109,6 +112,16 @@ export function CostPolicyVersionForm({
               onChange={(e) => setDefaultLaborRate(e.target.value)} required />
           </div>
         )}
+        <div className="space-y-1">
+          <Label htmlFor="cp-pin-event">{t('manufacturingSettings.costPolicy.pinEvent')}</Label>
+          <select id="cp-pin-event" className={SELECT_CLASS} value={pinEvent}
+            onChange={(e) => setPinEvent(e.target.value as PinEvent)}>
+            {state.supported.pin_events.map(event => (
+              <option key={event} value={event}>{t(`manufacturingSettings.costPolicy.pinEvents.${event}`)}</option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">{t('manufacturingSettings.costPolicy.form.pinEventHelp')}</p>
+        </div>
       </div>
 
       <fieldset className="space-y-2">
