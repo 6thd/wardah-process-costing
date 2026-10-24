@@ -30,7 +30,7 @@ BEGIN
   FOREACH v_table IN ARRAY ARRAY[
     'wardah_internal.mfg_cost_policy_versions', 'wardah_internal.mfg_cost_policy_pools',
     'wardah_internal.mfg_cost_policy_wc_rules', 'wardah_internal.mfg_cost_policy_wc_pool_rules',
-    'wardah_internal.mo_cost_policy_pins'] LOOP
+    'wardah_internal.mo_cost_policy_pin_timing', 'wardah_internal.mo_cost_policy_pins'] LOOP
     IF has_table_privilege('authenticated', v_table, 'SELECT')
        OR has_table_privilege('authenticated', v_table, 'INSERT')
        OR has_table_privilege('authenticated', v_table, 'UPDATE')
@@ -58,6 +58,8 @@ BEGIN
     'wardah_internal.mfg_cost_policy_can_read_204(uuid)',
     'wardah_internal.mfg_cost_policy_version_json_204(uuid,date)',
     'wardah_internal.pin_mo_cost_policy_204()',
+    'wardah_internal.pin_mo_cost_policy_on_start_204()',
+    'wardah_internal.mo_cost_policy_org_match_204()',
     'wardah_internal.mfg_cost_policy_immutable_204()'] LOOP
     IF has_function_privilege('authenticated', v_fn, 'EXECUTE')
        OR has_function_privilege('anon', v_fn, 'EXECUTE')
@@ -68,6 +70,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'pin_mo_cost_policy_204'
                  AND tgrelid = 'public.manufacturing_orders'::regclass AND tgenabled = 'O') THEN
     RAISE EXCEPTION 'CP204_PIN_TRIGGER_MISSING';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'pin_mo_cost_policy_on_start_204'
+                 AND tgrelid = 'public.manufacturing_orders'::regclass AND tgenabled = 'O') THEN
+    RAISE EXCEPTION 'CP204_START_PIN_TRIGGER_MISSING';
   END IF;
   IF EXISTS (SELECT 1 FROM wardah_internal.mfg_cost_policy_versions) THEN
     RAISE EXCEPTION 'CP204_UNEXPECTED_SEED';
@@ -128,6 +134,7 @@ SELECT set_config('cp.base', jsonb_build_object(
   'effective_from', current_setting('cp.today_a'),
   'labor_cost_source', 'work_center_rate',
   'default_labor_rate_per_hour', 30,
+  'pin_event', 'mo_created',
   'note', 'Initial policy',
   'overhead_pools', jsonb_build_array(
     jsonb_build_object('pool_code', 'LABOR_OH', 'name', 'Labor-driven overhead',
@@ -206,7 +213,8 @@ BEGIN
   IF (v->'capabilities'->>'can_manage')::boolean OR v->>'latest_version_no' <> '0'
      OR jsonb_array_length(v->'versions') <> 0 OR v->>'current_version_id' IS NOT NULL
      OR v->'supported'->'stage_costing_methods' <> '["weighted_average"]'::jsonb
-     OR v->'supported'->'overhead_bases' <> '["labor_hours", "machine_hours"]'::jsonb THEN
+     OR v->'supported'->'overhead_bases' <> '["labor_hours", "machine_hours"]'::jsonb
+     OR v->'supported'->'pin_events' <> '["mo_created", "production_started"]'::jsonb THEN
     RAISE EXCEPTION 'CP204_READER_VIEW_UNEXPECTED: %', v;
   END IF;
 END
@@ -248,6 +256,9 @@ BEGIN
     ('recorded with wc labor rate', (b - 'default_labor_rate_per_hour') || '{"labor_cost_source":"recorded_entry_rate"}',
       'COST_POLICY_LABOR_RATE_NOT_APPLICABLE: work_center_rules[1]'),
     ('stage method fifo', b || '{"stage_costing_method":"fifo"}', 'COST_POLICY_STAGE_METHOD_UNSUPPORTED'),
+    ('pin event missing', b - 'pin_event', 'COST_POLICY_INVALID: pin_event'),
+    ('pin event type', b || '{"pin_event":1}', 'COST_POLICY_INVALID: pin_event'),
+    ('pin event unsupported', b || '{"pin_event":"first_material_issue"}', 'COST_POLICY_PIN_EVENT_UNSUPPORTED'),
     ('pools empty', b || '{"overhead_pools":[]}', 'COST_POLICY_POOLS_REQUIRED'),
     ('pools missing', b - 'overhead_pools', 'COST_POLICY_POOLS_REQUIRED'),
     ('pool basis', jsonb_set(b, '{overhead_pools,0,basis}', '"units_produced"'),
@@ -311,7 +322,8 @@ BEGIN
      OR jsonb_array_length(v1->'work_center_rules') <> 2
      OR v1->>'stage_costing_method' <> 'weighted_average'
      OR (v1->>'default_labor_rate_per_hour')::numeric <> 30
-     OR v1->>'pinned_order_count' <> '0' THEN
+     OR v1->>'pin_event' <> 'mo_created'
+     OR v1->>'pinned_order_count' <> '0' OR v1->>'awaiting_start_order_count' <> '0' THEN
     RAISE EXCEPTION 'CP204_CREATE_UNEXPECTED: %', r;
   END IF;
   PERFORM set_config('cp.v1', v1->>'id', false);
@@ -335,12 +347,14 @@ BEGIN
     jsonb_build_object(
       'effective_from', (t + 30)::text,
       'labor_cost_source', 'recorded_entry_rate',
+      'pin_event', 'production_started',
       'overhead_pools', jsonb_build_array(
         jsonb_build_object('pool_code', 'LABOR_OH', 'name', 'Labor-driven overhead', 'basis', 'labor_hours', 'rate', 13),
         jsonb_build_object('pool_code', 'MACHINE_OH', 'name', 'Machine overhead', 'basis', 'machine_hours', 'rate', 42))),
     1, '52040204-0000-0000-0000-00000000f102');
   IF r->'versions'->0->>'status' <> 'scheduled' OR r->'versions'->1->>'status' <> 'current'
-     OR r->'versions'->0->>'default_labor_rate_per_hour' IS NOT NULL THEN
+     OR r->'versions'->0->>'default_labor_rate_per_hour' IS NOT NULL
+     OR r->'versions'->0->>'pin_event' <> 'production_started' THEN
     RAISE EXCEPTION 'CP204_SCHEDULED_UNEXPECTED: %', r;
   END IF;
   PERFORM set_config('cp.v2', r->>'policy_version_id', false);
@@ -459,7 +473,15 @@ BEGIN
      OR p.pinned_on <> current_setting('cp.today_a')::date OR p.pin_source <> 'mo_created' THEN
     RAISE EXCEPTION 'CP204_PIN_UNEXPECTED';
   END IF;
-  IF EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins WHERE mo_id = '52040204-0000-0000-0000-0000000000f2') THEN
+  IF NOT EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pin_timing
+                 WHERE mo_id = '52040204-0000-0000-0000-0000000000f1' AND pin_event = 'mo_created'
+                   AND timing_source_version_id = current_setting('cp.v1')::uuid
+                   AND decided_on = current_setting('cp.today_a')::date) THEN
+    RAISE EXCEPTION 'CP204_TIMING_UNEXPECTED';
+  END IF;
+  IF EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins WHERE mo_id = '52040204-0000-0000-0000-0000000000f2')
+     OR EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pin_timing
+                WHERE mo_id = '52040204-0000-0000-0000-0000000000f2') THEN
     RAISE EXCEPTION 'CP204_PIN_WITHOUT_POLICY';
   END IF;
   RAISE NOTICE 'CP204_PINS_OK';
@@ -467,14 +489,205 @@ END
 $pins$;
 
 -- ---------------------------------------------------------------------
+-- 6b. Pin timing per company (owner direction 2026-10-22). The order keeps the
+-- timing it took at creation; the cost version is chosen once, at that event.
+-- Versions here are owner fixtures so one can start in the past. Orgs:
+--   T: V1 (production_started, from today-10), then V2 (mo_created, today);
+--   U: no policy at first, then V1 (production_started, from yesterday);
+--   X: V1 (production_started, today) used as timing source, unpinned;
+--   Y: V1 from "today" in Pacific/Kiritimati, then the zone moves to
+--      Pacific/Pago_Pago (25 h behind), so the start day precedes V1.
+-- ---------------------------------------------------------------------
+INSERT INTO public.organizations (id, name, code) VALUES
+  ('52040204-0000-0000-0000-0000000002a1', 'Cost Policy 204 T', 'CP204-T'),
+  ('52040204-0000-0000-0000-0000000002b1', 'Cost Policy 204 U', 'CP204-U'),
+  ('52040204-0000-0000-0000-0000000002c1', 'Cost Policy 204 X', 'CP204-X');
+INSERT INTO public.organizations (id, name, code, timezone) VALUES
+  ('52040204-0000-0000-0000-0000000002d1', 'Cost Policy 204 Y', 'CP204-Y', 'Pacific/Kiritimati');
+INSERT INTO auth.users (id, email) VALUES ('52040204-0000-0000-0000-0000000002c2', 'cp204-x-admin@example.test');
+INSERT INTO public.user_organizations (user_id, org_id, role, is_active, is_org_admin) VALUES
+  ('52040204-0000-0000-0000-0000000002c2', '52040204-0000-0000-0000-0000000002c1', 'admin', true, false);
+
+CREATE FUNCTION pg_temp.cp_version(p_id uuid, p_org uuid, p_no int, p_from date, p_event text) RETURNS void
+LANGUAGE sql AS $fn$
+  INSERT INTO wardah_internal.mfg_cost_policy_versions
+    (id, org_id, version_no, effective_from, labor_cost_source, default_labor_rate_per_hour,
+     pin_event, idempotency_key, payload_hash)
+  VALUES (p_id, p_org, p_no, p_from, 'work_center_rate', 30, p_event, gen_random_uuid(), 'fixture');
+$fn$;
+CREATE FUNCTION pg_temp.cp_pin(p_mo uuid) RETURNS text
+LANGUAGE sql AS $fn$
+  SELECT COALESCE((SELECT policy_version_id::text || '/' || pin_source || '/' || pinned_on::text
+                   FROM wardah_internal.mo_cost_policy_pins WHERE mo_id = p_mo), 'none');
+$fn$;
+CREATE FUNCTION pg_temp.cp_timing(p_mo uuid) RETURNS text
+LANGUAGE sql AS $fn$
+  SELECT COALESCE((SELECT timing_source_version_id::text || '/' || pin_event || '/' || decided_on::text
+                   FROM wardah_internal.mo_cost_policy_pin_timing WHERE mo_id = p_mo), 'none');
+$fn$;
+CREATE FUNCTION pg_temp.cp_check(p_label text, p_got text, p_want text) RETURNS void
+LANGUAGE plpgsql AS $fn$
+BEGIN
+  IF p_got IS DISTINCT FROM p_want THEN
+    RAISE EXCEPTION 'CP204_TIMING_CHECK_FAILED [%]: expected % got %', p_label, p_want, p_got;
+  END IF;
+END
+$fn$;
+
+SELECT set_config('cp.today_t', wardah_internal.mfg_cost_policy_org_today_204('52040204-0000-0000-0000-0000000002a1', true)::text, false);
+SELECT pg_temp.cp_version('52040204-0000-0000-0000-0000000002a5', '52040204-0000-0000-0000-0000000002a1', 1,
+  current_setting('cp.today_t')::date - 10, 'production_started');
+-- T1 is created under V1 (production_started); its planned start_date lies in V1's range.
+INSERT INTO public.manufacturing_orders (id, org_id, order_number, quantity, status, start_date) VALUES
+  ('52040204-0000-0000-0000-0000000002af', '52040204-0000-0000-0000-0000000002a1', 'CP204-T-1', 10, 'confirmed',
+   current_setting('cp.today_t')::date - 9);
+SELECT pg_temp.cp_check('T1 timing at creation', pg_temp.cp_timing('52040204-0000-0000-0000-0000000002af'),
+  '52040204-0000-0000-0000-0000000002a5/production_started/' || current_setting('cp.today_t'));
+SELECT pg_temp.cp_check('T1 no pin before start', pg_temp.cp_pin('52040204-0000-0000-0000-0000000002af'), 'none');
+SELECT pg_temp.cp_check('V1 awaiting start',
+  wardah_internal.mfg_cost_policy_version_json_204('52040204-0000-0000-0000-0000000002a5',
+    current_setting('cp.today_t')::date)->>'awaiting_start_order_count', '1');
+-- V2 (mo_created) takes effect today; T2 is created under it and pinned at once.
+SELECT pg_temp.cp_version('52040204-0000-0000-0000-0000000002a6', '52040204-0000-0000-0000-0000000002a1', 2,
+  current_setting('cp.today_t')::date, 'mo_created');
+INSERT INTO public.manufacturing_orders (id, org_id, order_number, quantity, status) VALUES
+  ('52040204-0000-0000-0000-0000000002ae', '52040204-0000-0000-0000-0000000002a1', 'CP204-T-2', 10, 'confirmed');
+SELECT pg_temp.cp_check('T2 pinned at creation', pg_temp.cp_pin('52040204-0000-0000-0000-0000000002ae'),
+  '52040204-0000-0000-0000-0000000002a6/mo_created/' || current_setting('cp.today_t'));
+-- Planned start date changes do not pin.
+UPDATE public.manufacturing_orders SET start_date = current_setting('cp.today_t')::date - 8
+WHERE id = '52040204-0000-0000-0000-0000000002af';
+SELECT pg_temp.cp_check('T1 start_date edit', pg_temp.cp_pin('52040204-0000-0000-0000-0000000002af'), 'none');
+-- First start: T1 keeps its saved timing (production_started) although V2 is
+-- mo_created, and is pinned to V2, the version in force on the start day.
+UPDATE public.manufacturing_orders SET status = 'in_progress' WHERE id = '52040204-0000-0000-0000-0000000002af';
+SELECT pg_temp.cp_check('T1 pinned at first start', pg_temp.cp_pin('52040204-0000-0000-0000-0000000002af'),
+  '52040204-0000-0000-0000-0000000002a6/production_started/' || current_setting('cp.today_t'));
+SELECT pg_temp.cp_check('T1 timing kept', pg_temp.cp_timing('52040204-0000-0000-0000-0000000002af'),
+  '52040204-0000-0000-0000-0000000002a5/production_started/' || current_setting('cp.today_t'));
+-- Restart after hold keeps the pin; an order pinned at creation is not re-pinned at start.
+UPDATE public.manufacturing_orders SET status = 'on_hold' WHERE id = '52040204-0000-0000-0000-0000000002af';
+UPDATE public.manufacturing_orders SET status = 'in_progress' WHERE id = '52040204-0000-0000-0000-0000000002af';
+UPDATE public.manufacturing_orders SET status = 'in_progress' WHERE id = '52040204-0000-0000-0000-0000000002ae';
+SELECT pg_temp.cp_check('T1 restart keeps pin', pg_temp.cp_pin('52040204-0000-0000-0000-0000000002af'),
+  '52040204-0000-0000-0000-0000000002a6/production_started/' || current_setting('cp.today_t'));
+SELECT pg_temp.cp_check('T2 not re-pinned at start', pg_temp.cp_pin('52040204-0000-0000-0000-0000000002ae'),
+  '52040204-0000-0000-0000-0000000002a6/mo_created/' || current_setting('cp.today_t'));
+
+-- U: an order created with no policy keeps no timing and is never pinned,
+-- even after a policy is published and the order starts.
+INSERT INTO public.manufacturing_orders (id, org_id, order_number, quantity, status) VALUES
+  ('52040204-0000-0000-0000-0000000002bf', '52040204-0000-0000-0000-0000000002b1', 'CP204-U-1', 1, 'confirmed');
+SELECT pg_temp.cp_version('52040204-0000-0000-0000-0000000002b5', '52040204-0000-0000-0000-0000000002b1', 1,
+  wardah_internal.mfg_cost_policy_org_today_204('52040204-0000-0000-0000-0000000002b1', true) - 1, 'production_started');
+UPDATE public.manufacturing_orders SET status = 'in_progress' WHERE id = '52040204-0000-0000-0000-0000000002bf';
+SELECT pg_temp.cp_check('U1 no timing after publish', pg_temp.cp_timing('52040204-0000-0000-0000-0000000002bf'), 'none');
+SELECT pg_temp.cp_check('U1 no pin after start', pg_temp.cp_pin('52040204-0000-0000-0000-0000000002bf'), 'none');
+-- Inserted already started: pinned in the insert. Cancelled before start: never pinned.
+INSERT INTO public.manufacturing_orders (id, org_id, order_number, quantity, status) VALUES
+  ('52040204-0000-0000-0000-0000000002be', '52040204-0000-0000-0000-0000000002b1', 'CP204-U-2', 1, 'in_progress'),
+  ('52040204-0000-0000-0000-0000000002bd', '52040204-0000-0000-0000-0000000002b1', 'CP204-U-3', 1, 'confirmed'),
+  ('52040204-0000-0000-0000-0000000002bb', '52040204-0000-0000-0000-0000000002b1', 'CP204-U-5', 1, 'confirmed');
+SELECT pg_temp.cp_check('U2 pinned on insert as started', split_part(pg_temp.cp_pin('52040204-0000-0000-0000-0000000002be'), '/', 2),
+  'production_started');
+UPDATE public.manufacturing_orders SET status = 'cancelled' WHERE id = '52040204-0000-0000-0000-0000000002bd';
+SELECT pg_temp.cp_check('U3 cancelled before start', pg_temp.cp_pin('52040204-0000-0000-0000-0000000002bd'), 'none');
+-- The transition fails after the trigger pinned inside it: nothing remains.
+SELECT pg_temp.cp_expect('start then fail', $q$DO $f$
+BEGIN
+  UPDATE public.manufacturing_orders SET status = 'in_progress' WHERE id = '52040204-0000-0000-0000-0000000002bb';
+  IF NOT EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins WHERE mo_id = '52040204-0000-0000-0000-0000000002bb') THEN
+    RAISE EXCEPTION 'CP204_NO_PIN_INSIDE_TRANSITION';
+  END IF;
+  RAISE EXCEPTION 'CP204_FORCED_FAILURE_AFTER_PIN';
+END
+$f$$q$, 'CP204_FORCED_FAILURE_AFTER_PIN');
+SELECT pg_temp.cp_check('U5 status after failed start',
+  (SELECT status::text FROM public.manufacturing_orders WHERE id = '52040204-0000-0000-0000-0000000002bb'), 'confirmed');
+SELECT pg_temp.cp_check('U5 no pin after failed start', pg_temp.cp_pin('52040204-0000-0000-0000-0000000002bb'), 'none');
+
+-- X: a version that is only a timing source (no pin yet) cannot be withdrawn.
+SELECT pg_temp.cp_version('52040204-0000-0000-0000-0000000002c5', '52040204-0000-0000-0000-0000000002c1', 1,
+  wardah_internal.mfg_cost_policy_org_today_204('52040204-0000-0000-0000-0000000002c1', true), 'production_started');
+INSERT INTO public.manufacturing_orders (id, org_id, order_number, quantity, status) VALUES
+  ('52040204-0000-0000-0000-0000000002cf', '52040204-0000-0000-0000-0000000002c1', 'CP204-X-1', 1, 'confirmed');
+-- V: a version pinned at a start but not the timing source of any order (V1
+-- from ten days ago is the source; V2 from today is pinned) cannot be withdrawn.
+INSERT INTO public.organizations (id, name, code) VALUES
+  ('52040204-0000-0000-0000-0000000002e1', 'Cost Policy 204 V', 'CP204-V');
+INSERT INTO public.user_organizations (user_id, org_id, role, is_active, is_org_admin) VALUES
+  ('52040204-0000-0000-0000-0000000002c2', '52040204-0000-0000-0000-0000000002e1', 'admin', true, false);
+SELECT pg_temp.cp_version('52040204-0000-0000-0000-0000000002e5', '52040204-0000-0000-0000-0000000002e1', 1,
+  wardah_internal.mfg_cost_policy_org_today_204('52040204-0000-0000-0000-0000000002e1', true) - 10, 'production_started');
+INSERT INTO public.manufacturing_orders (id, org_id, order_number, quantity, status) VALUES
+  ('52040204-0000-0000-0000-0000000002ef', '52040204-0000-0000-0000-0000000002e1', 'CP204-V-1', 1, 'confirmed');
+SELECT pg_temp.cp_version('52040204-0000-0000-0000-0000000002e6', '52040204-0000-0000-0000-0000000002e1', 2,
+  wardah_internal.mfg_cost_policy_org_today_204('52040204-0000-0000-0000-0000000002e1', true), 'production_started');
+UPDATE public.manufacturing_orders SET status = 'in_progress' WHERE id = '52040204-0000-0000-0000-0000000002ef';
+SELECT pg_temp.cp_check('V1 order pinned to V2', split_part(pg_temp.cp_pin('52040204-0000-0000-0000-0000000002ef'), '/', 1),
+  '52040204-0000-0000-0000-0000000002e6');
+SET LOCAL ROLE authenticated;
+SELECT pg_temp.cp_as('52040204-0000-0000-0000-0000000002c2', '52040204-0000-0000-0000-0000000002e1');
+SELECT pg_temp.cp_expect('withdraw start-pinned', $$SELECT public.rpc_withdraw_mfg_cost_policy_version(
+  '52040204-0000-0000-0000-0000000002e1', '52040204-0000-0000-0000-0000000002e6', 'race')$$,
+  'COST_POLICY_VERSION_PINNED');
+SELECT pg_temp.cp_as('52040204-0000-0000-0000-0000000002c2', '52040204-0000-0000-0000-0000000002c1');
+SELECT pg_temp.cp_expect('withdraw timing source', $$SELECT public.rpc_withdraw_mfg_cost_policy_version(
+  '52040204-0000-0000-0000-0000000002c1', '52040204-0000-0000-0000-0000000002c5', 'race')$$,
+  'COST_POLICY_VERSION_PINNED');
+RESET ROLE;
+
+-- Y: no version in force on the start day -> the transition is refused.
+SELECT pg_temp.cp_version('52040204-0000-0000-0000-0000000002d5', '52040204-0000-0000-0000-0000000002d1', 1,
+  wardah_internal.mfg_cost_policy_org_today_204('52040204-0000-0000-0000-0000000002d1', true), 'production_started');
+INSERT INTO public.manufacturing_orders (id, org_id, order_number, quantity, status) VALUES
+  ('52040204-0000-0000-0000-0000000002df', '52040204-0000-0000-0000-0000000002d1', 'CP204-Y-1', 1, 'confirmed');
+UPDATE public.organizations SET timezone = 'Pacific/Pago_Pago' WHERE id = '52040204-0000-0000-0000-0000000002d1';
+SELECT pg_temp.cp_expect('start with no version that day',
+  $$UPDATE public.manufacturing_orders SET status = 'in_progress' WHERE id = '52040204-0000-0000-0000-0000000002df'$$,
+  'COST_POLICY_START_PIN_UNRESOLVED');
+SELECT pg_temp.cp_check('Y1 status after refused start',
+  (SELECT status::text FROM public.manufacturing_orders WHERE id = '52040204-0000-0000-0000-0000000002df'), 'confirmed');
+
+-- One organization per order: rows for another org's order or version are refused.
+SELECT pg_temp.cp_expect('timing for another org', $$INSERT INTO wardah_internal.mo_cost_policy_pin_timing
+  (mo_id, org_id, pin_event, timing_source_version_id, decided_on) VALUES
+  ('52040204-0000-0000-0000-0000000002bf', '52040204-0000-0000-0000-0000000002c1', 'production_started',
+   '52040204-0000-0000-0000-0000000002c5', current_date)$$, 'COST_POLICY_ORG_MISMATCH');
+SELECT pg_temp.cp_expect('pin for another org', $$INSERT INTO wardah_internal.mo_cost_policy_pins
+  (mo_id, org_id, policy_version_id, pinned_on, pin_source) VALUES
+  ('52040204-0000-0000-0000-0000000002bf', '52040204-0000-0000-0000-0000000002c1',
+   '52040204-0000-0000-0000-0000000002c5', current_date, 'production_started')$$, 'COST_POLICY_ORG_MISMATCH');
+SELECT pg_temp.cp_expect('version of another org', $$INSERT INTO wardah_internal.mo_cost_policy_pin_timing
+  (mo_id, org_id, pin_event, timing_source_version_id, decided_on) VALUES
+  ('52040204-0000-0000-0000-0000000002bf', '52040204-0000-0000-0000-0000000002b1', 'production_started',
+   '52040204-0000-0000-0000-0000000002c5', current_date)$$, '23503');
+DO $timing$
+BEGIN
+  IF EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pin_timing t
+             JOIN public.manufacturing_orders mo ON mo.id = t.mo_id
+             JOIN wardah_internal.mfg_cost_policy_versions v ON v.id = t.timing_source_version_id
+             WHERE t.org_id <> mo.org_id OR v.org_id <> mo.org_id)
+     OR EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins p
+                JOIN public.manufacturing_orders mo ON mo.id = p.mo_id
+                JOIN wardah_internal.mfg_cost_policy_versions v ON v.id = p.policy_version_id
+                WHERE p.org_id <> mo.org_id OR v.org_id <> mo.org_id)
+     OR NOT EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pin_timing) THEN
+    RAISE EXCEPTION 'CP204_ORG_LINK_UNEXPECTED';
+  END IF;
+  RAISE NOTICE 'CP204_PIN_TIMING_OK';
+END
+$timing$;
+
+-- ---------------------------------------------------------------------
 -- 7. Withdrawal and immutability.
 -- ---------------------------------------------------------------------
 -- A version of org B that is already in force (fixture inserted directly).
 INSERT INTO wardah_internal.mfg_cost_policy_versions
   (id, org_id, version_no, effective_from, labor_cost_source, default_labor_rate_per_hour,
-   idempotency_key, payload_hash)
+   pin_event, idempotency_key, payload_hash)
 VALUES ('52040204-0000-0000-0000-0000000000c9', '52040204-0000-0000-0000-0000000000b1', 1,
-        current_date - 5, 'work_center_rate', 20, gen_random_uuid(), 'fixture');
+        current_date - 5, 'work_center_rate', 20, 'mo_created', gen_random_uuid(), 'fixture');
 
 SET LOCAL ROLE authenticated;
 SELECT pg_temp.cp_as('52040204-0000-0000-0000-0000000000b2', '52040204-0000-0000-0000-0000000000b1');
@@ -538,6 +751,13 @@ BEGIN
   PERFORM pg_temp.cp_expect('update version', format(
     'UPDATE wardah_internal.mfg_cost_policy_versions SET note = %L WHERE id = %L', 'edited', v1),
     'COST_POLICY_IMMUTABLE');
+  PERFORM pg_temp.cp_expect('update pin event', format(
+    'UPDATE wardah_internal.mfg_cost_policy_versions SET pin_event = %L WHERE id = %L', 'production_started', v1),
+    'COST_POLICY_IMMUTABLE');
+  PERFORM pg_temp.cp_expect('update timing',
+    'UPDATE wardah_internal.mo_cost_policy_pin_timing SET pin_event = ''production_started''', 'COST_POLICY_IMMUTABLE');
+  PERFORM pg_temp.cp_expect('delete timing',
+    'DELETE FROM wardah_internal.mo_cost_policy_pin_timing', 'COST_POLICY_IMMUTABLE');
   PERFORM pg_temp.cp_expect('un-withdraw', format(
     'UPDATE wardah_internal.mfg_cost_policy_versions SET withdrawn_at = NULL, withdrawn_by = NULL, withdraw_reason = NULL WHERE id = %L',
     current_setting('cp.v2')), 'COST_POLICY_IMMUTABLE');
@@ -602,9 +822,9 @@ INSERT INTO public.organizations (id, name, code) VALUES
 INSERT INTO public.work_centers (id, org_id, code, name, is_active) VALUES
   ('52040204-0000-0000-0000-0000000000d9', '52040204-0000-0000-0000-0000000000a9', 'WC-Z', 'Z', true);
 INSERT INTO wardah_internal.mfg_cost_policy_versions
-  (id, org_id, version_no, effective_from, labor_cost_source, default_labor_rate_per_hour, idempotency_key, payload_hash)
+  (id, org_id, version_no, effective_from, labor_cost_source, default_labor_rate_per_hour, pin_event, idempotency_key, payload_hash)
 VALUES ('52040204-0000-0000-0000-0000000000c8', '52040204-0000-0000-0000-0000000000a9', 1, current_date,
-        'work_center_rate', 10, gen_random_uuid(), 'fixture');
+        'work_center_rate', 10, 'mo_created', gen_random_uuid(), 'fixture');
 INSERT INTO wardah_internal.mfg_cost_policy_pools (policy_version_id, org_id, pool_code, name, basis, rate)
 VALUES ('52040204-0000-0000-0000-0000000000c8', '52040204-0000-0000-0000-0000000000a9', 'MACHINE_OH', 'M', 'machine_hours', 5);
 INSERT INTO wardah_internal.mfg_cost_policy_wc_rules (policy_version_id, org_id, work_center_id, labor_rate_per_hour)

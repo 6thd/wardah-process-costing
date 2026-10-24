@@ -70,9 +70,47 @@ run_control reader_writes 'reader create' \
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'MANUFACTURING_SETTINGS_UPDATE_DENIED';
   END IF;
   IF p_idempotency_key IS NULL THEN"
-# Pinned version may be withdrawn.
-run_control pinned_withdrawable 'withdraw pinned' \
-  'IF EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins' 'IF false AND EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins'
+# Pinned version may be withdrawn (the pin check off; the timing check stays).
+run_control pinned_withdrawable 'withdraw start-pinned' \
+  "  IF EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins
+             WHERE policy_version_id = p_policy_version_id)" \
+  "  IF false AND EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins
+             WHERE policy_version_id = p_policy_version_id)"
+# Timing source may be withdrawn (the timing check off).
+run_control timing_source_withdrawable 'withdraw timing source' \
+  "     OR EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pin_timing
+                WHERE timing_source_version_id = p_policy_version_id) THEN" \
+  " THEN"
+# Order timed production_started pinned at creation anyway.
+run_control pin_at_creation_always 'T1 no pin before start' \
+  "IF v_event = 'mo_created' OR public.normalize_mo_status(NEW.status) = 'in_progress' THEN" \
+  "IF true THEN"
+# Start pins an order that took no timing at creation (no policy then).
+run_control start_without_saved_timing 'U1 no pin after start' \
+  "     OR NOT EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pin_timing
+                    WHERE mo_id = NEW.id AND pin_event = 'production_started') THEN" \
+  " THEN"
+# Start reads the company's current pin_event instead of the order's saved timing.
+run_control company_timing_not_saved 'T1 pinned at first start' \
+  "     OR NOT EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pin_timing
+                    WHERE mo_id = NEW.id AND pin_event = 'production_started') THEN" \
+  "     OR (SELECT pin_event FROM wardah_internal.mfg_cost_policy_versions
+         WHERE id = wardah_internal.mfg_cost_policy_version_at_204(NEW.org_id,
+                      wardah_internal.mfg_cost_policy_org_today_204(NEW.org_id, false)))
+        IS DISTINCT FROM 'production_started' THEN"
+# The planned start_date used as the start day.
+run_control planned_start_date_used 'T1 pinned at first start' \
+  "  v_version := wardah_internal.mfg_cost_policy_version_at_204(NEW.org_id, v_day);
+  IF v_version IS NULL THEN
+    -- Only" \
+  "  v_version := wardah_internal.mfg_cost_policy_version_at_204(NEW.org_id, COALESCE(NEW.start_date::date, v_day));
+  IF v_version IS NULL THEN
+    -- Only"
+# Timing or pin row accepted for another organization's order.
+run_control org_match_off 'timing for another org' \
+  "  IF NOT EXISTS (SELECT 1 FROM public.manufacturing_orders
+                 WHERE id = NEW.mo_id AND org_id = NEW.org_id) THEN" \
+  "  IF false THEN"
 # Rows editable after creation.
 run_control mutable_rows 'update pool' \
   "    RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'COST_POLICY_IMMUTABLE';

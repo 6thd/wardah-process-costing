@@ -10,8 +10,12 @@
 -- function, grant or table. New objects only:
 --   * wardah_internal.mfg_cost_policy_versions / _pools / _wc_rules /
 --     _wc_pool_rules: immutable policy versions (no client grants);
---   * wardah_internal.mo_cost_policy_pins: the policy version each MO was created
---     under, written by an AFTER INSERT trigger on manufacturing_orders;
+--   * wardah_internal.mo_cost_policy_pin_timing: the pin timing each MO takes,
+--     at creation, from the version in force that day (policy field pin_event);
+--   * wardah_internal.mo_cost_policy_pins: the cost version each MO is pinned to,
+--     once, at the saved event: creation (AFTER INSERT) or first start of
+--     production (AFTER UPDATE OF status to in_progress), by triggers on
+--     manufacturing_orders;
 --   * wardah_internal.mfg_cost_policy_compute_204: the one place that turns
 --     driver hours into labor and overhead amounts for a pinned version — the
 --     #260 engine and the #230 completion orchestrator call it, nothing else
@@ -40,6 +44,7 @@ BEGIN
      OR to_regprocedure('public.wardah_assert_org_member(uuid)') IS NULL
      OR to_regprocedure('public.has_permission(uuid,uuid,character varying)') IS NULL
      OR to_regprocedure('public.wardah_lock_mo_for_stage_wip_203(uuid,uuid)') IS NULL
+     OR to_regprocedure('public.normalize_mo_status(text)') IS NULL
      OR (SELECT count(*) FROM public.permissions
          WHERE permission_key IN ('manufacturing.settings.read','manufacturing.settings.update')) <> 2 THEN
     RAISE EXCEPTION 'M204_REQUIRES_M201_THROUGH_M203';
@@ -64,6 +69,9 @@ CREATE TABLE wardah_internal.mfg_cost_policy_versions (
     CHECK (default_labor_rate_per_hour IS NULL OR default_labor_rate_per_hour > 0),
   stage_costing_method text NOT NULL DEFAULT 'weighted_average'
     CHECK (stage_costing_method = 'weighted_average'),
+  -- When orders created under this version are pinned: on creation, or on
+  -- their first start of production. Saved on each order at its creation.
+  pin_event text NOT NULL CHECK (pin_event IN ('mo_created','production_started')),
   note text CHECK (note IS NULL OR length(note) <= 500),
   idempotency_key uuid NOT NULL,
   payload_hash text NOT NULL,
@@ -132,7 +140,24 @@ CREATE TABLE wardah_internal.mfg_cost_policy_wc_pool_rules (
     REFERENCES wardah_internal.mfg_cost_policy_versions(id, org_id) ON DELETE CASCADE
 );
 
--- The version an MO was created under. Set once; never re-resolved.
+-- The pin timing an MO took at creation, from the version in force that day.
+-- Set once; a later version with another pin_event does not change it. No
+-- version in force at creation -> no row, and the order is never pinned.
+CREATE TABLE wardah_internal.mo_cost_policy_pin_timing (
+  mo_id uuid PRIMARY KEY REFERENCES public.manufacturing_orders(id) ON DELETE CASCADE,
+  org_id uuid NOT NULL,
+  pin_event text NOT NULL CHECK (pin_event IN ('mo_created','production_started')),
+  timing_source_version_id uuid NOT NULL,
+  decided_on date NOT NULL,
+  decided_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (timing_source_version_id, org_id)
+    REFERENCES wardah_internal.mfg_cost_policy_versions(id, org_id) ON DELETE CASCADE
+);
+CREATE INDEX mo_cost_policy_pin_timing_version
+  ON wardah_internal.mo_cost_policy_pin_timing (timing_source_version_id);
+
+-- The cost version an MO is pinned to, at its saved event. Set once; never
+-- re-resolved.
 CREATE TABLE wardah_internal.mo_cost_policy_pins (
   mo_id uuid PRIMARY KEY REFERENCES public.manufacturing_orders(id) ON DELETE CASCADE,
   org_id uuid NOT NULL,
@@ -140,7 +165,7 @@ CREATE TABLE wardah_internal.mo_cost_policy_pins (
   pinned_on date NOT NULL,
   pinned_at timestamptz NOT NULL DEFAULT now(),
   pinned_by uuid,
-  pin_source text NOT NULL CHECK (pin_source = 'mo_created'),
+  pin_source text NOT NULL CHECK (pin_source IN ('mo_created','production_started')),
   FOREIGN KEY (policy_version_id, org_id)
     REFERENCES wardah_internal.mfg_cost_policy_versions(id, org_id) ON DELETE CASCADE
 );
@@ -150,13 +175,16 @@ REVOKE ALL ON wardah_internal.mfg_cost_policy_versions,
               wardah_internal.mfg_cost_policy_pools,
               wardah_internal.mfg_cost_policy_wc_rules,
               wardah_internal.mfg_cost_policy_wc_pool_rules,
+              wardah_internal.mo_cost_policy_pin_timing,
               wardah_internal.mo_cost_policy_pins
   FROM PUBLIC, anon, authenticated, service_role;
 
 COMMENT ON TABLE wardah_internal.mfg_cost_policy_versions IS
   'Migration 204: per-org manufacturing cost policy versions (immutable; withdrawable only before use). See docs/db/MANUFACTURING_COST_POLICIES_204_RUNBOOK.md.';
+COMMENT ON TABLE wardah_internal.mo_cost_policy_pin_timing IS
+  'Migration 204: the pin timing (pin_event) each MO took at creation from the version in force in the org timezone that day.';
 COMMENT ON TABLE wardah_internal.mo_cost_policy_pins IS
-  'Migration 204: the cost policy version in force in the org timezone on the day each MO was created.';
+  'Migration 204: the cost policy version each MO is pinned to, once, at its saved pin timing (creation or first start of production).';
 
 -- ---------------------------------------------------------------------------
 -- 2. Immutability. Rows change only by withdrawal of a version; deletes happen
@@ -206,9 +234,35 @@ FOR EACH ROW EXECUTE FUNCTION wardah_internal.mfg_cost_policy_immutable_204();
 CREATE TRIGGER mfg_cost_policy_wc_pool_rules_immutable_204
 BEFORE UPDATE OR DELETE ON wardah_internal.mfg_cost_policy_wc_pool_rules
 FOR EACH ROW EXECUTE FUNCTION wardah_internal.mfg_cost_policy_immutable_204();
+CREATE TRIGGER mo_cost_policy_pin_timing_immutable_204
+BEFORE UPDATE OR DELETE ON wardah_internal.mo_cost_policy_pin_timing
+FOR EACH ROW EXECUTE FUNCTION wardah_internal.mfg_cost_policy_immutable_204();
 CREATE TRIGGER mo_cost_policy_pins_immutable_204
 BEFORE UPDATE OR DELETE ON wardah_internal.mo_cost_policy_pins
 FOR EACH ROW EXECUTE FUNCTION wardah_internal.mfg_cost_policy_immutable_204();
+
+-- One organization per order: a timing or pin row must carry the order's own
+-- org (its version is already tied to that org by the composite foreign key).
+CREATE FUNCTION wardah_internal.mo_cost_policy_org_match_204()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp
+AS $fn$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.manufacturing_orders
+                 WHERE id = NEW.mo_id AND org_id = NEW.org_id) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'COST_POLICY_ORG_MISMATCH';
+  END IF;
+  RETURN NEW;
+END
+$fn$;
+REVOKE ALL ON FUNCTION wardah_internal.mo_cost_policy_org_match_204()
+  FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE TRIGGER mo_cost_policy_pin_timing_org_match_204
+BEFORE INSERT ON wardah_internal.mo_cost_policy_pin_timing
+FOR EACH ROW EXECUTE FUNCTION wardah_internal.mo_cost_policy_org_match_204();
+CREATE TRIGGER mo_cost_policy_pins_org_match_204
+BEFORE INSERT ON wardah_internal.mo_cost_policy_pins
+FOR EACH ROW EXECUTE FUNCTION wardah_internal.mo_cost_policy_org_match_204();
 
 -- ---------------------------------------------------------------------------
 -- 3. Internal helpers (no client EXECUTE).
@@ -268,6 +322,7 @@ AS $fn$
     'labor_cost_source', v.labor_cost_source,
     'default_labor_rate_per_hour', v.default_labor_rate_per_hour,
     'stage_costing_method', v.stage_costing_method,
+    'pin_event', v.pin_event,
     'note', v.note,
     'created_at', v.created_at,
     'created_by', v.created_by,
@@ -276,6 +331,10 @@ AS $fn$
     'withdraw_reason', v.withdraw_reason,
     'pinned_order_count',
       (SELECT count(*) FROM wardah_internal.mo_cost_policy_pins p WHERE p.policy_version_id = v.id),
+    'awaiting_start_order_count',
+      (SELECT count(*) FROM wardah_internal.mo_cost_policy_pin_timing t
+       WHERE t.timing_source_version_id = v.id AND t.pin_event = 'production_started'
+         AND NOT EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins p WHERE p.mo_id = t.mo_id)),
     'overhead_pools', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
                'pool_code', p.pool_code, 'name', p.name, 'name_ar', p.name_ar,
@@ -437,13 +496,23 @@ REVOKE ALL ON FUNCTION wardah_internal.mfg_cost_policy_compute_204(uuid, uuid, u
   FROM PUBLIC, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- 4. Pin on MO creation. Every creation path inserts into manufacturing_orders,
---    so the pin does not depend on which RPC created the order. No live version
---    on that day -> no pin; the engine then refuses the order
---    (COST_POLICY_NOT_PINNED) rather than costing it with no policy.
---    The shared per-org lock waits for an in-flight create/withdraw to commit,
---    so an order is never pinned to a version being withdrawn; MO inserts in
---    one org do not block each other.
+-- 4. Pin timing and pin. Every creation and transition path writes
+--    manufacturing_orders, so neither depends on which RPC is used, and neither
+--    grants a transition: they run only when a write the caller was already
+--    allowed to make happens, inside that write's transaction.
+--    * Creation: the version in force that day decides the order's pin timing
+--      (saved once). No live version that day -> no timing, never a pin; the
+--      engine then refuses the order (COST_POLICY_NOT_PINNED).
+--    * Pin: once, at the saved event. mo_created -> in the creation
+--      transaction. production_started -> in the transaction of the order's
+--      first transition to in_progress (or its insertion as in_progress), to
+--      the version in force that day; restarts after on_hold/quality_check
+--      keep the pin.
+--    * "Day" is now() in the org timezone: the transaction's start time.
+--    The shared per-org lock waits for an in-flight create/withdraw to commit
+--    and the versions are read after it, so an order is never pinned to, or
+--    timed by, a version being withdrawn; orders in one org do not block each
+--    other.
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION wardah_internal.pin_mo_cost_policy_204()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
@@ -451,14 +520,24 @@ AS $fn$
 DECLARE
   v_day date;
   v_version uuid;
+  v_event text;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('wardah.mfg_cost_policy:' || NEW.org_id::text, 204));
   v_day := wardah_internal.mfg_cost_policy_org_today_204(NEW.org_id, false);
   v_version := wardah_internal.mfg_cost_policy_version_at_204(NEW.org_id, v_day);
-  IF v_version IS NOT NULL THEN
+  IF v_version IS NULL THEN
+    RETURN NULL;
+  END IF;
+  SELECT pin_event INTO v_event FROM wardah_internal.mfg_cost_policy_versions WHERE id = v_version;
+  INSERT INTO wardah_internal.mo_cost_policy_pin_timing
+    (mo_id, org_id, pin_event, timing_source_version_id, decided_on)
+  VALUES (NEW.id, NEW.org_id, v_event, v_version, v_day);
+  -- Pinned now when the timing is creation, or when the order is inserted
+  -- already started (the status machine runs on UPDATE only).
+  IF v_event = 'mo_created' OR public.normalize_mo_status(NEW.status) = 'in_progress' THEN
     INSERT INTO wardah_internal.mo_cost_policy_pins
       (mo_id, org_id, policy_version_id, pinned_on, pinned_by, pin_source)
-    VALUES (NEW.id, NEW.org_id, v_version, v_day, auth.uid(), 'mo_created');
+    VALUES (NEW.id, NEW.org_id, v_version, v_day, auth.uid(), v_event);
   END IF;
   RETURN NULL;
 END
@@ -470,6 +549,49 @@ AFTER INSERT ON public.manufacturing_orders
 FOR EACH ROW EXECUTE FUNCTION wardah_internal.pin_mo_cost_policy_204();
 -- Re-closed after the trigger statement, as in 199: the DEFINER scanner treats
 -- the CREATE TRIGGER as an effect it cannot prove and requires closure after it.
+REVOKE ALL ON FUNCTION wardah_internal.pin_mo_cost_policy_204()
+  FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE FUNCTION wardah_internal.pin_mo_cost_policy_on_start_204()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $fn$
+DECLARE
+  v_day date;
+  v_version uuid;
+BEGIN
+  IF public.normalize_mo_status(NEW.status) IS DISTINCT FROM 'in_progress'
+     OR public.normalize_mo_status(OLD.status) IS NOT DISTINCT FROM 'in_progress'
+     OR NOT EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pin_timing
+                    WHERE mo_id = NEW.id AND pin_event = 'production_started') THEN
+    RETURN NULL;
+  END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('wardah.mfg_cost_policy:' || NEW.org_id::text, 204));
+  -- Read after the lock wait.
+  IF EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins WHERE mo_id = NEW.id) THEN
+    RETURN NULL;
+  END IF;
+  v_day := wardah_internal.mfg_cost_policy_org_today_204(NEW.org_id, false);
+  v_version := wardah_internal.mfg_cost_policy_version_at_204(NEW.org_id, v_day);
+  IF v_version IS NULL THEN
+    -- Only when the org timezone moved "today" before the timing source's start.
+    RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'COST_POLICY_START_PIN_UNRESOLVED';
+  END IF;
+  INSERT INTO wardah_internal.mo_cost_policy_pins
+    (mo_id, org_id, policy_version_id, pinned_on, pinned_by, pin_source)
+  VALUES (NEW.id, NEW.org_id, v_version, v_day, auth.uid(), 'production_started')
+  ON CONFLICT (mo_id) DO NOTHING;
+  RETURN NULL;
+END
+$fn$;
+REVOKE ALL ON FUNCTION wardah_internal.pin_mo_cost_policy_on_start_204()
+  FROM PUBLIC, anon, authenticated, service_role;
+CREATE TRIGGER pin_mo_cost_policy_on_start_204
+AFTER UPDATE OF status ON public.manufacturing_orders
+FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status)
+EXECUTE FUNCTION wardah_internal.pin_mo_cost_policy_on_start_204();
+-- Both DEFINER trigger functions re-closed after the last trigger statement.
+REVOKE ALL ON FUNCTION wardah_internal.pin_mo_cost_policy_on_start_204()
+  FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION wardah_internal.pin_mo_cost_policy_204()
   FROM PUBLIC, anon, authenticated, service_role;
 
@@ -502,7 +624,8 @@ BEGIN
     'supported', jsonb_build_object(
       'labor_cost_sources', jsonb_build_array('work_center_rate','recorded_entry_rate'),
       'overhead_bases', jsonb_build_array('labor_hours','machine_hours'),
-      'stage_costing_methods', jsonb_build_array('weighted_average')),
+      'stage_costing_methods', jsonb_build_array('weighted_average'),
+      'pin_events', jsonb_build_array('mo_created','production_started')),
     'capabilities', jsonb_build_object(
       'can_manage', wardah_internal.manufacturing_settings_can_update_201(p_org_id)));
 END
@@ -527,6 +650,7 @@ DECLARE
   v_source text;
   v_default_labor numeric;
   v_note text;
+  v_pin_event text;
   v_version_id uuid;
   v_item jsonb;
   v_sub jsonb;
@@ -573,7 +697,7 @@ BEGIN
 
   SELECT min(k) INTO v_unknown FROM jsonb_object_keys(p_policy) k
   WHERE k NOT IN ('effective_from','labor_cost_source','default_labor_rate_per_hour',
-                  'stage_costing_method','note','overhead_pools','work_center_rules');
+                  'stage_costing_method','pin_event','note','overhead_pools','work_center_rules');
   IF v_unknown IS NOT NULL THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_UNKNOWN_KEY: ' || v_unknown;
   END IF;
@@ -625,6 +749,15 @@ BEGIN
      AND (jsonb_typeof(p_policy->'stage_costing_method') <> 'string'
           OR p_policy->>'stage_costing_method' <> 'weighted_average') THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_STAGE_METHOD_UNSUPPORTED';
+  END IF;
+
+  -- Pin timing: required, one of the implemented events.
+  IF jsonb_typeof(p_policy->'pin_event') IS DISTINCT FROM 'string' THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_INVALID: pin_event';
+  END IF;
+  v_pin_event := p_policy->>'pin_event';
+  IF v_pin_event NOT IN ('mo_created','production_started') THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_PIN_EVENT_UNSUPPORTED';
   END IF;
 
   IF COALESCE(jsonb_typeof(p_policy->'note'), 'null') NOT IN ('null','string')
@@ -795,9 +928,9 @@ BEGIN
 
   INSERT INTO wardah_internal.mfg_cost_policy_versions
     (org_id, version_no, effective_from, labor_cost_source, default_labor_rate_per_hour,
-     stage_costing_method, note, idempotency_key, payload_hash, created_by)
+     stage_costing_method, pin_event, note, idempotency_key, payload_hash, created_by)
   VALUES (p_org_id, v_latest_no + 1, v_effective, v_source, v_default_labor,
-          'weighted_average', v_note, p_idempotency_key, v_hash, auth.uid())
+          'weighted_average', v_pin_event, v_note, p_idempotency_key, v_hash, auth.uid())
   RETURNING id INTO v_version_id;
 
   INSERT INTO wardah_internal.mfg_cost_policy_pools
@@ -836,9 +969,10 @@ REVOKE ALL ON FUNCTION public.rpc_create_mfg_cost_policy_version(uuid, jsonb, in
   FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.rpc_create_mfg_cost_policy_version(uuid, jsonb, integer, uuid) TO authenticated;
 
--- Withdraw a version before it is used: it must start today or later and no
--- order may be pinned to it. Pinned or past versions stay as they are; a
--- correction is a new version with a later start.
+-- Withdraw a version before it is used: it must start today or later, no order
+-- may be pinned to it and no order may have taken its pin timing from it. Used
+-- or past versions stay as they are; a correction is a new version with a
+-- later start.
 CREATE FUNCTION public.rpc_withdraw_mfg_cost_policy_version(
   p_org_id uuid, p_policy_version_id uuid, p_reason text
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
@@ -868,10 +1002,13 @@ BEGIN
   IF v_version.effective_from < v_today THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_VERSION_ALREADY_IN_FORCE';
   END IF;
-  -- The exclusive per-org lock above already waits for any MO insert that is
-  -- pinning in this org (the pin trigger holds the shared form until commit).
+  -- The exclusive per-org lock above already waits for any MO insert or start
+  -- that is timing or pinning in this org (the triggers hold the shared form
+  -- until commit).
   IF EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pins
-             WHERE policy_version_id = p_policy_version_id) THEN
+             WHERE policy_version_id = p_policy_version_id)
+     OR EXISTS (SELECT 1 FROM wardah_internal.mo_cost_policy_pin_timing
+                WHERE timing_source_version_id = p_policy_version_id) THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_VERSION_PINNED';
   END IF;
   v_before := wardah_internal.mfg_cost_policy_version_json_204(p_policy_version_id, v_today);
