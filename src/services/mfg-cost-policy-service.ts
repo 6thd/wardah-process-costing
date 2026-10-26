@@ -93,9 +93,11 @@ export interface AbsorptionPreview {
 }
 
 type RpcResult = { data: unknown; error: { message: string; code?: string } | null }
-// 204's functions are not in database.generated.ts until 204 is applied and the
-// types are regenerated from Production. Each call below stays a literal
-// `.rpc('<name>', …)` so the RBAC mutation inventory still sees it.
+// 204's functions are in database.generated.ts since #325, but the generated
+// argument types do not allow the null hours the preview RPC accepts, so the
+// calls stay untyped for now (switching to the generated types is a follow-up).
+// Each call below stays a literal `.rpc('<name>', …)` so the RBAC mutation
+// inventory still sees it.
 const db204 = supabase as unknown as { rpc: (fn: string, args: Record<string, unknown>) => Promise<RpcResult> }
 
 async function requireOrgId(): Promise<string> {
