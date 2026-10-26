@@ -4,7 +4,9 @@
 **القبول:** `scripts/ci/fresh-db/acceptance_204_manufacturing_cost_policies.sql` و`..._red.sql`
 و`acceptance_204_concurrency.sh` و`acceptance_204_negative_controls.sh`، والـworkflow
 `.github/workflows/manufacturing-cost-policy-204-acceptance.yml`.
-**الحالة:** مستودع فقط. لا تُطبَّق قبل الدمج إلى `main` (repository-first)، ولا قبل 201–203.
+**الحالة:** مطبّقة على Production في 2026-10-26 مرة واحدة (الإصدار `20261026075012`، السجل 97 صفًا، التوقيع E_11)؛ السجل في
+[`M204_PRODUCTION_APPLICATION_20261026.md`](M204_PRODUCTION_APPLICATION_20261026.md). تطبيق القاعدة لا يعني جاهزية العميل ولا يغلق #260 أو #230 ولا يغني عن E2E.
+(قبل 2026-10-26 كان النص: مستودع فقط، لا تُطبَّق قبل الدمج إلى `main` ولا قبل 201–203.)
 **قرار المالك (2026-10-22):** السياسات تختلف بين الشركات؛ إعدادات تصنيع تسمح باختيار أساس تحميل
 التكاليف (ساعات العمالة أو ساعات الماكينة) مع تخصيص مناسب لمراكز العمل، داخل
 `/settings/manufacturing` وبصلاحيات `manufacturing.settings.read/update` وحوكمة M201.
