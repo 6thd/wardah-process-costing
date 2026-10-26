@@ -52,6 +52,8 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 
 > **Live Production update — 2026-09-30, 07:37:11 UTC (outside generated DATABASE_STATE markers; supersedes the earlier notes above for current Production status):** M194 `194_stage_wip_posted_cost_boundary` was applied once to `uutfztmqvajmsxnrqeiv`, ledger version `20260930073711`, from `main@145b536` (PR #284; SHA-256 `c32918e3…f1df`). The ledger shows M190–M194 once each and the stored SQL hashes match the canonical files. Executor read-only postflight confirmed the stage-WIP write guard, the close RPC and preserved M192/M193 guards and grants, with unchanged business rows and zero stock/tenant drift; Vercel production deployment for that commit is `READY`. The owner/local agent's backup, restore and rehearsal report was not inspected here. **Not verified live:** an ordinary-user WIP close, material issue, browser session or concurrency test. The M192 event hold and employee-UI restriction remain; #229, #230, #260, #154 and #170 remain open, and #278 awaits independent review of the application record. See [M194 Production application and readback](docs/db/M194_PRODUCTION_APPLICATION_20260930.md).
 
+> **Live Production update — 2026-10-21 (outside generated DATABASE_STATE markers; supersedes the M194 note above; status as of 2026-10-21):** M195–M203 were applied once each to `uutfztmqvajmsxnrqeiv` from the exact `main@034aad39` bytes (PR #318), with the scoped CRLF script between 201 and 202 (`PRE_M202_CRLF_REPLACED`, no ledger row). Ledger versions: 195 `20261021110437`, 196 `20261021110625`, 197 `20261021110723`, 198 `20261021110816`, 199 `20261021110932`, 200 `20261021111047`, 201 `20261021111156`, 202 `20261021111813`, 203 `20261021111915`; the ledger had 96 rows after this window and every stored statement equals its file. Every pre-registered per-step check passed (ledger, catalog signature against the pre-built expected state, data invariants, QC/role/lock-function checks) and the owner closed the application phase after an independent read-only review. **Not established:** atomicity under connection loss/timeouts, and restore of the hosted project (B0/B1 were restored only locally). **Still in force:** the G9 containment of 195 (MO/WO/reservation maintenance via legacy functions and direct writes revoked for client roles), the writer/user holds, and the M192 event hold; no client was deployed in this window. Later Production changes (M204 on 2026-10-26) are recorded separately. Descriptions written before this date that call 195–203 "repository only / not applied" are historical. See [M195–M203 Production application](docs/db/M195_M203_PRODUCTION_APPLICATION_20261021.md).
+
 استثناءات سجل Production التاريخية محفوظة دون تعديل في:
 `sql/migrations/migration_ledger_exceptions.json`:
 
@@ -210,16 +212,16 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   188، ونشره PR #224 عند merge commit `20746954`.
 - `sql/migrations/199_manufacturing_quality_control.sql` +
   `docs/db/MANUFACTURING_QUALITY_CONTROL_199_RUNBOOK.md` +
-  `.github/workflows/quality-control-199-acceptance.yml` — **Migration 199 (مستودع
-  فقط، غير مطبّقة؛ تتطلب 195–198 أولًا)**: وظيفة الضبط (الجودة) في التصنيع. أسئلة
+  `.github/workflows/quality-control-199-acceptance.yml` — **Migration 199 (مطبّقة على
+  Production في 2026-10-21، `20261021110932`، بعد 195–198)**: وظيفة الضبط (الجودة) في التصنيع. أسئلة
   جرد 2026-10-02 صارت إعدادات لكل مؤسسة في `wardah_internal.quality_policies`
   (البوابة `off` افتراضيًا)، والفحوص ثابتة لا تُعدَّل وتُكتب عبر RPC فقط، وبوابة
   الإفراج trigger على `manufacturing_orders` فيرثها أي مسار إتمام لاحق (#230).
   مفاتيح `manufacturing.quality_inspections.*` مستثناة من توسيع القوالب بالـwildcard.
 - `sql/migrations/200_gl_event_mapping_write_closure.sql` +
   `docs/db/GL_EVENT_MAPPING_WRITE_CLOSURE_200_RUNBOOK.md` +
-  `.github/workflows/gl-event-mapping-200-acceptance.yml` — **Migration 200 (مستودع
-  فقط، غير مطبّقة؛ تُطبَّق بعد 195–199 بالترتيب)**: تغلق الكتابة المباشرة على
+  `.github/workflows/gl-event-mapping-200-acceptance.yml` — **Migration 200 (مطبّقة على
+  Production في 2026-10-21، `20261021111047`، بعد 195–199 بالترتيب)**: تغلق الكتابة المباشرة على
   `gl_event_mappings` (MS-01: كان أي عضو يعيد توجيه حسابات القيود)، وتُبقي `SELECT`
   للأعضاء، وتضيف `rpc_set_gl_event_mapping` المحروسة بمسؤول المؤسسة والمدققة. تطبيقها
   قبل 195–199 يجعل الـBaseline التالي يطوي migrations لم تُطبَّق. **العقد في §8 من
@@ -227,8 +229,8 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   حدث غير معروف، نشاط الحساب وقت الضبط فقط) في §9.
 - `sql/migrations/201_manufacturing_settings_permissions.sql` +
   `docs/db/MANUFACTURING_SETTINGS_PERMISSIONS_201_RUNBOOK.md` +
-  `.github/workflows/manufacturing-settings-201-acceptance.yml` — **Migration 201 (مستودع
-  فقط، غير مطبّقة؛ تُطبَّق بعد 195–199 ثم 200)**: قرارا المالك D1/D3 — إعدادات التصنيع داخل
+  `.github/workflows/manufacturing-settings-201-acceptance.yml` — **Migration 201 (مطبّقة على
+  Production في 2026-10-21، `20261021111156`، بعد 195–199 ثم 200)**: قرارا المالك D1/D3 — إعدادات التصنيع داخل
   الإعدادات العامة (المسار `/settings/manufacturing` اقتراح تصميم)، وتعديلها صلاحية `manufacturing.settings.update` يمنحها مسؤول
   المؤسسة للأدوار (مع `manufacturing.settings.read` لبوابة الصفحة). توسّع حارس كتّاب الإعدادات
   الثلاثة (`rpc_set_gl_event_mapping`، `rpc_set_material_issue_wo_statuses`،
@@ -242,8 +244,8 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 - `sql/migrations/202_qc_privileged_write_closure.sql` +
   `docs/db/QC_PRIVILEGED_WRITE_CLOSURE_202_RUNBOOK.md` +
   `docs/db/qc-privileged-write-closure-202/` +
-  `.github/workflows/qc-privileged-write-202-acceptance.yml` — **Migration 202 (مستودع
-  فقط، غير مطبّقة؛ تتطلب 195–201 أولًا ولا تُطبَّق على أي بيئة دون موافقة منفصلة)**: تصحيح F1 من
+  `.github/workflows/qc-privileged-write-202-acceptance.yml` — **Migration 202 (مطبّقة على
+  Production في 2026-10-21، `20261021111813`، بعد 195–201 وسكربت CRLF، بتفويض المالك)**: تصحيح F1 من
   #313. تسحب كل امتياز مباشر على `quality_inspections` من `service_role` وغيره؛ الكاتب الوحيد هو
   `rpc_record_quality_inspection` المملوكة لدور NOLOGIN مخصص يملك دالة واحدة، بحارس
   `SECURITY INVOKER` (`ENABLE ALWAYS`) يشترط دور المدخل وmarker مربوطًا بـ`xid8` ورسمًا تنفيذيًا مغلقًا
