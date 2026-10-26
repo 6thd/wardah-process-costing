@@ -253,13 +253,15 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   `pg_dump --no-owner`). لا يغلق سياج الإيقاف G05 ولا تدريب Supabase المستضاف.
 - `sql/migrations/204_manufacturing_cost_policies.sql` +
   `docs/db/MANUFACTURING_COST_POLICIES_204_RUNBOOK.md` +
-  `.github/workflows/manufacturing-cost-policy-204-acceptance.yml` — **Migration 204 (مستودع
-  فقط، غير مطبّقة؛ بعد 201–203، بمعاملة يملكها المشغّل)**: سياسات تكلفة التصنيع لكل شركة — إصدارات مؤرخة غير
+  `.github/workflows/manufacturing-cost-policy-204-acceptance.yml` — **Migration 204 (طُبّقت على
+  Production في 2026-10-26، الإصدار `20261026075012` — السجل `docs/db/M204_PRODUCTION_APPLICATION_20261026.md`؛ بعد 201–203، بمعاملة يملكها المشغّل)**: سياسات تكلفة التصنيع لكل شركة — إصدارات مؤرخة غير
   قابلة للتعديل (مصدر العمالة، مجمعات أوفرهيد على ساعات العمالة أو الماكينة، قواعد مراكز العمل، وتوقيت التثبيت
   `pin_event`)، حفظ توقيت كل أمر عند إنشائه ثم تثبيت الإصدار مرة واحدة عند الإنشاء أو عند أول بدء إنتاج
   (§3.8)، ودالة حساب واحدة `mfg_cost_policy_compute_204` يستدعيها محرك #260 ومنسق #230. حارس M201؛
   لا كتابة على `stage_costs` ولا قيود. **عقد التكلفة المنقولة بين المراحل وفصل تقييم المخزون عن تكلفة المراحل في
   §5 من الـrunbook — اقرأه قبل إصلاح #260**.
+  **الحالة الحية 2026-10-26:** السجل 97 صفًا؛ واجهة إعدادات التصنيع (#326) وتبويب سياسات التكلفة (#327) دُمجا ونُشرا على
+  Vercel Production؛ الكتّاب والمستخدمون ما زالوا موقوفين، واحتواء 195 قائم، و#260 و#230 مفتوحتان.
 
 ## Baseline
 
