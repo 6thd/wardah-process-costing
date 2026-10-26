@@ -3,3 +3,5 @@ export const MATERIAL_ISSUE_QUERY_KEY = ['manufacturing-settings', 'material-iss
 export const GL_MAPPINGS_QUERY_KEY = ['manufacturing-settings', 'gl-mappings'] as const
 export const POSTING_ACCOUNTS_QUERY_KEY = ['manufacturing-settings', 'posting-accounts'] as const
 export const WORK_CENTERS_QUERY_KEY = ['manufacturing-settings', 'work-centers'] as const
+export const COST_POLICY_QUERY_KEY = ['manufacturing-settings', 'cost-policy'] as const
+export const COST_POLICY_WORK_CENTERS_QUERY_KEY = ['manufacturing-settings', 'cost-policy-work-centers'] as const

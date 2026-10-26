@@ -1769,7 +1769,8 @@
     "tabs": {
       "materialIssue": "صرف المواد",
       "quality": "الجودة",
-      "glMappings": "ربط القيود"
+      "glMappings": "ربط القيود",
+      "costPolicies": "سياسات التكلفة"
     },
     "materialIssue": {
       "title": "حالات أمر العمل التي يُسمح فيها بصرف المواد",
@@ -1833,6 +1834,123 @@
       "workCenterOverrideNotSupported": "وحده OH_APPLIED يقبل تجاوزًا لمركز عمل.",
       "workCenterNotFound": "مركز العمل غير موجود في هذه المؤسسة.",
       "invalidStatuses": "هذه المجموعة من الحالات غير مسموحة."
+    },
+    "costPolicy": {
+      "title": "سياسة تكلفة التصنيع",
+      "description": "كيف تُحتسب العمالة وكيف يُحمَّل الأوفرهيد، لكل شركة. كل تغيير إصدار جديد مؤرخ؛ ولا يُعدَّل إصدار مستخدم.",
+      "scopeNotice": "كل أمر تصنيع جديد يُثبَّت على الإصدار الساري يوم إنشائه. تكلفة المراحل (#260) ستحسب بالإصدار المثبت؛ وحتى يكتمل ذلك الإصلاح لا تُحتسب أي تكلفة مرحلة من هذه السياسة.",
+      "stageMethod": "طريقة تكلفة المراحل",
+      "inventoryValuation": "تقييم المخزون",
+      "inventoryValuationNote": "يُضبط لكل صنف في المخزون (طريقة التقييم)، وهو إعداد منفصل عن تكلفة المراحل.",
+      "methods": {
+        "weighted_average": "المتوسط المرجح (FIFO للمراحل غير منفذ)"
+      },
+      "empty": "لم تُنشر سياسة تكلفة لهذه المؤسسة بعد.",
+      "effectiveFrom": "يسري من",
+      "laborSource": "مصدر تكلفة العمالة",
+      "laborSources": {
+        "work_center_rate": "ساعات العمالة × معدل المركز",
+        "recorded_entry_rate": "التكلفة المسجلة لقيود الوقت"
+      },
+      "defaultLaborRate": "معدل العمالة الافتراضي للساعة",
+      "pools": "مجمعات الأوفرهيد",
+      "bases": {
+        "labor_hours": "ساعات العمالة",
+        "machine_hours": "ساعات الماكينة"
+      },
+      "perHour": "{{rate}} / ساعة",
+      "workCenterRules": "قواعد مراكز العمل",
+      "pinnedOrders": "أوامر مثبتة",
+      "pinEvent": "توقيت التثبيت",
+      "pinEvents": {
+        "mo_created": "عند إنشاء الأمر",
+        "production_started": "عند أول بدء للإنتاج"
+      },
+      "awaitingStart": "{{count}} بانتظار البدء",
+      "status": {
+        "current": "سارٍ",
+        "scheduled": "مجدول",
+        "superseded": "منتهٍ",
+        "withdrawn": "مسحوب"
+      },
+      "withdraw": "سحب",
+      "withdrawReason": "سبب السحب",
+      "confirmWithdraw": "تأكيد السحب",
+      "withdrawn": "سُحب الإصدار",
+      "newVersion": "إصدار جديد",
+      "created": "نُشر الإصدار",
+      "form": {
+        "aria": "إصدار جديد لسياسة التكلفة",
+        "effectiveFrom": "يسري من",
+        "poolCode": "رمز المجمع",
+        "poolName": "اسم المجمع",
+        "poolNameAr": "اسم المجمع بالعربية",
+        "basis": "أساس التحميل",
+        "poolRate": "المعدل للساعة",
+        "remove": "حذف",
+        "addPool": "إضافة مجمع",
+        "rulesHelp": "مركز العمل بلا قاعدة يأخذ معدل العمالة الافتراضي وكل المجمعات بمعدلاتها. القاعدة قد تغيّر معدل العمالة، أو معدل مجمع، أو تستبعد مجمعًا. الأساس يبقى خاصية المجمع.",
+        "pinEventHelp": "كل أمر يحتفظ بتوقيت الإصدار الساري يوم إنشائه. تغييره في إصدار جديد لا يغيّر الأوامر القائمة.",
+        "workCenter": "مركز العمل",
+        "wcLaborRate": "معدل عمالة خاص",
+        "usesDefault": "يأخذ الافتراضي",
+        "poolMode": "قاعدة {{pool}}",
+        "overrideRate": "معدل {{pool}}",
+        "modes": {
+          "default": "معدل المجمع",
+          "override": "معدل خاص",
+          "exclude": "مستبعد هنا"
+        },
+        "addRule": "إضافة قاعدة مركز",
+        "note": "ملاحظة",
+        "submit": "نشر الإصدار"
+      },
+      "preview": {
+        "title": "معاينة التحميل",
+        "description": "ما يحمّله الإصدار في مركز عمل للساعات المدخلة، بالحساب نفسه الذي ستستخدمه تكلفة المراحل. لا يُحفظ شيء.",
+        "version": "الإصدار",
+        "laborHours": "ساعات العمالة",
+        "machineHours": "ساعات الماكينة",
+        "recordedCost": "تكلفة العمالة المسجلة",
+        "run": "احسب",
+        "result": "نتيجة التحميل",
+        "labor": "العمالة",
+        "line": "{{hours}} ساعة × {{rate}}",
+        "excluded": "مستبعد في هذا المركز",
+        "total": "الإجمالي",
+        "stale": "تغيّرت المدخلات بعد آخر حساب. احسب مجددًا لترى النتيجة."
+      },
+      "errors": {
+        "COST_POLICY_NOT_DEPLOYED": "سياسات التكلفة غير متاحة بعد: لم تُطبَّق Migration 204 على هذه البيئة.",
+        "MANUFACTURING_SETTINGS_READ_DENIED": "عرض سياسات التكلفة يتطلب manufacturing.settings.read أو صلاحية التعديل.",
+        "MANUFACTURING_SETTINGS_UPDATE_DENIED": "لا تملك صلاحية تعديل إعدادات التصنيع.",
+        "COST_POLICY_VERSION_CONFLICT": "أُنشئ إصدار آخر قبلك. أُعيد تحميل القائمة؛ راجعها وأرسل مجددًا.",
+        "COST_POLICY_IDEMPOTENCY_CONFLICT": "استُخدم هذا الإرسال لقيم مختلفة. افتح النموذج من جديد وأرسل.",
+        "COST_POLICY_EFFECTIVE_DATE_IN_PAST": "لا يجوز أن يسبق تاريخ السريان اليوم.",
+        "COST_POLICY_EFFECTIVE_DATE_NOT_AFTER_LATEST": "يجب أن يكون تاريخ السريان بعد بداية آخر إصدار.",
+        "COST_POLICY_LABOR_RATE_MISSING": "معدل العمالة الافتراضي مطلوب عند احتساب العمالة بمعدل المركز.",
+        "COST_POLICY_LABOR_RATE_NOT_APPLICABLE": "معدلات العمالة لا تنطبق حين تُحتسب العمالة بتكلفة القيود المسجلة.",
+        "COST_POLICY_RATE_INVALID": "المعدل يجب أن يكون موجبًا، ولا يتجاوز 999,999,999، وبست منازل عشرية على الأكثر.",
+        "COST_POLICY_WC_POOL_RATE_INVALID": "المجمع ذو المعدل الخاص يحتاج معدلًا موجبًا؛ والمستبعد لا يأخذ معدلًا.",
+        "COST_POLICY_POOLS_REQUIRED": "أضف مجمع أوفرهيد واحدًا على الأقل.",
+        "COST_POLICY_POOL_DUPLICATE": "رمز المجمع يرد مرة واحدة فقط.",
+        "COST_POLICY_POOL_BASIS_UNSUPPORTED": "أساس التحميل هذا غير مدعوم.",
+        "COST_POLICY_WORK_CENTER_UNKNOWN": "مركز العمل ليس مركزًا نشطًا في هذه المؤسسة.",
+        "COST_POLICY_WORK_CENTER_DUPLICATE": "لكل مركز عمل قاعدة واحدة.",
+        "COST_POLICY_WC_POOL_UNKNOWN": "قاعدة المركز تشير إلى مجمع ليس في هذا الإصدار.",
+        "COST_POLICY_WC_POOL_DUPLICATE": "قاعدة المركز تذكر المجمع نفسه مرتين.",
+        "COST_POLICY_WC_RULE_EMPTY": "قاعدة المركز يجب أن تحدد معدل عمالة أو مجمعًا واحدًا على الأقل.",
+        "COST_POLICY_VERSION_PINNED": "أوامر تصنيع تستخدم هذا الإصدار؛ لا يمكن سحبه.",
+        "COST_POLICY_VERSION_ALREADY_IN_FORCE": "هذا الإصدار سارٍ بالفعل؛ انشر إصدارًا جديدًا بدلًا منه.",
+        "COST_POLICY_VERSION_ALREADY_WITHDRAWN": "هذا الإصدار مسحوب بالفعل.",
+        "COST_POLICY_WITHDRAW_REASON_REQUIRED": "السبب مطلوب لسحب الإصدار.",
+        "COST_POLICY_DRIVER_MISSING": "لم يُدخل محرّك مطلوب. اترك الحقل فارغًا فقط إن لم يُستخدم، وأدخل 0 لصفر مقيس.",
+        "COST_POLICY_DRIVER_INVALID": "لا تكون الساعات أو التكاليف سالبة.",
+        "COST_POLICY_INPUT_NOT_APPLICABLE": "هذا المدخل لا يستخدمه الإصدار المختار.",
+        "COST_POLICY_ORG_TIMEZONE_INVALID": "توقيت المؤسسة غير صالح؛ أصلحه قبل نشر سياسة.",
+        "COST_POLICY_PIN_EVENT_UNSUPPORTED": "توقيت التثبيت هذا غير مدعوم.",
+        "COST_POLICY_INVALID": "السياسة غير صالحة."
+      }
     }
   }
 }
