@@ -87,7 +87,8 @@
     "invitations": "الدعوات",
     "roles": "الأدوار",
     "audit-log": "سجل التدقيق",
-    "organizations": "المنظمات"
+    "organizations": "المنظمات",
+    "manufacturingSettings": "إعدادات التصنيع"
   },
   "userMenu": {
     "accountManagement": "إدارة الحساب",
@@ -1756,5 +1757,82 @@
     "title": "مقارنة FIFO مقابل المتوسط المرجح",
     "note": "هذه المقارنة تعرض الفروقات بين طريقة FIFO والمتوسط المرجح في حساب تكلفة الوحدة.",
     "underDevelopment": "قيد التطوير - سيتم إضافة المقارنة التفصيلية قريباً"
+  },
+  "manufacturingSettings": {
+    "title": "إعدادات التصنيع",
+    "description": "سياسات تقرؤها عمليات التصنيع وترحيلاته. كل تبويب يحفظ عبر دالته المحروسة في قاعدة البيانات.",
+    "readOnlyNotice": "يمكنك عرض هذه الإعدادات. الحفظ يتطلب صلاحية manufacturing.settings.update أو مسؤول المؤسسة.",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "saved": "حُفظت الإعدادات",
+    "version": "الإصدار {{version}}",
+    "tabs": {
+      "materialIssue": "صرف المواد",
+      "quality": "الجودة",
+      "glMappings": "ربط القيود"
+    },
+    "materialIssue": {
+      "title": "حالات أمر العمل التي يُسمح فيها بصرف المواد",
+      "description": "الصرف مسموح دائمًا لأمر عمل قيد التنفيذ. اختر هل يُسمح به قبل ذلك أيضًا.",
+      "required": "مسموح دائمًا",
+      "status": {
+        "IN_PROGRESS": "قيد التنفيذ",
+        "READY": "جاهز",
+        "IN_SETUP": "قيد الإعداد"
+      }
+    },
+    "quality": {
+      "title": "سياسة الجودة",
+      "description": "تضبط بوابة الإفراج ومن يسجل الفحوص ويعتمدها.",
+      "release_gate_mode": "بوابة الإفراج",
+      "inspection_scope": "نطاق الفحص",
+      "allow_conditional_release": "السماح بالإفراج المشروط",
+      "segregation_of_duties": "المفتش غير مشغّل الإنتاج",
+      "admins_subject_to_quality_controls": "مسؤولو المؤسسة يخضعون لضوابط الجودة",
+      "releaseGate": {
+        "off": "مطفأة",
+        "all_orders": "كل الأوامر",
+        "routing_flagged": "الأوامر التي يتطلب مسارها فحصًا"
+      },
+      "scope": {
+        "final_only": "الفحص النهائي فقط",
+        "stages_and_final": "المراحل والنهائي"
+      }
+    },
+    "gl": {
+      "title": "ربط قيود التصنيع",
+      "description": "الحساب المدين والدائن لكل حدث تصنيع. وحده OH_APPLIED يقبل تجاوزًا لمركز عمل.",
+      "event": "الحدث",
+      "workCenter": "مركز العمل",
+      "debit": "الحساب المدين",
+      "credit": "الحساب الدائن",
+      "status": "الحالة",
+      "usage": "يقرؤه",
+      "allWorkCenters": "كل المراكز",
+      "missing": "غير مربوط",
+      "inactive": "غير نشط",
+      "postedBy": "يرحّله {{fn}}",
+      "notPostedYet": "لا يقرأ هذا الحدث أي مسار ترحيل بعد",
+      "edit": "تعديل",
+      "editAria": "تعديل ربط {{event}} {{wc}}",
+      "addOverride": "إضافة تجاوز لمركز عمل (OH_APPLIED)",
+      "workCenterOverride": "تجاوز لمركز عمل",
+      "formAria": "نموذج ربط القيد",
+      "choose": "اختر…",
+      "descriptionField": "الوصف",
+      "active": "نشط"
+    },
+    "errors": {
+      "updateDenied": "لا تملك صلاحية تعديل إعدادات التصنيع.",
+      "notMember": "لست عضوًا نشطًا في هذه المؤسسة.",
+      "versionConflict": "حفظ مستخدم آخر هذه الإعدادات قبلك. أُعيد تحميل القيم الأحدث؛ راجعها واحفظ مجددًا.",
+      "sameAccount": "يجب أن يختلف الحساب المدين عن الدائن.",
+      "debitInvalid": "الحساب المدين ليس حساب ترحيل نشطًا في هذه المؤسسة.",
+      "creditInvalid": "الحساب الدائن ليس حساب ترحيل نشطًا في هذه المؤسسة.",
+      "accountRequired": "الحسابان مطلوبان.",
+      "workCenterOverrideNotSupported": "وحده OH_APPLIED يقبل تجاوزًا لمركز عمل.",
+      "workCenterNotFound": "مركز العمل غير موجود في هذه المؤسسة.",
+      "invalidStatuses": "هذه المجموعة من الحالات غير مسموحة."
+    }
   }
 }

@@ -87,7 +87,8 @@
     "invitations": "Invitations",
     "roles": "Roles",
     "audit-log": "Audit Log",
-    "organizations": "Organizations"
+    "organizations": "Organizations",
+    "manufacturingSettings": "Manufacturing Settings"
   },
   "userMenu": {
     "accountManagement": "Account Management",
@@ -1760,5 +1761,82 @@
     "title": "FIFO vs Weighted-Average Comparison",
     "note": "This comparison shows the differences between FIFO and Weighted-Average methods in unit cost calculation.",
     "underDevelopment": "Under Development - Detailed comparison coming soon"
+  },
+  "manufacturingSettings": {
+    "title": "Manufacturing Settings",
+    "description": "Policies that manufacturing operations and postings read. Each tab saves through its own guarded database function.",
+    "readOnlyNotice": "You can view these settings. Saving requires the manufacturing.settings.update permission or organization admin.",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saved": "Settings saved",
+    "version": "Version {{version}}",
+    "tabs": {
+      "materialIssue": "Material issue",
+      "quality": "Quality",
+      "glMappings": "GL mappings"
+    },
+    "materialIssue": {
+      "title": "Work order statuses that allow material issue",
+      "description": "Material can always be issued to a work order in progress. Choose whether it may also be issued earlier.",
+      "required": "always allowed",
+      "status": {
+        "IN_PROGRESS": "In progress",
+        "READY": "Ready",
+        "IN_SETUP": "In setup"
+      }
+    },
+    "quality": {
+      "title": "Quality policy",
+      "description": "Controls the release gate and who may record and approve inspections.",
+      "release_gate_mode": "Release gate",
+      "inspection_scope": "Inspection scope",
+      "allow_conditional_release": "Allow conditional release",
+      "segregation_of_duties": "Inspector must differ from the production operator",
+      "admins_subject_to_quality_controls": "Organization admins are subject to quality controls",
+      "releaseGate": {
+        "off": "Off",
+        "all_orders": "All orders",
+        "routing_flagged": "Orders whose routing requires inspection"
+      },
+      "scope": {
+        "final_only": "Final inspection only",
+        "stages_and_final": "Stages and final"
+      }
+    },
+    "gl": {
+      "title": "Manufacturing GL mappings",
+      "description": "Debit and credit accounts for each manufacturing event. Only OH_APPLIED accepts a work-center override.",
+      "event": "Event",
+      "workCenter": "Work center",
+      "debit": "Debit account",
+      "credit": "Credit account",
+      "status": "Status",
+      "usage": "Read by",
+      "allWorkCenters": "All work centers",
+      "missing": "Not mapped",
+      "inactive": "Inactive",
+      "postedBy": "Posted by {{fn}}",
+      "notPostedYet": "No posting path reads this event yet",
+      "edit": "Edit",
+      "editAria": "Edit mapping {{event}} {{wc}}",
+      "addOverride": "Add work-center override (OH_APPLIED)",
+      "workCenterOverride": "work-center override",
+      "formAria": "GL mapping form",
+      "choose": "Choose…",
+      "descriptionField": "Description",
+      "active": "Active"
+    },
+    "errors": {
+      "updateDenied": "You do not have permission to change manufacturing settings.",
+      "notMember": "You are not an active member of this organization.",
+      "versionConflict": "Someone else saved these settings first. The latest values were reloaded; review and save again.",
+      "sameAccount": "Debit and credit accounts must differ.",
+      "debitInvalid": "The debit account is not an active posting account of this organization.",
+      "creditInvalid": "The credit account is not an active posting account of this organization.",
+      "accountRequired": "Both accounts are required.",
+      "workCenterOverrideNotSupported": "Only OH_APPLIED accepts a work-center override.",
+      "workCenterNotFound": "The work center was not found in this organization.",
+      "invalidStatuses": "This combination of statuses is not allowed."
+    }
   }
 }

@@ -239,6 +239,7 @@ const settingsChildren = [
   child(MODULE_CODES.SETTINGS, '/settings', 'company', '/settings/company', 'navigation.company'),
   child(MODULE_CODES.SETTINGS, '/settings', 'system', '/settings/system', 'navigation.system', 'beta'),
   child(MODULE_CODES.SETTINGS, '/settings', 'backup', '/settings/backup', 'navigation.backup', 'beta'),
+  child(MODULE_CODES.SETTINGS, '/settings', 'manufacturing', '/settings/manufacturing', 'navigation.manufacturingSettings', 'beta'),
   child(MODULE_CODES.SETTINGS, '/settings', 'integrations', '/settings/integrations', 'navigation.integrations', 'hidden'),
 ] as const;
 

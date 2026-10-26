@@ -207,3 +207,21 @@ describe('product catalog navigation', () => {
     });
   });
 });
+
+describe('settings — manufacturing settings child (M201 keys)', () => {
+  it('a manufacturing.settings.read grant alone shows Settings with only the Manufacturing child', () => {
+    const settings = moduleByKey(getVisibleProductNavigation(context(['manufacturing.settings.read'])), 'settings');
+
+    expect(settings?.children?.map(child => child.href)).toEqual(['/settings/manufacturing']);
+    expect(settings?.landingHref).toBe('/settings');
+  });
+
+  it('manufacturing operation keys do not reveal the settings child', () => {
+    const settings = moduleByKey(
+      getVisibleProductNavigation(context(['manufacturing.orders.read', 'manufacturing.stage_costs.read'])),
+      'settings',
+    );
+
+    expect(settings?.children?.some(child => child.href === '/settings/manufacturing') ?? false).toBe(false);
+  });
+});
