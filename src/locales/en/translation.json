@@ -1842,7 +1842,7 @@
     "costPolicy": {
       "title": "Manufacturing cost policy",
       "description": "How labor is costed and how overhead is absorbed, per company. Each change is a new dated version; a version in use is never edited.",
-      "scopeNotice": "Each new manufacturing order is pinned to the version in force on the day it is created. Stage costing (#260) will compute with the pinned version; until that repair lands, no stage cost is calculated from this policy.",
+      "scopeNotice": "Each new manufacturing order keeps the pin timing of the version in force on the day it is created. Its cost-policy version is then pinned once, according to that timing: at creation, or at the first production start (the version in force on that day). An order created while no version is in force is never pinned. Stage costing (#260) will compute with the pinned version; until that repair lands, no stage cost is calculated from this policy.",
       "stageMethod": "Stage costing method",
       "inventoryValuation": "Inventory valuation",
       "inventoryValuationNote": "Set per product in inventory (valuation method). It is a separate setting from stage costing.",
