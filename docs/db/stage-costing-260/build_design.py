@@ -160,7 +160,8 @@ def dx1():
 def dx3():
     """Scope: (organization, order, stage, pinned component line of the BOM snapshot). Quantities in the component's base unit.
     expected_cumulative = per-unit quantity of the pinned line x cumulative processed units of the approved production record versions.
-    net_consumed = Σ linked manual issues - their returns + Σ backflush of current record versions (reversed ones excluded).
+    net_consumed = Σ all posted manual and backflush issues in the scope - Σ posted returns and reversals linked to them. A record version
+    never removes a movement from the ledger; its effect is removed only by a reversal movement, so nothing is deducted twice.
     A record approval adds backflush = max(expected_cumulative - net_consumed, 0) linked to that record version; a surplus is shown for
     classification, never settled silently. A correction reverses only the backflush linked to the old record version."""
     per_unit = F(5, 100)
@@ -336,7 +337,7 @@ def render():
     t["DX3_REPLAY"], t["DX3_CONFLICT"] = q(d3["replay"]), d3["conflict"]
     t["DX3_MOVES"] = "، ".join(f"`{mv[0]}` {q(mv[2])}" for mv in d3["moves"])
     d4 = dx4()
-    t["DX4_V3"], t["DX4_V4"] = q(d4["v3"], 3), q(d4["v4"], 3)
+    t["DX4_V3"], t["DX4_V4"] = q(d4["v3"], 4), q(d4["v4"], 4)
     t["DX4_R1"], t["DX4_R2"] = str(d4["r1"]), str(d4["r2"])
     t["DX4_AFTER1"], t["DX4_SNAP"], t["DX4_EACH"], t["DX4_ALL"] = q(d4["after_r1"]), q(d4["snap"]), q(d4["reselect_each"]), q(d4["reselect_all"])
     t["CONTROLS"] = "\n".join(["| الضابط | القاعدة | النتيجة |", "|---|---|---|"] + [f"| {c} | {txt} | {'PASS' if ok else 'FAIL'} |" for c, txt, ok in CONTROLS])
