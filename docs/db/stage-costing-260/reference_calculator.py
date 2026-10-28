@@ -136,13 +136,30 @@ GROUP_ORDER = ("transferred_in", "material", "conversion")
 OUTPUTS = ("to", "abnormal", "ewip")          # tie order for a remaining cent; ewip last
 
 
+def _comp_rank(c):
+    return (0 if c in ("transferred_in", "material", "labor") else 1, ("transferred_in", "material", "labor").index(c)
+            if c in ("transferred_in", "material", "labor") else 0, c)
+
+
+def origin_rank(key):
+    """a layer key (origin stage, category, component): by stage, then category order, then component order"""
+    stage, category, comp = key
+    return (stage, GROUP_ORDER.index(category), _comp_rank(comp))
+
+
 def component_order(names):
+    if any(isinstance(n, tuple) for n in names):
+        return sorted(names, key=origin_rank)          # transferred-in components: the source layer keys
     return [c for c in ("transferred_in", "material", "labor") if c in names] + sorted(set(names) - {"transferred_in", "material", "labor"})
 
 
 def stage_wa(s):
-    """s: units {bwip, received, completed, ewip, spoiled}; normal_rate; inspection_pct;
-          groups {group: {bwip: {component: amount}, added: {component: amount}, ewip_pct, spoil_pct}}  (amounts in currency units)"""
+    """s: stage (default 1); units {bwip, received, completed, ewip, spoiled}; normal_rate; inspection_pct;
+          groups {group: {bwip: {component: amount}, added: {component: amount}, ewip_pct, spoil_pct}}  (amounts in currency units)
+    Revision 3: the completed-output layer keeps the origin of every amount: (origin stage, category, component). Components of this
+    stage's own groups get (this stage, group, component); transferred-in components keep the key they had in the source layer. Equal
+    component names in different groups or stages are never merged or overwritten, and Σ layer components = completed amount."""
+    stage = int(s.get("stage", 1))
     u = {k: F(v) for k, v in s["units"].items()}
     if any(v < 0 for v in u.values()):
         raise StageCostError("STAGE_COST_UNITS_INVALID")
@@ -184,8 +201,22 @@ def stage_wa(s):
         out[o] = sum(v[o] for v in out["groups"].values())
     out["accounted"] = sum(v["total"] for v in out["groups"].values())
     assert out["to"] + out["abnormal"] + out["ewip"] == out["accounted"]
-    out["layer"] = {"units": u["completed"], "components": {c: a for g in out["groups"].values() for c, a in g["split"]["to"].items()}}
+    layer = {}
+    for g, v in out["groups"].items():
+        for c, a in v["split"]["to"].items():
+            key = c if g == "transferred_in" else (stage, g, c)
+            assert isinstance(key, tuple) and len(key) == 3, f"transferred-in component without its source key: {c!r}"
+            assert key not in layer, f"layer key collision: {key}"
+            layer[key] = a
+    assert sum(layer.values()) == out["to"], "Σ layer components must equal the completed amount"
+    out["stage"] = stage
+    out["layer"] = {"stage": stage, "units": u["completed"], "components": layer}
     return out
+
+
+def key_label(key):
+    """(1, 'conversion', 'labor') -> 'S1/conversion/labor'"""
+    return f"S{key[0]}/{key[1]}/{key[2]}"
 
 
 def ewip_components(st, group):
@@ -236,39 +267,85 @@ def ti_from_lines(lines):
 
 # ---------------------------------------------------------------- calculation versions and staleness (revision 2)
 class Ledger:
-    """Calculation versions keyed by (stage, period). A version's fingerprint lists its sources: the previous period of the same stage
-    (beginning WIP) and the transfer lines it consumed (their source calculation versions). A new version of a calculation makes every
-    calculation whose fingerprint holds an earlier version of it stale, transitively. Stale calculations cannot be approved or posted;
-    a calculation with a posted dependant cannot be recalculated."""
+    """Calculation versions keyed by (stage, period); revision 3. self.calcs[key] is the current version {version, sources, state, result};
+    self.history[key] keeps every version. A version's sources are (key, version) pairs: the previous period of the same stage (beginning
+    WIP) and the source calculation of every transfer line it consumed. States: calculated -> approved -> posted; stale; superseded.
+
+    record(key, sources): every source must exist, be the current version of its key, and be approved or posted (never calculated, stale or
+      superseded). Recalculating an existing key: refused if the key is posted, or if any dependant of its current version, direct or
+      indirect, is posted; all checks run before any state changes. Then the old version is superseded and every dependant, transitively,
+      becomes stale.
+    approve(key): the current version must be calculated (not stale), and every source current and approved or posted.
+    post(key): the current version must be approved, and every source current and posted."""
 
     def __init__(self):
         self.calcs = {}
+        self.history = {}
 
-    def record(self, key, sources, result):
+    def _check_sources(self, sources, need_posted=False):
+        for skey, sver in sources:
+            cur = self.calcs.get(skey)
+            if cur is None:
+                raise StageCostError("STAGE_COST_SOURCE_MISSING")
+            if sver != cur["version"]:
+                raise StageCostError("STAGE_COST_SOURCE_SUPERSEDED")
+            if cur["state"] == "stale":
+                raise StageCostError("STAGE_COST_DEPENDENCY_STALE")
+            if need_posted and cur["state"] != "posted":
+                raise StageCostError("STAGE_COST_SOURCE_NOT_POSTED")
+            if cur["state"] not in ("approved", "posted"):
+                raise StageCostError("STAGE_COST_SOURCE_NOT_APPROVED")
+
+    def dependants(self, key, version):
+        """current calculations that depend on (key, version), directly or indirectly"""
+        found, frontier = set(), {(key, version)}
+        while frontier:
+            nxt = set()
+            for k, c in self.calcs.items():
+                if k not in found and c["sources"] & frontier:
+                    found.add(k)
+                    nxt.add((k, c["version"]))
+            frontier = nxt
+        return found
+
+    def record(self, key, sources, result=None):
+        sources = set(sources)
+        self._check_sources(sources)
         prev = self.calcs.get(key)
-        if prev and prev["state"] == "posted":
-            raise StageCostError("STAGE_COST_ALREADY_POSTED")
+        if prev:
+            if prev["state"] == "posted":
+                raise StageCostError("STAGE_COST_ALREADY_POSTED")
+            deps = self.dependants(key, prev["version"])
+            if any(self.calcs[d]["state"] == "posted" for d in deps):
+                raise StageCostError("STAGE_COST_DOWNSTREAM_POSTED")
         ver = (prev["version"] + 1) if prev else 1
         if prev:
-            for k, c in self.calcs.items():
-                if (key, prev["version"]) in c["sources"] and c["state"] == "posted":
-                    raise StageCostError("STAGE_COST_DOWNSTREAM_POSTED")
-        self.calcs[key] = {"version": ver, "sources": set(sources), "state": "calculated", "result": result}
-        if prev:
-            self._stale((key, prev["version"]))
+            prev["state"] = "superseded"
+            for d in deps:
+                self.calcs[d]["state"] = "stale"
+        cur = {"version": ver, "sources": sources, "state": "calculated", "result": result}
+        self.calcs[key] = cur
+        self.history.setdefault(key, []).append(cur)
         return ver
-
-    def _stale(self, src):
-        for k, c in self.calcs.items():
-            if src in c["sources"] and c["state"] != "stale":
-                c["state"] = "stale"
-                self._stale((k, c["version"]))
 
     def approve(self, key):
         c = self.calcs[key]
         if c["state"] == "stale":
             raise StageCostError("STAGE_COST_DEPENDENCY_STALE")
+        if c["state"] != "calculated":
+            raise StageCostError(f"STAGE_COST_STATE_INVALID: {c['state']}")
+        self._check_sources(c["sources"])
         c["state"] = "approved"
+
+    def post(self, key):
+        c = self.calcs[key]
+        if c["state"] != "approved":
+            raise StageCostError("STAGE_COST_DEPENDENCY_STALE" if c["state"] == "stale" else "STAGE_COST_NOT_APPROVED")
+        self._check_sources(c["sources"], need_posted=True)
+        c["state"] = "posted"
+
+    def snapshot(self):
+        return {k: (c["version"], c["state"]) for k, c in self.calcs.items()}
 
 
 # ---------------------------------------------------------------- revision 1, kept only for the counterexamples
@@ -445,7 +522,13 @@ def stage2(ti_components, units, material, c204, ewip_pct, bwip=None):
     if bwip:
         for grp, comps in bwip.items():
             g[grp]["bwip"] = comps
-    return stage_wa({"units": units, "normal_rate": 0, "inspection_pct": 100, "groups": g})
+    return stage_wa({"stage": 2, "units": units, "normal_rate": 0, "inspection_pct": 100, "groups": g})
+
+
+def stage3(ti_components, units, c204, ewip_pct):
+    return stage_wa({"stage": 3, "units": units, "normal_rate": 0, "inspection_pct": 100,
+                     "groups": {"transferred_in": {"added": ti_components, "ewip_pct": 100, "spoil_pct": 100},
+                                "conversion": {"added": conv(c204), "ewip_pct": ewip_pct, "spoil_pct": 100}}})
 
 
 def stage1_p2(e1):
@@ -549,36 +632,70 @@ def examples():
     ex["E7"] = {"lines": lines7 + lines7b, "held_after_p1": held_after_p1, "s2p1": s2p1, "s2p2": s2p2, "c_p1": c7p1, "c_p2": c7p2,
                 "added_p1": added_p1, "added_p2": added_p2, "overdraw": over}
 
-    # E8: correction of stage 1 period 1 (an approved machine-overhead correction of +90.00) and its effect downstream
+    # E8: correction of stage 1 period 1 (an approved machine-overhead correction of +90.00) and its effect downstream.
+    #     Every step goes through the ledger rules; the log keeps each action with its result and the states after it.
     led = Ledger()
-    led.record((1, 1), [], e1)
-    led.record((2, 1), [((1, 1), 1)], e2)
-    led.record((1, 2), [((1, 1), 1)], e3)
+    steps = []
+
+    def act(label, fn):
+        try:
+            fn()
+            res = "OK"
+        except StageCostError as exc:
+            res = str(exc)
+        steps.append({"action": label, "result": res, "states": led.snapshot()})
+        return res
+    act("record S1P1 v1", lambda: led.record((1, 1), [], e1))
+    act("approve S1P1", lambda: led.approve((1, 1)))
+    act("record S2P1 v1 (source S1P1 v1)", lambda: led.record((2, 1), [((1, 1), 1)], e2))
+    act("approve S2P1", lambda: led.approve((2, 1)))
+    act("record S1P2 v1 (source S1P1 v1)", lambda: led.record((1, 2), [((1, 1), 1)], e3))
+    act("approve S1P2", lambda: led.approve((1, 2)))
     e1b = stage1_p1("90")
-    led.record((1, 1), [], e1b)
-    states_after_correction = {k: (v["version"], v["state"]) for k, v in led.calcs.items()}
-    try:
-        led.approve((2, 1))
-        stale_refusal = None
-    except StageCostError as exc:
-        stale_refusal = str(exc)
+    act("record S1P1 v2 (+90.00)", lambda: led.record((1, 1), [], e1b))
+    r_stale = act("approve S2P1 (stale)", lambda: led.approve((2, 1)))
     lines8, _ = transfer_from_layers([{"calc": (1, 1, 2), "units": 800, "components": e1b["layer"]["components"]}],
                                      [{"id": "T-1", "units": 800, "to_stage": 2, "received_period": 1}])
     e2b = stage2(ti_from_lines(lines8), {"bwip": 0, "received": 800, "completed": 700, "ewip": 100, "spoiled": 0}, "1400", c2, 40)
-    led.record((2, 1), [((1, 1), 2)], e2b)
+    r_not_approved = act("record S2P1 (source S1P1 v2, still calculated)", lambda: led.record((2, 1), [((1, 1), 2)], e2b))
+    act("approve S1P1 v2", lambda: led.approve((1, 1)))
+    r_superseded = act("record S2P1 (old source S1P1 v1)", lambda: led.record((2, 1), [((1, 1), 1)], e2))
+    act("record S2P1 v2 (source S1P1 v2)", lambda: led.record((2, 1), [((1, 1), 2)], e2b))
+    act("approve S2P1 v2", lambda: led.approve((2, 1)))
     _, e3b = stage1_p2(e1b)
-    led.record((1, 2), [((1, 1), 2)], e3b)
-    led.approve((2, 1))
-    led.approve((1, 2))
+    act("record S1P2 v2 (source S1P1 v2)", lambda: led.record((1, 2), [((1, 1), 2)], e3b))
+    act("approve S1P2 v2", lambda: led.approve((1, 2)))
+    assert (r_stale, r_not_approved, r_superseded) == ("STAGE_COST_DEPENDENCY_STALE", "STAGE_COST_SOURCE_NOT_APPROVED", "STAGE_COST_SOURCE_SUPERSEDED")
+    assert led.snapshot() == {(1, 1): (2, "approved"), (2, 1): (2, "approved"), (1, 2): (2, "approved")}
     d = {"s1_to": e1b["to"] - e1["to"], "s1_ewip": e1b["ewip"] - e1["ewip"], "s2_to": e2b["to"] - e2["to"], "s2_ewip": e2b["ewip"] - e2["ewip"],
          "p2_to": e3b["to"] - e3["to"], "p2_ewip": e3b["ewip"] - e3["ewip"]}
     assert d["s1_to"] + d["s1_ewip"] == 9000
     assert d["s2_to"] + d["s2_ewip"] == d["s1_to"]
     assert d["p2_to"] + d["p2_ewip"] == d["s1_ewip"]
-    ex["E8"] = {"before": {"s1": e1, "s2": e2, "p2": e3}, "after": {"s1": e1b, "s2": e2b, "p2": e3b}, "delta": d,
-                "states_after_correction": states_after_correction, "stale_refusal": stale_refusal,
-                "final_states": {k: (v["version"], v["state"]) for k, v in led.calcs.items()}}
-    assert stale_refusal == "STAGE_COST_DEPENDENCY_STALE"
+    ex["E8"] = {"before": {"s1": e1, "s2": e2, "p2": e3}, "after": {"s1": e1b, "s2": e2b, "p2": e3b}, "delta": d, "steps": steps}
+
+    # E9: three stages. Stage 3 (WC-B: 8 labor h, 5 machine h; LABOR_OH excluded there) receives all 700 completed units of E2.
+    lines9, left9 = transfer_from_layers([{"calc": (2, 1, 1), "units": 700, "components": e2["layer"]["components"]}],
+                                         [{"id": "T-2>3", "units": 700, "to_stage": 3, "received_period": 1}])
+    assert lines9[0]["total"] == e2["to"] == 1304565 and left9[0]["units"] == 0
+    c9 = compute_204(POLICY_V1, "WC-B", 8, 5)
+    s3 = stage3(ti_from_lines(lines9), {"bwip": 0, "received": 700, "completed": 650, "ewip": 50, "spoiled": 0}, c9, 60)
+    added9 = added_all + c9["total"]
+    assert s3["to"] + e1["ewip"] + e2["ewip"] + s3["ewip"] == added9
+    by_origin = {}
+    for key, a in s3["layer"]["components"].items():
+        by_origin[key[0]] = by_origin.get(key[0], 0) + a
+    assert sum(by_origin.values()) == s3["to"]
+    ex["E9"] = {"e2_layer": e2["layer"], "lines": lines9, "policy": c9, "stage": s3, "added_all": added9, "by_origin": by_origin}
+
+    # E10: partial moves from the composite stage-2 layer (E2): 400 units, then 300
+    lines10, left10 = transfer_from_layers([{"calc": (2, 1, 1), "units": 700, "components": e2["layer"]["components"]}],
+                                           [{"id": "T-a", "units": 400, "to_stage": 3, "received_period": 1},
+                                            {"id": "T-b", "units": 300, "to_stage": 3, "received_period": 2}])
+    for key, a in e2["layer"]["components"].items():
+        assert sum(ln["components"][key] for ln in lines10) == a
+    assert sum(ln["total"] for ln in lines10) == e2["to"] and left10[0]["units"] == 0 and not any(left10[0]["components"].values())
+    ex["E10"] = {"lines": lines10}
     return ex
 
 

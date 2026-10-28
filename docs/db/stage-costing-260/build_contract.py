@@ -60,12 +60,21 @@ def policy_line(c):
 
 
 def lines_table(lines):
-    rows = ["| السطر | التحويل | الحساب المصدر (مرحلة، فترة، إصدار) | الوحدات | يستلمه (مرحلة، فترة) | المواد | العمالة | `MACHINE_OH` | الإجمالي |",
-            "|---|---|---|---|---|---|---|---|---|"]
+    keys = sorted({k for ln in lines for k in ln["components"]}, key=rc.origin_rank)
+    head = "| السطر | التحويل | الحساب المصدر (مرحلة، فترة، إصدار) | الوحدات | يستلمه (مرحلة، فترة) | " + " | ".join(f"`{rc.key_label(k)}`" for k in keys) + " | الإجمالي |"
+    rows = [head, "|" + "---|" * (6 + len(keys))]
     for i, ln in enumerate(lines, 1):
         c = ln["components"]
-        rows.append(f"| L{i} | {ln['move']} | {ln['source']} | {n(ln['units'])} | ({ln['to_stage']}، {ln['received_period']}) | {m(c.get('material', 0))} | "
-                    f"{m(c.get('labor', 0))} | {m(c.get('MACHINE_OH', 0))} | **{m(ln['total'])}** |")
+        rows.append(f"| L{i} | {ln['move']} | {ln['source']} | {n(ln['units'])} | ({ln['to_stage']}، {ln['received_period']}) | "
+                    + " | ".join(m(c.get(k, 0)) for k in keys) + f" | **{m(ln['total'])}** |")
+    return "\n".join(rows)
+
+
+def layer_table(layer, to):
+    rows = ["| مفتاح الطبقة (مرحلة المنشأ/الفئة/المكوّن) | المبلغ |", "|---|---|"]
+    for k in sorted(layer["components"], key=rc.origin_rank):
+        rows.append(f"| `{rc.key_label(k)}` | {m(layer['components'][k])} |")
+    rows.append(f"| **Σ = التام** | **{m(sum(layer['components'].values()))}** = {m(to)} |")
     return "\n".join(rows)
 
 
@@ -133,12 +142,14 @@ def render():
         f"| المرحلة 2، الفترة 1 | WIP نهاية | {m(b['s2']['ewip'])} | {m(a['s2']['ewip'])} | {m(d['s2_ewip'])} |",
         f"| المرحلة 1، الفترة 2 | التام | {m(b['p2']['to'])} | {m(a['p2']['to'])} | {m(d['p2_to'])} |",
         f"| المرحلة 1، الفترة 2 | WIP نهاية | {m(b['p2']['ewip'])} | {m(a['p2']['ewip'])} | {m(d['p2_ewip'])} |"])
-    st_ar = {"calculated": "محسوب", "stale": "**قديم (stale)**", "approved": "معتمد"}
-    key_ar = {(1, 1): "المرحلة 1، الفترة 1", (2, 1): "المرحلة 2، الفترة 1", (1, 2): "المرحلة 1، الفترة 2"}
-    t["E8_STATES"] = "\n".join(["| الحساب | بعد إعادة حساب المرحلة 1 | بعد إعادة حساب التابعين واعتمادهما |", "|---|---|---|"]
-                               + [f"| {key_ar[k]} | الإصدار {e8['states_after_correction'][k][0]}، {st_ar[e8['states_after_correction'][k][1]]} | "
-                                  f"الإصدار {e8['final_states'][k][0]}، {st_ar[e8['final_states'][k][1]]} |" for k in key_ar]
-                               + ["", f"اعتماد المرحلة 2 وهي قديمة رُفض بـ`{e8['stale_refusal']}`."])
+    key_ar = {(1, 1): "S1P1", (2, 1): "S2P1", (1, 2): "S1P2"}
+    st_ar = {"calculated": "محسوب", "stale": "**قديم**", "approved": "معتمد", "posted": "مرحّل", "superseded": "مستبدل"}
+    steps = ["| # | الإجراء | النتيجة | الحالات بعده (الإصدار، الحالة) |", "|---|---|---|---|"]
+    for i, stp in enumerate(e8["steps"], 1):
+        res = "تم" if stp["result"] == "OK" else f"رفض `{stp['result']}`"
+        sts = "؛ ".join(f"{key_ar[k]} v{v[0]} {st_ar[v[1]]}" for k, v in stp["states"].items())
+        steps.append(f"| {i} | {stp['action']} | {res} | {sts} |")
+    t["E8_STEPS"] = "\n".join(steps)
     cx_rows = ["| الحالة | المدخلات | المراجعة 1 (التام / غير الطبيعي / WIP؛ مكونات التام) | المراجعة 2 |", "|---|---|---|---|"]
     desc = {"CX1": "وحدتان: 1 تامة و1 تالفة غير طبيعية، لا WIP؛ تحويل 10.01",
             "CX2": "1 تامة و1,999 WIP بنسبة 50%؛ مكونات 5.00 + 5.00 + 0.00",
@@ -162,6 +173,43 @@ def render():
                      f"{pc['legacy_negative']} حالة بمبلغ أو مكوّن سالب، و{pc['legacy_cent_without_units']} حالة بهللات في WIP بلا وحدات؛ "
                      f"و{pc['eu_zero_rejected']} حالة EU = 0 بتكلفة موجبة رُفضت. وتحويلات: {tc['cases']:,} حالة عشوائية (بذرة 2601) بطبقات وسحب جزئي: "
                      f"{tc['violations']} مخالفة (الإجمالي محفوظ لكل مكوّن، لا سالب، ولا تكلفة بلا وحدات).")
+    t["E2_LAYER"] = layer_table(s2["layer"], s2["to"])
+    e9 = ex["E9"]
+    t["E9_LINES"] = lines_table(e9["lines"])
+    t["E9_POLICY"] = policy_line(e9["policy"])
+    t["E9"] = stage_table(e9["stage"])
+    t["E9_CHECK"] = (f"Σ المضاف في المراحل الثلاث = {m(e9['added_all'])} = الإنتاج التام (تام المرحلة 3) {m(e9['stage']['to'])} + WIP المرحلة 1 "
+                     f"{m(s1['ewip'])} + WIP المرحلة 2 {m(s2['ewip'])} + WIP المرحلة 3 {m(e9['stage']['ewip'])} ✓؛ وتام المرحلة 3 حسب مرحلة المنشأ: "
+                     + "، ".join(f"المرحلة {k} {m(v)}" for k, v in sorted(e9["by_origin"].items())) + f" = {m(e9['stage']['to'])}.")
+    t["E9_LAYER"] = layer_table(e9["stage"]["layer"], e9["stage"]["to"])
+    t["E10_LINES"] = lines_table(ex["E10"]["lines"])
+    import focused_controls as fc
+    r3 = fc.run(rc)
+    r2 = fc.run(fc.load(HERE / "history" / "reference_calculator_r2_0b66a36c.py.txt", "calc_r2"))
+    rows = ["| الضابط | ما يتحقق منه | المراجعة 2 (`0b66a36c`) | المراجعة 3 |", "|---|---|---|---|"]
+    for (cid, text, ok3, d3), (_, _, ok2, d2) in zip(r3, r2):
+        rows.append(f"| {cid} | {text} | {'PASS' if ok2 else '**FAIL**'}: {d2} | {'PASS' if ok3 else '**FAIL**'}: {d3} |")
+    rows.append(f"| | **المجموع** | {sum(r[2] for r in r2)} من {len(r2)} | {sum(r[2] for r in r3)} من {len(r3)} |")
+    assert all(r[2] for r in r3), "a focused control fails on the current calculator"
+    t["CONTROLS"] = "\n".join(rows)
+    old_ex = fc.load(HERE / "history" / "reference_calculator_r2_0b66a36c.py.txt", "calc_r2_ex").examples()
+
+    def pick(e, k, sub=None):
+        v = e[k][sub] if sub else e[k]
+        return v["stage"] if isinstance(v.get("stage"), dict) else v
+    shared = [("E1", None), ("E2", None), ("E3", None), ("E4a", None), ("E4b", None), ("E6", None), ("E7", "s2p1"), ("E7", "s2p2")]
+    compared = changed = 0
+    for k, sub in shared:
+        a, b2 = pick(old_ex, k, sub), pick(ex, k, sub)
+        for g in a["groups"]:
+            for o in ("to", "abnormal", "ewip"):
+                compared += 2
+                changed += a["groups"][g][o] != b2["groups"][g][o]
+                changed += sorted(a["groups"][g]["split"][o].values()) != sorted(b2["groups"][g]["split"][o].values())
+    l_old = sum(pick(old_ex, "E2")["layer"]["components"].values())
+    l_new = sum(s2["layer"]["components"].values())
+    t["R3_CHANGES"] = (f"**التغير الرقمي:** {changed} من {compared} قيمة مشتركة مع المراجعة 2 (مخرجات كل فئة وتوزيع مكوناتها في E1–E4 وE6 وE7) تغيّرت؛ "
+                       f"الذي تغيّر هو طبقة التام وحدها: مجموع طبقة E2 كان {m(l_old)} وصار {m(l_new)} = تام E2، وما يُبنى عليها (E9 وE10) جديد.")
     tpl = (HERE / "CONTRACT.template.md").read_text(encoding="utf-8")
     for k, v in t.items():
         tok = "{{" + k + "}}"
