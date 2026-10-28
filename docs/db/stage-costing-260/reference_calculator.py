@@ -11,6 +11,10 @@
 #     stale, and a stale calculation cannot be approved or posted;
 #   * compute_204() is exactly Migration 204 §4 (labor_hours, machine_hours, recorded_labor_cost); the run/setup extension is a separate,
 #     proposed compute_205_proposed() and is never presented as a 204 input.
+# Revision 4 (owner approved group A, 2026-10-28; additive, closes gap G1 of the design annex): compute_205() and validate_205_version()
+#   implement the approved overhead design for Migration 205 (activity and budgets on each pool, direct labor on all approved direct hours,
+#   one budget in one pool, setup budgets loaded exactly once or by a scoped acknowledgement, legacy 204 versions resolved by a separate
+#   record that never edits the version). Every revision-3 function is unchanged; compute_205_proposed() stays as the superseded design.
 # legacy_v1_stage() is the revision-1 algorithm, kept only to reproduce the counterexamples it fails on.
 import random
 from fractions import Fraction as F
@@ -129,6 +133,92 @@ def compute_205_proposed(version, wc, hours, recorded_labor_cost=None):
             driver = lh if resource == "labor" else mh
         pools[p["code"]] = round_half_up(driver * cents(pr.get("rate", p["rate"])))
     return {"labor": labor, "pools": pools, "total": labor + sum(pools.values()), "labor_hours": lh, "machine_hours": mh}
+
+
+# ---------------------------------------------------------------- 205 (revision 4): approved overhead design, group A
+ACTIVITIES = {"run": ("run",), "setup": ("setup",), "both": ("run", "setup")}
+POOL_205_KEYS = {"code", "basis", "rate", "activity", "budgets"}
+
+
+def validate_205_version(v):
+    """Version-level rules of 205, checked when a draft is approved and again by compute_205. v as compute_204's version, plus:
+    pools[i]['activity'] in run|setup|both and pools[i]['budgets'] (budget codes); v['budgets'] = {code: {'gl_account', 'cost_center', 'setup'}};
+    v['setup_acks'] = {pool code: [setup budget codes that pool's run rate covers]}. Refusal codes are the ones the design annex §3 names."""
+    budgets, acks = v["budgets"], v.get("setup_acks", {})
+    sources = {}
+    for code, b in budgets.items():
+        key = (b["gl_account"], b.get("cost_center"))
+        if key in sources:
+            raise StageCostError("COST_POLICY_BUDGET_DUPLICATE_SOURCE")
+        sources[key] = code
+    owner = {}
+    for p in v["pools"]:
+        if not set(p) <= POOL_205_KEYS or p.get("activity") not in ACTIVITIES:
+            raise StageCostError("COST_POLICY_POOL_ACTIVITY_UNSET")
+        if not p.get("budgets"):
+            raise StageCostError("COST_POLICY_POOL_WITHOUT_BUDGET")
+        for b in p["budgets"]:
+            if b not in budgets:
+                raise StageCostError("COST_POLICY_BUDGET_UNKNOWN")
+            if b in owner:
+                raise StageCostError("COST_POLICY_BUDGET_DOUBLE_ALLOCATION")
+            owner[b] = p
+    for pool_code, codes in acks.items():
+        pool = next((p for p in v["pools"] if p["code"] == pool_code), None)
+        for b in codes:
+            if pool is None or pool["activity"] != "run" or b not in pool["budgets"] or not budgets[b]["setup"]:
+                raise StageCostError("COST_POLICY_SETUP_ACK_INVALID")
+    for code, b in budgets.items():
+        if code not in owner:
+            raise StageCostError("COST_POLICY_SETUP_TREATMENT_UNSET" if b["setup"] else "COST_POLICY_BUDGET_UNALLOCATED")
+        if b["setup"] and owner[code]["activity"] == "run" and code not in acks.get(owner[code]["code"], []):
+            raise StageCostError("COST_POLICY_SETUP_TREATMENT_UNSET")
+
+
+def is_205_version(v):
+    return "budgets" in v and all("activity" in p for p in v["pools"])
+
+
+def compute_205(version, wc, hours, recorded_labor_cost=None, legacy_resolution=None):
+    """205 absorption for one (order, stage, work center, period). hours = {'labor': {'run', 'setup'}, 'machine': {'run', 'setup'}}: approved
+    hours by activity; None is not measured and raises, 0 is a measured zero. Direct labor = all approved direct hours (run + setup) at the
+    policy rate, or the recorded amount, whatever the pools. A pool's driver = the hours of its basis for the activities it covers; work-center
+    rules (rate, applies) are read exactly as compute_204 reads them. A version created under 204 (no activity, no budgets) is refused unless a
+    legacy resolution supplies those fields; the resolution is a separate record and the version itself is never changed. Returns cents."""
+    if is_205_version(version):
+        if legacy_resolution is not None:
+            raise StageCostError("COST_POLICY_LEGACY_NOT_APPLICABLE")
+        v = version
+    else:
+        if legacy_resolution is None:
+            raise StageCostError("COST_POLICY_LEGACY_UNRESOLVED")
+        res = legacy_resolution
+        if {p["code"] for p in version["pools"]} != set(res["pools"]):
+            raise StageCostError("COST_POLICY_LEGACY_POOLS_MISMATCH")
+        v = {**version, "pools": [{**p, "activity": res["pools"][p["code"]]["activity"], "budgets": list(res["pools"][p["code"]]["budgets"])}
+                                  for p in version["pools"]],
+             "budgets": res["budgets"], "setup_acks": res.get("setup_acks", {})}
+    validate_205_version(v)
+    for r in ("labor", "machine"):
+        for a in ("run", "setup"):
+            if hours.get(r, {}).get(a) is None:
+                raise StageCostError(f"COST_POLICY_DRIVER_MISSING: {r}.{a}")
+    rule = v.get("wc_rules", {}).get(wc, {})
+    if v["labor_cost_source"] == "work_center_rate":
+        labor = round_half_up((F(hours["labor"]["run"]) + F(hours["labor"]["setup"])) * cents(rule.get("labor_rate", v["default_labor_rate"])))
+    else:
+        if recorded_labor_cost is None:
+            raise StageCostError("COST_POLICY_DRIVER_MISSING: recorded_labor_cost")
+        labor = cents(recorded_labor_cost)
+    pools = {}
+    for p in v["pools"]:
+        pr = rule.get("pools", {}).get(p["code"], {})
+        if pr.get("applies", True) is False:
+            continue
+        resource = {"labor_hours": "labor", "machine_hours": "machine"}[p["basis"]]
+        driver = sum((F(hours[resource][a]) for a in ACTIVITIES[p["activity"]]), ZERO)
+        pools[p["code"]] = round_half_up(driver * cents(pr.get("rate", p["rate"])))
+    return {"labor": labor, "pools": pools, "total": labor + sum(pools.values())}
 
 
 # ---------------------------------------------------------------- one stage, one period, weighted average (revision 2)

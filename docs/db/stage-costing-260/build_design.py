@@ -13,6 +13,7 @@ import reference_calculator as rc  # noqa: E402
 
 OUT = HERE.parent / "MANUFACTURING_SETTINGS_260_DESIGN.md"
 R3_SHA = "f8042b161723613cff121d45129fedd76ac003304e293dbac354ae4210ac6777"
+R3_SNAPSHOT = HERE / "history" / "reference_calculator_r3_38a91bdf.py.txt"
 CONTROLS = []
 
 
@@ -302,7 +303,11 @@ def dx2():
 
 def render():
     calc = hashlib.sha256((HERE / "reference_calculator.py").read_bytes()).hexdigest()
-    control("R3", "بصمة الحاسبة r3 كما قُبلت", calc == R3_SHA)
+    from controls_205 import R4_NAMES, top_level_sources
+    old, new = top_level_sources(R3_SNAPSHOT), top_level_sources(HERE / "reference_calculator.py")
+    control("R3", "لقطة r3 بالبصمة المقبولة، وكل تعريفاتها في الحاسبة الحالية كما هي؛ r4 يضيف أسماء 205 وحدها",
+            hashlib.sha256(R3_SNAPSHOT.read_bytes()).hexdigest() == R3_SHA and all(new.get(n) == old[n] for n in old)
+            and set(new) - set(old) == R4_NAMES)
     t = {}
     rows = ["| الحالة | المجمعات (الأساس، النشاط، المعدل، الموازنات) | العمالة المباشرة | سطور المجمعات | الإجمالي |", "|---|---|---|---|---|"]
     for key, desc, res, err in dx0():
