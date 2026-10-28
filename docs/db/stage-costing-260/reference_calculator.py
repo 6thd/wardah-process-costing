@@ -199,26 +199,26 @@ def transfer_from_layers(layers, moves):
     Each move draws from the oldest layer with units left; a move spanning two layers gives two cost lines. For a line taking t of the
     n units left in a layer, each component = round_half_up(left_c × t / n); the line that empties a layer takes exactly what is left.
     Returns the cost lines and the layers left (held completed output, not WIP)."""
-    left = [{"calc": l["calc"], "units": F(l["units"]), "components": dict(l["components"])} for l in layers]
+    left = [{"calc": lyr["calc"], "units": F(lyr["units"]), "components": dict(lyr["components"])} for lyr in layers]
     lines = []
     for mv in moves:
         need = F(mv["units"])
-        for l in left:
+        for lyr in left:
             if need == 0:
                 break
-            if l["units"] == 0:
+            if lyr["units"] == 0:
                 continue
-            t = min(need, l["units"])
-            if t == l["units"]:
-                comps = dict(l["components"])
+            t = min(need, lyr["units"])
+            if t == lyr["units"]:
+                comps = dict(lyr["components"])
             else:
-                comps = {c: round_half_up(F(a) * t / l["units"]) for c, a in l["components"].items()}
+                comps = {c: round_half_up(F(a) * t / lyr["units"]) for c, a in lyr["components"].items()}
             for c in comps:
-                l["components"][c] -= comps[c]
-                assert comps[c] >= 0 and l["components"][c] >= 0
-            l["units"] -= t
+                lyr["components"][c] -= comps[c]
+                assert comps[c] >= 0 and lyr["components"][c] >= 0
+            lyr["units"] -= t
             need -= t
-            lines.append({"move": mv["id"], "source": l["calc"], "units": t, "to_stage": mv["to_stage"], "received_period": mv["received_period"],
+            lines.append({"move": mv["id"], "source": lyr["calc"], "units": t, "to_stage": mv["to_stage"], "received_period": mv["received_period"],
                           "components": comps, "total": sum(comps.values())})
         if need > 0:
             raise StageCostError("STAGE_COST_TRANSFER_EXCEEDS_COMPLETED")
@@ -358,7 +358,7 @@ def counterexamples():
 def property_checks(n=5000, seed=260):
     """Seeded random stages: revision 2 must keep every output and component >= 0, put no cent in an output without units, keep group and
     component totals, and stay within one cent of each exact output; revision 1 is counted on the same cases."""
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # nosec B311: seeded test data for the property checks, not security
     stats = {"cases": 0, "v2_violations": 0, "legacy_negative": 0, "legacy_cent_without_units": 0, "eu_zero_rejected": 0}
     for _ in range(n):
         received = rng.randint(0, 50)
@@ -396,12 +396,12 @@ def property_checks(n=5000, seed=260):
 
 
 def transfer_property_checks(n=3000, seed=2601):
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # nosec B311: seeded test data for the property checks, not security
     bad = 0
     for _ in range(n):
         layers = [{"calc": (1, p, 1), "units": rng.randint(1, 40), "components": {"material": rng.randint(0, 99999), "labor": rng.randint(0, 9999)}}
                   for p in range(rng.randint(1, 3))]
-        total_units = sum(l["units"] for l in layers)
+        total_units = sum(lyr["units"] for lyr in layers)
         moves, left_u, i = [], total_units, 0
         while left_u > 0 and rng.random() < 0.8:
             t = rng.randint(1, left_u)
@@ -410,11 +410,11 @@ def transfer_property_checks(n=3000, seed=2601):
             i += 1
         lines, left = transfer_from_layers(layers, moves)
         for c in ("material", "labor"):
-            if sum(ln["components"][c] for ln in lines) + sum(l["components"][c] for l in left) != sum(l["components"][c] for l in layers):
+            if sum(ln["components"][c] for ln in lines) + sum(lyr["components"][c] for lyr in left) != sum(lyr["components"][c] for lyr in layers):
                 bad += 1
-        if any(a < 0 for ln in lines for a in ln["components"].values()) or any(a < 0 for l in left for a in l["components"].values()):
+        if any(a < 0 for ln in lines for a in ln["components"].values()) or any(a < 0 for lyr in left for a in lyr["components"].values()):
             bad += 1
-        if any(l["units"] == 0 and any(l["components"].values()) for l in left):
+        if any(lyr["units"] == 0 and any(lyr["components"].values()) for lyr in left):
             bad += 1
     assert bad == 0
     return {"cases": n, "violations": bad}
@@ -539,7 +539,7 @@ def examples():
     assert s2p1["to"] + e1["ewip"] + sum(held_after_p1["components"].values()) + s2p1["ewip"] == added_p1
     added_p2 = added_p1 + cents(660) + c7p2["total"]
     assert s2p1["to"] + s2p2["to"] + e1["ewip"] + s2p2["ewip"] == added_p2 and left7b[0]["units"] == 0
-    assert sum(l["total"] for l in lines7 + lines7b) == e1["to"]
+    assert sum(lyr["total"] for lyr in lines7 + lines7b) == e1["to"]
     try:
         transfer_from_layers(left7b, [{"id": "T-3", "units": 1, "to_stage": 2, "received_period": 2}])
         over = None
