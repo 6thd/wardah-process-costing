@@ -1,0 +1,164 @@
+name: Manufacturing Cost Policy 205 Acceptance
+
+# Owner decisions: group A (2026-10-28), 205-Q1..Q4 and the two permission points (2026-10-29). 205 adds
+# the draft/approval path for cost policy versions, pool activity and overhead budgets, the company
+# approval settings (self-approval off by default; unallocated budgets blocked by default or a controlled
+# exception), a 205-only permission checker and legacy-version resolutions, beside 204 without changing it.
+# See sql/migrations/205_manufacturing_cost_policy_approval_and_overhead.sql and
+# docs/db/MIGRATION_205_OVERHEAD_PLAN.md (revision 4).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/205_manufacturing_cost_policy_approval_and_overhead.sql'
+      - 'scripts/ci/fresh-db/acceptance_205_*'
+      - 'scripts/ci/fresh-db/gen_205_parity_cases.py'
+      - 'scripts/ci/fresh-db/pin_205_preflight.py'
+      - 'scripts/ci/fresh-db/run_chain.sh'
+      - 'docs/db/stage-costing-260/**'
+      - '.github/workflows/manufacturing-cost-policy-205-acceptance.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Cost policy approval, overhead budgets and company settings (205)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve Baseline pair and the chain before 205
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 205)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/chain_order_full.txt
+          grep -q '^205_manufacturing_cost_policy_approval_and_overhead.sql$' /tmp/chain_order_full.txt
+          sed '/^205_manufacturing_cost_policy_approval_and_overhead.sql$/,$d' /tmp/chain_order_full.txt > /tmp/pre_order.txt
+
+      - name: Build fresh database through 204
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_pre205
+          psql -v ON_ERROR_STOP=1 -d wardah_pre205 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_pre205 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_pre205 -f "$REFERENCE" -q
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_pre205 \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/pre_order.txt
+
+      - name: Preflight pins equal the bodies of a fresh database through 204
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/fresh-db/pin_205_preflight.py --check --psql "psql -d wardah_pre205"
+
+      - name: RED before 205
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_pre205 \
+            -f scripts/ci/fresh-db/acceptance_205_manufacturing_cost_policy_approval_red.sql 2>&1 | tee /tmp/red.out
+          grep -q 'MFG_COST_POLICY_205_RED_PROOF_OK' /tmp/red.out
+
+      - name: Apply 205 in one runner-owned transaction; re-apply is refused
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb -T wardah_pre205 wardah_205
+          psql -v ON_ERROR_STOP=1 --single-transaction -d wardah_205 \
+            -f sql/migrations/205_manufacturing_cost_policy_approval_and_overhead.sql
+          if psql -v ON_ERROR_STOP=1 --single-transaction -d wardah_205 \
+               -f sql/migrations/205_manufacturing_cost_policy_approval_and_overhead.sql > /tmp/reapply.out 2>&1; then
+            echo "205 re-apply unexpectedly succeeded"; exit 1
+          fi
+          grep -q 'M205_ALREADY_APPLIED' /tmp/reapply.out
+
+      - name: Parity with the reference calculator r4c (cases recorded from controls X1-X19)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -I -B -X utf8 scripts/ci/fresh-db/gen_205_parity_cases.py /tmp/parity_205.jsonl
+          psql -v ON_ERROR_STOP=1 -d wardah_205 -f scripts/ci/fresh-db/acceptance_205_parity.sql \
+            < /tmp/parity_205.jsonl 2>&1 | tee /tmp/parity.out
+          grep -q 'PARITY_205_PASS' /tmp/parity.out
+
+      - name: Run Migration 205 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_205 \
+            -f scripts/ci/fresh-db/acceptance_205_manufacturing_cost_policy_approval.sql 2>&1 | tee /tmp/cp205.out
+          grep -q 'MFG_COST_POLICY_205_ACCEPTANCE_PASS' /tmp/cp205.out
+
+      - name: Two-session checks (org lock, version conflict, pins, idempotency)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb -T wardah_205 wardah_205_conc
+          DB=wardah_205_conc bash scripts/ci/fresh-db/acceptance_205_concurrency.sh | tee /tmp/conc.out
+          grep -q 'CP205_CONCURRENCY_PASS' /tmp/conc.out
+
+      - name: 204 and 174 unchanged, with 204 data present before 205
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PRE_DB=wardah_pre205 bash scripts/ci/fresh-db/acceptance_205_unchanged_204_174.sh | tee /tmp/unchanged.out
+          grep -q 'CP205_UNCHANGED_204_174_PASS' /tmp/unchanged.out
+
+      - name: Negative controls (the acceptance must be able to fail)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PRE_DB=wardah_pre205 CASES=/tmp/parity_205.jsonl \
+            bash scripts/ci/fresh-db/acceptance_205_negative_controls.sh | tee /tmp/nc.out
+          grep -q 'CP205_NEGATIVE_CONTROLS_PASS' /tmp/nc.out
+
+      - name: Existing suites unchanged by 205
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for f in acceptance_195_legacy_mo_quarantine.sql \
+                   acceptance_200_gl_event_mapping_write_closure.sql \
+                   acceptance_201_manufacturing_settings_permissions.sql \
+                   acceptance_200_201_contract_claims.sql \
+                   acceptance_203_stage_wip_mo_lock.sql \
+                   acceptance_204_manufacturing_cost_policies.sql \
+                   acceptance_definer_guard_contract.sql; do
+            createdb -T wardah_205 "reg_${f%.sql}"
+            psql -v ON_ERROR_STOP=1 -q -d "reg_${f%.sql}" -f "scripts/ci/fresh-db/$f" > "/tmp/$f.out" 2>&1 \
+              || { echo "REGRESSION: $f"; tail -5 "/tmp/$f.out"; exit 1; }
+            echo "PASS $f"
+          done
+          createdb -T wardah_205 reg_204_conc
+          DB=reg_204_conc bash scripts/ci/fresh-db/acceptance_204_concurrency.sh | tee /tmp/reg204conc.out
+          grep -q 'CP204_CONCURRENCY_PASS' /tmp/reg204conc.out
