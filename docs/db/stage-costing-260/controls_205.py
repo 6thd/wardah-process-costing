@@ -5,6 +5,9 @@
 # valid exception, gives BUDGET_UNALLOCATED for an invalid one, and accepts or crashes on a budget without an account); X15 fails on r4b only by
 # absence (approve_205_check, the company policy at approval, is new); X18 guards that the exception relaxes no other rule (on r4b it fails
 # only because r4b refuses every exception).
+# X20 (Codex review of the 205 implementation, 2026-10-29), run on r4d: a rate has 204's precision (six decimal places, at most
+# 999999999) at the policy default, a pool and a work-center override, and the amount is rounded once, at the amount. X20 fails on
+# r4c by behaviour (r4c raises ValueError on a rate with more than two decimals).
 # Standard library only; connects to nothing.
 #   python -I -B -X utf8 controls_205.py <calculator> [history/reference_calculator_r3_38a91bdf.py.txt]
 import ast
@@ -18,7 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from focused_controls import load  # noqa: E402
 
 R4_NAMES = {"ACTIVITIES", "POOL_205_KEYS", "number_205", "validate_205_version", "is_205_version", "compute_205",
-            "UNALLOCATED_POLICIES", "UNALLOCATED_EXCEPTION_KEYS", "check_unallocated_exception_205", "unallocated_205", "approve_205_check"}
+            "UNALLOCATED_POLICIES", "UNALLOCATED_EXCEPTION_KEYS", "check_unallocated_exception_205", "unallocated_205", "approve_205_check",
+            "RATE_MAX_205", "rate_205"}
 BUDGETS = {"ELECTRICITY": {"gl_account": "GL-5101", "cost_center": "CC-PROD", "setup": False},
            "DEPRECIATION": {"gl_account": "GL-5201", "cost_center": "CC-PROD", "setup": False},
            "SUPERVISION": {"gl_account": "GL-5301", "cost_center": "CC-PROD", "setup": False},
@@ -347,6 +351,33 @@ def run(rc, calc_path, r3_path=None):
         rc.validate_205_version(one({"gl_account": "GL-1", "cost_center": None, "setup": False}))
         return all(o[0] for o in out), "; ".join(o[1] for o in out) + "; account without a center (account-wide scope): accepted"
     control("X19", "a budget without a GL account is refused; an account without a cost center is the account-wide scope and is accepted", x19)
+
+    def x20():
+        # 3 h at 1.123456 = 3.370368 -> 337 cents; a rate first rounded to the cent (1.12) would give 336.
+        hrs = {"labor": {"run": "2", "setup": "1"}, "machine": {"run": "3", "setup": "0"}}
+        base = v205([pool("P1", "machine_hours", "run", "1.123456", ["ELECTRICITY", "DEPRECIATION", "SUPERVISION"]),
+                     pool("P2", "labor_hours", "setup", "0.000001", ["SETUP_CREW"])], default_labor_rate="1.123456")
+        got = rc.compute_205(base, "WC-X", hrs)
+        wc = dict(base, wc_rules={"WC-O": {"labor_rate": "2.654321", "pools": {"P1": {"applies": True, "rate": "7.000005"}}}})
+        over = rc.compute_205(wc, "WC-O", hrs)
+        accepted = (got["labor"] == 337 and got["pools"] == {"P1": 337, "P2": 0} and over["labor"] == 796
+                    and over["pools"] == {"P1": 2100, "P2": 0})
+        bad = [("default", dict(base, default_labor_rate="1.1234567")), ("pool trailing zero", v205(
+                   [pool("P1", "machine_hours", "run", "1.1234560", ["ELECTRICITY", "DEPRECIATION", "SUPERVISION"]),
+                    pool("P2", "labor_hours", "setup", "1", ["SETUP_CREW"])])),
+               ("override labor", dict(base, wc_rules={"WC-O": {"labor_rate": "0.0000001"}})),
+               ("override pool", dict(base, wc_rules={"WC-O": {"pools": {"P1": {"applies": True, "rate": "1000000000"}}}}))]
+        out = [refused(lambda v=v: rc.compute_205(v, "WC-O", hrs), "COST_POLICY_RATE_INVALID") for _, v in bad]
+        top = rc.compute_205(dict(base, default_labor_rate="999999999"), "WC-X", hrs)["labor"] == 299999999700
+        rec = dict(base, labor_cost_source="recorded_entry_rate")
+        rec_ok = rc.compute_205(rec, "WC-X", hrs, recorded_labor_cost="10.05")["labor"] == 1005
+        rec_bad = refused(lambda: rc.compute_205(rec, "WC-X", hrs, recorded_labor_cost="10.005"), "COST_POLICY_RECORDED_COST_INVALID")
+        return accepted and top and rec_ok and rec_bad[0] and all(o[0] for o in out), (
+            f"default/pool {got}; override {over}; max rate accepted={top}; recorded 10.05 accepted={rec_ok}; recorded 10.005: {rec_bad[1]}; "
+            + "; ".join(f"{k}: {o[1]}" for (k, _), o in zip(bad, out)))
+    control("X20", "a rate with six decimals is accepted at the default, a pool and a work-center override and used exactly; the amount "
+                   "is rounded once at the cent; seven decimals (trailing zero included) or more than 999999999 is COST_POLICY_RATE_INVALID; "
+                   "a recorded labor cost with a fraction of a cent is COST_POLICY_RECORDED_COST_INVALID", x20)
 
     # ---------------------------------------------------------------- revision 3 kept byte-identical
     if r3_path:

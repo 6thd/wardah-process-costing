@@ -109,8 +109,15 @@ run_control side_rows_after_approval main 'CP205_IMMUTABILITY_NOT_ENFORCED: add 
   "  IF false THEN"
 # --- arithmetic and version rules against the calculator
 run_control rounding_truncates parity 'PARITY_205_MISMATCH' \
-  "    v_n := floor(v_driver * (wardah_internal.mfg_cost_policy_num_205(v_rate, 'COST_POLICY_RATE_INVALID', true) * 100) + 0.5);" \
-  "    v_n := floor(v_driver * (wardah_internal.mfg_cost_policy_num_205(v_rate, 'COST_POLICY_RATE_INVALID', true) * 100));"
+  "    v_n := floor(v_driver * (wardah_internal.mfg_cost_policy_rate_205(v_rate) * 100) + 0.5);" \
+  "    v_n := floor(v_driver * (wardah_internal.mfg_cost_policy_rate_205(v_rate) * 100));"
+# --- rate precision (204's numeric(18,6)) and rounding at the amount
+run_control rate_scale_unchecked parity 'PARITY_205_MISMATCH' \
+  "  IF pg_catalog.scale(v_n) > 6 OR v_n > 999999999 THEN" \
+  "  IF false THEN"
+run_control rate_rounded_to_cents_first parity 'PARITY_205_MISMATCH' \
+  "    v_n := floor(v_driver * (wardah_internal.mfg_cost_policy_rate_205(v_rate) * 100) + 0.5);" \
+  "    v_n := floor(v_driver * round(wardah_internal.mfg_cost_policy_rate_205(v_rate) * 100) + 0.5);"
 run_control labor_on_run_only parity 'PARITY_205_MISMATCH' \
   "    v_labor := floor(((v_h->>'labor.run')::numeric + (v_h->>'labor.setup')::numeric)" \
   "    v_labor := floor(((v_h->>'labor.run')::numeric + 0)"
@@ -130,6 +137,21 @@ run_control setting_without_org_lock conc 'CASE1_FAILED' \
   IF (v_old->>'self_approval_enabled')::boolean = p_enabled THEN" \
   "  v_old := wardah_internal.mfg_cost_policy_settings_205(p_org_id);
   IF (v_old->>'self_approval_enabled')::boolean = p_enabled THEN"
+
+# --- the approval bound to the reviewed revision
+run_control revision_not_checked main '[approve the revision read before the edit]' \
+  "  IF p_expected_revision IS NULL OR p_expected_revision <> v_d.revision THEN" \
+  "  IF false THEN"
+run_control revision_not_checked_under_edit conc 'CASE8_FAILED' \
+  "  IF p_expected_revision IS NULL OR p_expected_revision <> v_d.revision THEN" \
+  "  IF false THEN"
+run_control revision_guard_missing main 'CP205_REVISION_MOVED_WITHOUT_CONTENT' \
+  "  IF NEW.revision IS DISTINCT FROM OLD.revision + v_content_changed::int THEN" \
+  "  IF false THEN"
+# --- role templates (section 1b)
+run_control template_wildcard_grants main 'CP205_TEMPLATE_WILDCARD_GRANTS_EXPLICIT_KEY' \
+  "  EXECUTE replace(v_def, v_src, v_new);" \
+  "  v_new := v_src;"
 
 # The same key sent twice at once answered with a conflict instead of a replay.
 run_control concurrent_replay_conflict conc 'CASE7_FAILED' \

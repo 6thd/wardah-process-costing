@@ -4,11 +4,14 @@
 -- (2026-10-28) and 205-Q1..Q4 (2026-10-29), with the two permission points confirmed on
 -- 2026-10-29: a 205-only checker over role assignments, and "organization super admin" = the org
 -- admin inside the company with the key assigned explicitly, never a platform override.
--- Reference arithmetic: docs/db/stage-costing-260/reference_calculator.py revision 4c
--- (validate_205_version, check_unallocated_exception_205, unallocated_205, approve_205_check,
--- compute_205), mirrored here function for function.
+-- Reference arithmetic: docs/db/stage-costing-260/reference_calculator.py revision 4d
+-- (rate_205, validate_205_version, check_unallocated_exception_205, unallocated_205,
+-- approve_205_check, compute_205), mirrored here function for function. A rate has 204's precision
+-- (numeric(18,6), at most 999999999) and an amount is rounded once, at the cent, as 204 does.
 --
--- Additive beside 204. No table, row, function, trigger or grant of 204 (or of 174) changes:
+-- Additive beside 204. No table, row, function, trigger or grant of 204 (or of 174) changes. One
+-- existing function outside 204 and 174 changes, in section 1b: create_role_from_template (M201
+-- body) stops granting the three explicit keys through a wildcard template. Otherwise:
 --   * a version is written to the 204 tables only when its draft is approved, in the approval
 --     transaction, so the 204 pin triggers never see a draft;
 --   * the 205 data of a version (pool activity, budgets, pool budgets, setup acknowledgements,
@@ -24,6 +27,10 @@
 --   * public RPCs: create/update/withdraw/reject/approve draft, create legacy-resolution draft,
 --     set self-approval, set unallocated policy, get, preview.
 --
+-- An approval names the draft revision the approver reviewed (rpc_get_mfg_cost_policy_205 shows
+-- it); every edit of a draft moves its revision on, so content edited after it was shown is never
+-- approved (COST_POLICY_DRAFT_REVISION_CONFLICT).
+--
 -- Not toggleable by any company setting: org isolation, the permission guards, one budget in one
 -- pool, no duplicate or overlapping budget source, the rates, setup acknowledgement, the hours
 -- rules, immutability after approval, and identities taken from the session (auth.uid()).
@@ -31,7 +38,8 @@
 -- Cost centers: public.cost_centers is keyed by tenant_id with no foreign key to organizations
 -- (its policy reads a session setting), so a center's organization cannot be proven. Per plan §3
 -- no cost center is accepted (COST_POLICY_COST_CENTER_FOREIGN) and only the account-wide scope is
--- available until that relation is proven; the item returns to the owner.
+-- available until that relation is proven: the owner's "by cost center" choice (205-Q3) is NOT
+-- implemented by 205. It needs a proven organization relation or an explicit link design first.
 --
 -- Transaction: runner-owned, as for 195-204. Apply with psql --single-transaction (or an
 -- equivalent single-transaction runner); the file has no BEGIN/COMMIT.
@@ -60,6 +68,7 @@ BEGIN
   INTO v_mismatch
   FROM (VALUES
     -- M205_PREFLIGHT_PINS_BEGIN
+    ('public.create_role_from_template(uuid,uuid,character varying,uuid)', 'd1d315bab6f854a846624d79006b6008'),
     ('public.has_permission(uuid,uuid,character varying)', 'ce46307ed6beccf1863f52b6bb9758e9'),
     ('public.wardah_assert_org_member(uuid)', '33c67e93cd2d49eb67dd84bf85721908'),
     ('public.wardah_is_org_admin(uuid)', '5f9184946d63312758ac000a338f8677'),
@@ -113,6 +122,41 @@ FROM public.modules m CROSS JOIN (VALUES
 WHERE m.name = 'manufacturing';
 
 -- ---------------------------------------------------------------------------
+-- 1b. Template expansion: a wildcard template ('manufacturing.%') must not grant the three
+--     explicit keys; a template that names a key exactly still grants it. As M196, M199 and M201
+--     did, the three keys join the exact-name-only list of create_role_from_template. The body is
+--     the M201 body (pinned in the preflight) with exactly two edits, made here on the pinned
+--     text rather than retyped: the three keys added after manufacturing.settings.update, and the
+--     comment line that names the migrations narrowing the expansion. Owner, ACL, SECURITY
+--     DEFINER and search_path are those of the existing function (CREATE OR REPLACE from its own
+--     pg_get_functiondef). has_permission and the other 174 functions are not touched.
+-- ---------------------------------------------------------------------------
+DO $template$
+DECLARE
+  c_sig CONSTANT text := 'public.create_role_from_template(uuid,uuid,character varying,uuid)';
+  c_list_old CONSTANT text := E'''manufacturing.settings.update'')';
+  c_list_new CONSTANT text := E'''manufacturing.settings.update'',\n                 ''manufacturing.cost_policy.self_approve'',\n                 ''manufacturing.cost_policy.approval_settings.manage'',\n                 ''manufacturing.cost_policy.unallocated_policy.manage'')';
+  c_note_old CONSTANT text := E'-- Preserve the M175 audit record; M196, M199 and M201 only narrow template\n    -- expansion above.';
+  c_note_new CONSTANT text := E'-- Preserve the M175 audit record; M196, M199, M201 and M205 only narrow\n    -- template expansion above.';
+  v_src text;
+  v_new text;
+  v_def text;
+BEGIN
+  SELECT prosrc, pg_get_functiondef(oid) INTO v_src, v_def FROM pg_proc WHERE oid = to_regprocedure(c_sig);
+  IF (length(v_src) - length(replace(v_src, c_list_old, ''))) / length(c_list_old) <> 1
+     OR (length(v_src) - length(replace(v_src, c_note_old, ''))) / length(c_note_old) <> 1
+     OR (length(v_def) - length(replace(v_def, v_src, ''))) / length(v_src) <> 1 THEN
+    RAISE EXCEPTION 'M205_TEMPLATE_BODY_UNEXPECTED';
+  END IF;
+  v_new := replace(replace(v_src, c_list_old, c_list_new), c_note_old, c_note_new);
+  EXECUTE replace(v_def, v_src, v_new);
+  IF (SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure(c_sig)) IS DISTINCT FROM v_new THEN
+    RAISE EXCEPTION 'M205_TEMPLATE_BODY_NOT_WRITTEN';
+  END IF;
+END
+$template$;
+
+-- ---------------------------------------------------------------------------
 -- 2. Storage. Private schema, no client privileges; the RPCs are the only path.
 -- ---------------------------------------------------------------------------
 
@@ -128,6 +172,9 @@ CREATE TABLE wardah_internal.mfg_cost_policy_drafts_205 (
   expected_latest_version_no integer CHECK (expected_latest_version_no IS NULL OR expected_latest_version_no >= 0),
   reason text CHECK (reason IS NULL OR length(reason) <= 500),
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','approved','rejected','withdrawn')),
+  -- 1 at creation; every edit of the content moves it on by one (guard trigger). An approval names
+  -- the revision the approver reviewed.
+  revision integer NOT NULL DEFAULT 1 CHECK (revision >= 1),
   idempotency_key uuid NOT NULL,
   created_by uuid NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -248,6 +295,7 @@ CREATE TABLE wardah_internal.mfg_cost_policy_approvals_205 (
   created_by uuid NOT NULL,
   approved_by uuid NOT NULL,
   approved_at timestamptz NOT NULL DEFAULT now(),
+  draft_revision integer NOT NULL CHECK (draft_revision >= 1),
   self_approved boolean NOT NULL,
   self_approval_enabled_at_approval boolean NOT NULL,
   unallocated_policy_at_approval text NOT NULL
@@ -384,11 +432,14 @@ CREATE TRIGGER mfg_cost_policy_unallocated_exceptions_205_insert
 BEFORE INSERT ON wardah_internal.mfg_cost_policy_unallocated_exceptions_205
 FOR EACH ROW EXECUTE FUNCTION wardah_internal.mfg_cost_policy_side_insert_205();
 
--- Drafts: identity, kind and key never change; the payload changes only while pending; the
--- status moves once, from draft to approved, rejected or withdrawn.
+-- Drafts: identity, kind and key never change; the payload changes only while pending, and every
+-- change of the content moves the revision on by exactly one (the revision changes with nothing
+-- else); the status moves once, from draft to approved, rejected or withdrawn.
 CREATE FUNCTION wardah_internal.mfg_cost_policy_draft_guard_205()
 RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp
 AS $fn$
+DECLARE
+  v_content_changed boolean;
 BEGIN
   IF TG_OP = 'DELETE' THEN
     IF NOT EXISTS (SELECT 1 FROM public.organizations WHERE id = OLD.org_id)
@@ -414,6 +465,12 @@ BEGIN
        OR NEW.expected_latest_version_no IS DISTINCT FROM OLD.expected_latest_version_no
        OR NEW.reason IS DISTINCT FROM OLD.reason) THEN
     RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'COST_POLICY_DRAFT_IMMUTABLE';
+  END IF;
+  v_content_changed := NEW.payload IS DISTINCT FROM OLD.payload OR NEW.payload_hash IS DISTINCT FROM OLD.payload_hash
+                       OR NEW.expected_latest_version_no IS DISTINCT FROM OLD.expected_latest_version_no
+                       OR NEW.reason IS DISTINCT FROM OLD.reason;
+  IF NEW.revision IS DISTINCT FROM OLD.revision + v_content_changed::int THEN
+    RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'COST_POLICY_DRAFT_REVISION_INVALID';
   END IF;
   RETURN NEW;
 END
@@ -489,6 +546,21 @@ BEGIN
   IF v_n = 'NaN'::numeric OR v_n = 'Infinity'::numeric OR v_n = '-Infinity'::numeric
      OR v_n < 0 OR (p_positive AND v_n = 0) THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = p_code;
+  END IF;
+  RETURN v_n;
+END
+$fn$;
+
+-- rate_205: a rate as 204 stores and accepts it (numeric(18,6), 204's C_MAX_RATE): positive, at
+-- most six decimal places (scale(), trailing zeros included), at most 999999999.
+CREATE FUNCTION wardah_internal.mfg_cost_policy_rate_205(p_x jsonb)
+RETURNS numeric LANGUAGE plpgsql IMMUTABLE SET search_path = ''
+AS $fn$
+DECLARE
+  v_n numeric := wardah_internal.mfg_cost_policy_num_205(p_x, 'COST_POLICY_RATE_INVALID', true);
+BEGIN
+  IF pg_catalog.scale(v_n) > 6 OR v_n > 999999999 THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_RATE_INVALID';
   END IF;
   RETURN v_n;
 END
@@ -583,18 +655,18 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_POOL_CODE_DUPLICATE';
   END IF;
   IF p_v->>'labor_cost_source' = 'work_center_rate' THEN
-    PERFORM wardah_internal.mfg_cost_policy_num_205(p_v->'default_labor_rate', 'COST_POLICY_RATE_INVALID', true);
+    PERFORM wardah_internal.mfg_cost_policy_rate_205(p_v->'default_labor_rate');
   END IF;
   FOR v_p IN SELECT e FROM jsonb_array_elements(v_pools) WITH ORDINALITY t(e, o) ORDER BY o LOOP
-    PERFORM wardah_internal.mfg_cost_policy_num_205(v_p->'rate', 'COST_POLICY_RATE_INVALID', true);
+    PERFORM wardah_internal.mfg_cost_policy_rate_205(v_p->'rate');
   END LOOP;
   FOR v_r IN SELECT value FROM jsonb_each(COALESCE(NULLIF(p_v->'wc_rules', 'null'::jsonb), '{}'::jsonb)) LOOP
     IF v_r ? 'labor_rate' THEN
-      PERFORM wardah_internal.mfg_cost_policy_num_205(v_r->'labor_rate', 'COST_POLICY_RATE_INVALID', true);
+      PERFORM wardah_internal.mfg_cost_policy_rate_205(v_r->'labor_rate');
     END IF;
     FOR v_pr IN SELECT value FROM jsonb_each(COALESCE(NULLIF(v_r->'pools', 'null'::jsonb), '{}'::jsonb)) LOOP
       IF v_pr ? 'rate' THEN
-        PERFORM wardah_internal.mfg_cost_policy_num_205(v_pr->'rate', 'COST_POLICY_RATE_INVALID', true);
+        PERFORM wardah_internal.mfg_cost_policy_rate_205(v_pr->'rate');
       END IF;
     END LOOP;
   END LOOP;
@@ -797,7 +869,7 @@ BEGIN
   IF v->>'labor_cost_source' = 'work_center_rate' THEN
     v_rate := CASE WHEN v_rule ? 'labor_rate' THEN v_rule->'labor_rate' ELSE v->'default_labor_rate' END;
     v_labor := floor(((v_h->>'labor.run')::numeric + (v_h->>'labor.setup')::numeric)
-                     * (wardah_internal.mfg_cost_policy_num_205(v_rate, 'COST_POLICY_RATE_INVALID', true) * 100) + 0.5);
+                     * (wardah_internal.mfg_cost_policy_rate_205(v_rate) * 100) + 0.5);
   ELSE
     IF p_recorded IS NULL OR p_recorded = 'null'::jsonb THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_DRIVER_MISSING: recorded_labor_cost';
@@ -815,7 +887,7 @@ BEGIN
     v_res := CASE v_p->>'basis' WHEN 'labor_hours' THEN 'labor' ELSE 'machine' END;
     v_driver := CASE WHEN v_p->>'activity' IN ('run','both') THEN (v_h->>(v_res || '.run'))::numeric ELSE 0 END
               + CASE WHEN v_p->>'activity' IN ('setup','both') THEN (v_h->>(v_res || '.setup'))::numeric ELSE 0 END;
-    v_n := floor(v_driver * (wardah_internal.mfg_cost_policy_num_205(v_rate, 'COST_POLICY_RATE_INVALID', true) * 100) + 0.5);
+    v_n := floor(v_driver * (wardah_internal.mfg_cost_policy_rate_205(v_rate) * 100) + 0.5);
     v_out := v_out || jsonb_build_object(v_p->>'code', v_n::bigint);
     v_total := v_total + v_n;
   END LOOP;
@@ -1442,7 +1514,7 @@ CREATE FUNCTION wardah_internal.mfg_cost_policy_drafts_json_205(p_org uuid)
 RETURNS jsonb LANGUAGE sql STABLE SET search_path = ''
 AS $fn$
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
-           'id', d.id, 'kind', d.kind, 'status', d.status, 'legacy_version_id', d.legacy_version_id,
+           'id', d.id, 'kind', d.kind, 'status', d.status, 'revision', d.revision, 'legacy_version_id', d.legacy_version_id,
            'payload', d.payload, 'expected_latest_version_no', d.expected_latest_version_no,
            'reason', d.reason, 'created_by', d.created_by, 'created_at', d.created_at, 'updated_at', d.updated_at,
            'decided_by', d.decided_by, 'decided_at', d.decided_at, 'decision_reason', d.decision_reason,
@@ -1470,6 +1542,7 @@ REVOKE ALL ON FUNCTION wardah_internal.mfg_cost_policy_lock_org_205(uuid) FROM P
 REVOKE ALL ON FUNCTION wardah_internal.mfg_cost_policy_has_assigned_205(uuid, text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION wardah_internal.mfg_cost_policy_settings_205(uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION wardah_internal.mfg_cost_policy_num_205(jsonb, text, boolean) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION wardah_internal.mfg_cost_policy_rate_205(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION wardah_internal.mfg_cost_policy_check_exception_205(jsonb, jsonb, jsonb) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION wardah_internal.mfg_cost_policy_validate_205(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION wardah_internal.mfg_cost_policy_unallocated_205(jsonb) FROM PUBLIC, anon, authenticated, service_role;
@@ -1582,7 +1655,7 @@ BEGIN
     IF v_existing.payload_hash <> v_hash OR v_existing.kind <> 'version' OR v_existing.created_by <> auth.uid() THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_IDEMPOTENCY_CONFLICT';
     END IF;
-    RETURN jsonb_build_object('draft_id', v_existing.id, 'status', v_existing.status, 'replayed', true);
+    RETURN jsonb_build_object('draft_id', v_existing.id, 'status', v_existing.status, 'revision', v_existing.revision, 'replayed', true);
   END IF;
   SELECT COALESCE(max(version_no), 0) INTO v_latest_no
   FROM wardah_internal.mfg_cost_policy_versions WHERE org_id = p_org_id;
@@ -1603,13 +1676,13 @@ BEGIN
     IF NOT FOUND OR v_existing.payload_hash <> v_hash OR v_existing.kind <> 'version' OR v_existing.created_by <> auth.uid() THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_IDEMPOTENCY_CONFLICT';
     END IF;
-    RETURN jsonb_build_object('draft_id', v_existing.id, 'status', v_existing.status, 'replayed', true);
+    RETURN jsonb_build_object('draft_id', v_existing.id, 'status', v_existing.status, 'revision', v_existing.revision, 'replayed', true);
   END IF;
   INSERT INTO public.audit_logs(org_id, user_id, action, entity_type, entity_id, old_data, new_data, metadata)
   VALUES (p_org_id, auth.uid(), 'manufacturing.cost_policy.draft_create', 'mfg_cost_policy_draft', v_id::text,
           NULL, p_draft, jsonb_build_object('source', 'rpc_create_mfg_cost_policy_draft_205', 'migration', 205,
                                             'idempotency_key', p_idempotency_key));
-  RETURN jsonb_build_object('draft_id', v_id, 'status', 'draft', 'replayed', false);
+  RETURN jsonb_build_object('draft_id', v_id, 'status', 'draft', 'revision', 1, 'replayed', false);
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.rpc_create_mfg_cost_policy_draft_205(uuid, jsonb, integer, uuid)
@@ -1645,7 +1718,7 @@ BEGIN
     IF v_existing.payload_hash <> v_hash OR v_existing.kind <> 'legacy_resolution' OR v_existing.created_by <> auth.uid() THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_IDEMPOTENCY_CONFLICT';
     END IF;
-    RETURN jsonb_build_object('draft_id', v_existing.id, 'status', v_existing.status, 'replayed', true);
+    RETURN jsonb_build_object('draft_id', v_existing.id, 'status', v_existing.status, 'revision', v_existing.revision, 'replayed', true);
   END IF;
   IF NOT EXISTS (SELECT 1 FROM wardah_internal.mfg_cost_policy_versions
                  WHERE id = p_policy_version_id AND org_id = p_org_id AND withdrawn_at IS NULL) THEN
@@ -1668,13 +1741,13 @@ BEGIN
     IF NOT FOUND OR v_existing.payload_hash <> v_hash OR v_existing.kind <> 'legacy_resolution' OR v_existing.created_by <> auth.uid() THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_IDEMPOTENCY_CONFLICT';
     END IF;
-    RETURN jsonb_build_object('draft_id', v_existing.id, 'status', v_existing.status, 'replayed', true);
+    RETURN jsonb_build_object('draft_id', v_existing.id, 'status', v_existing.status, 'revision', v_existing.revision, 'replayed', true);
   END IF;
   INSERT INTO public.audit_logs(org_id, user_id, action, entity_type, entity_id, old_data, new_data, metadata)
   VALUES (p_org_id, auth.uid(), 'manufacturing.cost_policy.legacy_draft_create', 'mfg_cost_policy_draft', v_id::text,
           NULL, p_resolution, jsonb_build_object('source', 'rpc_create_legacy_resolution_draft_205', 'migration', 205,
                                                  'policy_version_id', p_policy_version_id, 'reason', btrim(p_reason)));
-  RETURN jsonb_build_object('draft_id', v_id, 'status', 'draft', 'replayed', false);
+  RETURN jsonb_build_object('draft_id', v_id, 'status', 'draft', 'revision', 1, 'replayed', false);
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.rpc_create_legacy_resolution_draft_205(uuid, uuid, jsonb, text, uuid)
@@ -1713,12 +1786,13 @@ BEGIN
   PERFORM wardah_internal.mfg_cost_policy_draft_v_205(p_org_id, p_draft);
   UPDATE wardah_internal.mfg_cost_policy_drafts_205
   SET payload = p_draft, payload_hash = md5(jsonb_build_array(p_draft, p_expected_latest_version_no)::text),
-      expected_latest_version_no = p_expected_latest_version_no, updated_at = now()
+      expected_latest_version_no = p_expected_latest_version_no, revision = v_d.revision + 1, updated_at = now()
   WHERE id = p_draft_id;
   INSERT INTO public.audit_logs(org_id, user_id, action, entity_type, entity_id, old_data, new_data, metadata)
   VALUES (p_org_id, auth.uid(), 'manufacturing.cost_policy.draft_update', 'mfg_cost_policy_draft', p_draft_id::text,
-          v_d.payload, p_draft, jsonb_build_object('source', 'rpc_update_mfg_cost_policy_draft_205', 'migration', 205));
-  RETURN jsonb_build_object('draft_id', p_draft_id, 'status', 'draft');
+          v_d.payload, p_draft, jsonb_build_object('source', 'rpc_update_mfg_cost_policy_draft_205', 'migration', 205,
+                                                   'revision', v_d.revision + 1));
+  RETURN jsonb_build_object('draft_id', p_draft_id, 'status', 'draft', 'revision', v_d.revision + 1);
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.rpc_update_mfg_cost_policy_draft_205(uuid, uuid, jsonb, integer)
@@ -1797,8 +1871,11 @@ GRANT EXECUTE ON FUNCTION public.rpc_reject_mfg_cost_policy_draft_205(uuid, uuid
 
 -- Approval of a version draft or a legacy-resolution draft. Under the org lock (205) and then
 -- the 204 writer lock, in this order everywhere, so the 204 pin triggers (shared 204 lock) wait
--- for the new version and two approvals of one org never run together.
-CREATE FUNCTION public.rpc_approve_mfg_cost_policy_draft_205(p_org_id uuid, p_draft_id uuid)
+-- for the new version and two approvals of one org never run together. p_expected_revision is the
+-- draft revision the approver reviewed; it is compared under the draft row lock, so an edit that
+-- committed after the approver read the draft makes the approval refuse instead of approving
+-- content the approver has not seen.
+CREATE FUNCTION public.rpc_approve_mfg_cost_policy_draft_205(p_org_id uuid, p_draft_id uuid, p_expected_revision integer)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $fn$
 DECLARE
@@ -1834,6 +1911,9 @@ BEGIN
   END IF;
   IF v_d.status <> 'draft' THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_DRAFT_NOT_PENDING';
+  END IF;
+  IF p_expected_revision IS NULL OR p_expected_revision <> v_d.revision THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = format('COST_POLICY_DRAFT_REVISION_CONFLICT: current=%s', v_d.revision);
   END IF;
 
   -- Read after the lock: no settings change can run in between.
@@ -1960,9 +2040,9 @@ BEGIN
     VALUES (v_version_id, p_org_id, v_d.id, v_d.reason, v_d.created_by, v_uid);
   END IF;
   INSERT INTO wardah_internal.mfg_cost_policy_approvals_205
-    (org_id, draft_id, kind, policy_version_id, created_by, approved_by, self_approved,
+    (org_id, draft_id, kind, policy_version_id, created_by, approved_by, draft_revision, self_approved,
      self_approval_enabled_at_approval, unallocated_policy_at_approval)
-  VALUES (p_org_id, v_d.id, v_d.kind, v_version_id, v_d.created_by, v_uid, v_self,
+  VALUES (p_org_id, v_d.id, v_d.kind, v_version_id, v_d.created_by, v_uid, v_d.revision, v_self,
           (v_settings->>'self_approval_enabled')::boolean, v_policy);
   UPDATE wardah_internal.mfg_cost_policy_drafts_205
   SET status = 'approved', decided_by = v_uid, decided_at = now(), result_version_id = v_version_id
@@ -1971,16 +2051,16 @@ BEGIN
   VALUES (p_org_id, v_uid, 'manufacturing.cost_policy.approve', 'mfg_cost_policy_version', v_version_id::text,
           NULL, wardah_internal.mfg_cost_policy_version_v_205(v_version_id),
           jsonb_build_object('source', 'rpc_approve_mfg_cost_policy_draft_205', 'migration', 205,
-                             'draft_id', v_d.id, 'kind', v_d.kind, 'self_approved', v_self,
+                             'draft_id', v_d.id, 'kind', v_d.kind, 'draft_revision', v_d.revision, 'self_approved', v_self,
                              'settings_at_approval', v_settings, 'unallocated', v_check->'unallocated'));
   RETURN jsonb_build_object('draft_id', v_d.id, 'status', 'approved', 'policy_version_id', v_version_id,
                             'self_approved', v_self, 'unallocated', v_check->'unallocated',
                             'exception', v_check->'exception');
 END
 $fn$;
-REVOKE ALL ON FUNCTION public.rpc_approve_mfg_cost_policy_draft_205(uuid, uuid)
+REVOKE ALL ON FUNCTION public.rpc_approve_mfg_cost_policy_draft_205(uuid, uuid, integer)
   FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.rpc_approve_mfg_cost_policy_draft_205(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.rpc_approve_mfg_cost_policy_draft_205(uuid, uuid, integer) TO authenticated;
 
 -- 205-Q1: self-approval on or off, by an explicit assigned key, with a reason; audited.
 CREATE FUNCTION public.rpc_set_cost_policy_self_approval_205(p_org_id uuid, p_enabled boolean, p_reason text)

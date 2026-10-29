@@ -51,11 +51,24 @@ V=$( { as_user "$ADMIN"; echo "SELECT public.rpc_create_mfg_cost_policy_version(
 [ "$("${PSQL[@]}" -c "SELECT policy_version_id FROM wardah_internal.mo_cost_policy_pins WHERE mo_id = '$MO'")" = "$V" ] \
   || { echo "SETUP_PIN_MISSING"; exit 1; }
 
+TPL="'public.create_role_from_template(uuid,uuid,character varying,uuid)'::regprocedure"
 psql -X -q -d "$DB" -f "$FP" >"$work/before.txt"
+"${PSQL[@]}" -c "SELECT prosrc FROM pg_proc WHERE oid = $TPL" >"$work/tpl_before.txt"
 psql -X -v ON_ERROR_STOP=1 -q --single-transaction -d "$DB" -f "$MIGRATION"
 psql -X -q -d "$DB" -f "$FP" >"$work/after_apply.txt"
 diff -u "$work/before.txt" "$work/after_apply.txt" || { echo "CP205_CHANGED_204_OR_174_ON_APPLY"; exit 1; }
 echo "CP205_APPLY_LEAVES_204_174_UNCHANGED objects=$(wc -l < "$work/before.txt")"
+# create_role_from_template (M201 body): 205 section 1b makes exactly two edits; undoing them gives the
+# M201 body back byte for byte, and the body did change.
+"${PSQL[@]}" -c "SELECT prosrc FROM pg_proc WHERE oid = $TPL" >"$work/tpl_after.txt"
+"${PSQL[@]}" -c "SELECT replace(replace(prosrc,
+  E'''manufacturing.settings.update'',\n                 ''manufacturing.cost_policy.self_approve'',\n                 ''manufacturing.cost_policy.approval_settings.manage'',\n                 ''manufacturing.cost_policy.unallocated_policy.manage'')',
+  E'''manufacturing.settings.update'')'),
+  E'-- Preserve the M175 audit record; M196, M199, M201 and M205 only narrow\n    -- template expansion above.',
+  E'-- Preserve the M175 audit record; M196, M199 and M201 only narrow template\n    -- expansion above.') FROM pg_proc WHERE oid = $TPL" >"$work/tpl_undone.txt"
+{ cmp -s "$work/tpl_before.txt" "$work/tpl_undone.txt" && ! cmp -s "$work/tpl_before.txt" "$work/tpl_after.txt"; } \
+  || { echo "CP205_TEMPLATE_EDIT_NOT_EXACT"; diff "$work/tpl_before.txt" "$work/tpl_after.txt"; exit 1; }
+echo "CP205_TEMPLATE_BODY_TWO_EDITS_ONLY"
 
 # The approver role is created after 205 (the key exists only then).
 "${PSQL[@]}" >/dev/null <<SQL
@@ -77,7 +90,7 @@ RES=$("${PSQL[@]}" -c "SELECT jsonb_build_object(
      jsonb_build_object('budget_code','SUPERVISION','setup_related',false,'gl_account_id',(SELECT id FROM public.gl_accounts WHERE org_id = '$L' AND code = '5301'))))")
 D=$( { as_user "$ADMIN"; echo "SELECT public.rpc_create_legacy_resolution_draft_205('$L', '$V', '$RES'::jsonb, 'version created before 205', gen_random_uuid())->>'draft_id';"; } \
   | "${PSQL[@]}" | tail -1)
-{ as_user "$APPROVER"; echo "SELECT public.rpc_approve_mfg_cost_policy_draft_205('$L', '$D')->>'status';"; } | "${PSQL[@]}" | tail -1 | grep -qx approved \
+{ as_user "$APPROVER"; echo "SELECT public.rpc_approve_mfg_cost_policy_draft_205('$L', '$D', 1)->>'status';"; } | "${PSQL[@]}" | tail -1 | grep -qx approved \
   || { echo "RESOLUTION_NOT_APPROVED"; exit 1; }
 psql -X -q -d "$DB" -f "$FP" >"$work/after_resolution.txt"
 diff -u "$work/before.txt" "$work/after_resolution.txt" || { echo "CP205_RESOLUTION_CHANGED_204"; exit 1; }

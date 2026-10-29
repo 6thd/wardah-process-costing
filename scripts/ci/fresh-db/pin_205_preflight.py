@@ -13,6 +13,7 @@ from pathlib import Path
 MIGRATION = Path(__file__).resolve().parents[3] / "sql/migrations/205_manufacturing_cost_policy_approval_and_overhead.sql"
 BEGIN, END = "    -- M205_PREFLIGHT_PINS_BEGIN\n", "    -- M205_PREFLIGHT_PINS_END\n"
 SIGNATURES = [
+    "public.create_role_from_template(uuid,uuid,character varying,uuid)",   # M201 body, edited by 205 section 1b
     "public.has_permission(uuid,uuid,character varying)",
     "public.wardah_is_sensitive_permission(text)",
     "public.wardah_is_org_admin(uuid)",

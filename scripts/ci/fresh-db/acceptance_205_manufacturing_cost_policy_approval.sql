@@ -19,7 +19,12 @@
 --   9. legacy 204 versions: refused unresolved; resolution through draft/approval; version rows unchanged;
 --      resolution immutable; not applicable twice or on a 205 version; pools must match;
 --  10. org isolation; the cost-center tenant relation is unproven, so no center is accepted;
---  11. the role-template wildcard finding (reported, see the notice).
+--  11. role templates: a wildcard template no longer grants the three explicit keys (section 1b of
+--      205); a template that names one exactly still grants it; approve still expands;
+--  12. the approval is bound to the draft revision the approver reviewed: an edit after the approver
+--      read the draft makes the approval of the old revision refuse, and the revision moves only with
+--      the content; rates with 204's precision (six decimals) at the policy default, a pool and a
+--      work-center override, each amount rounded once at the cent; seven decimals refused.
 -- Rolled back at the end.
 \set ON_ERROR_STOP on
 
@@ -52,7 +57,7 @@ BEGIN
     'public.rpc_update_mfg_cost_policy_draft_205(uuid,uuid,jsonb,integer)',
     'public.rpc_withdraw_mfg_cost_policy_draft_205(uuid,uuid,text)',
     'public.rpc_reject_mfg_cost_policy_draft_205(uuid,uuid,text)',
-    'public.rpc_approve_mfg_cost_policy_draft_205(uuid,uuid)',
+    'public.rpc_approve_mfg_cost_policy_draft_205(uuid,uuid,integer)',
     'public.rpc_set_cost_policy_self_approval_205(uuid,boolean,text)',
     'public.rpc_set_cost_policy_unallocated_policy_205(uuid,text,text)',
     'public.rpc_preview_mfg_cost_absorption_205(uuid,uuid,uuid,jsonb,numeric)'] LOOP
@@ -271,8 +276,11 @@ CREATE FUNCTION pg_temp.create_draft(p_draft jsonb, p_expected int, p_key uuid) 
   SELECT format('SELECT public.rpc_create_mfg_cost_policy_draft_205(%L, %L::jsonb, %s, %L)',
                 '52050205-0000-0000-0000-0000000000a1', p_draft, COALESCE(p_expected::text, 'NULL'), p_key);
 $fn$;
+-- Approves the revision the draft has now (the one an approver reading it would see); section 12
+-- approves an older revision explicitly.
 CREATE FUNCTION pg_temp.approve(p_draft uuid) RETURNS text LANGUAGE sql AS $fn$
-  SELECT format('SELECT public.rpc_approve_mfg_cost_policy_draft_205(%L, %L)', '52050205-0000-0000-0000-0000000000a1', p_draft);
+  SELECT format('SELECT public.rpc_approve_mfg_cost_policy_draft_205(%L, %L, %s)', '52050205-0000-0000-0000-0000000000a1', p_draft,
+                COALESCE((SELECT revision::text FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE id = p_draft), 'NULL'));
 $fn$;
 CREATE FUNCTION pg_temp.id(p_k text) RETURNS uuid LANGUAGE sql AS $fn$ SELECT id FROM cp_ids WHERE k = p_k $fn$;
 CREATE FUNCTION pg_temp.uid(p_k text) RETURNS uuid LANGUAGE sql AS $fn$ SELECT id FROM cp_users WHERE k = p_k $fn$;
@@ -387,7 +395,7 @@ BEGIN
   PERFORM pg_temp.cp_expect('', 'no session user approves', pg_temp.approve(v_d1), 'NOT_AUTHENTICATED');
   PERFORM pg_temp.cp_expect('b_admin', 'other org approves', pg_temp.approve(v_d1), 'NOT_ORG_MEMBER');
   PERFORM pg_temp.cp_expect('b_admin', 'other org approves through its own org',
-    format('SELECT public.rpc_approve_mfg_cost_policy_draft_205(%L, %L)', '52050205-0000-0000-0000-0000000000b1', v_d1),
+    format('SELECT public.rpc_approve_mfg_cost_policy_draft_205(%L, %L, 1)', '52050205-0000-0000-0000-0000000000b1', v_d1),
     'COST_POLICY_DRAFT_UNKNOWN');
   PERFORM pg_temp.cp_expect('approver', 'approver edits', format('SELECT public.rpc_update_mfg_cost_policy_draft_205(%L, %L, %L::jsonb, 0)',
     '52050205-0000-0000-0000-0000000000a1', v_d1, pg_temp.draft(0)), 'MANUFACTURING_SETTINGS_UPDATE_DENIED');
@@ -1009,30 +1017,174 @@ END
 $isolation$;
 
 -- ---------------------------------------------------------------------
--- 11. Finding: a wildcard role template grants the explicit keys. create_role_from_template (M201 body)
---     expands 'manufacturing.%' to every manufacturing key except an exact-name-only list that predates
---     205; the 205 keys are not on it. 205 does not change that function (plan §10). Reported, not fixed.
+-- 11. Role templates. create_role_from_template expands 'manufacturing.%' to every manufacturing key
+--     except an exact-name-only list; 205 (section 1b) adds the three explicit keys to that list. A
+--     template that names one of them exactly still grants it; approve (an ordinary key) still expands.
 -- ---------------------------------------------------------------------
 DO $template$
 DECLARE
   v_role uuid;
   v_keys text[];
 BEGIN
-  INSERT INTO public.role_templates (id, name, name_ar, description_ar, category, permission_keys, is_active)
-  VALUES ('52050205-0000-0000-0000-0000000008a1', 'cp205 production manager', 'مدير إنتاج', 'قالب اختبار', 'manufacturing',
-          ARRAY['manufacturing.%'], true);
+  INSERT INTO public.role_templates (id, name, name_ar, description_ar, category, permission_keys, is_active) VALUES
+    ('52050205-0000-0000-0000-0000000008a1', 'cp205 production manager', 'مدير إنتاج', 'قالب اختبار', 'manufacturing',
+     ARRAY['manufacturing.%'], true),
+    ('52050205-0000-0000-0000-0000000008a2', 'cp205 cost policy settings', 'إعدادات الاعتماد', 'قالب اختبار', 'manufacturing',
+     ARRAY['manufacturing.cost_policy.%', 'manufacturing.cost_policy.approval_settings.manage'], true);
   PERFORM set_config('request.jwt.claim.sub', pg_temp.uid('admin')::text, true);
   v_role := public.create_role_from_template('52050205-0000-0000-0000-0000000000a1', '52050205-0000-0000-0000-0000000008a1', 'cp205 from template', NULL);
   SELECT array_agg(p.permission_key ORDER BY p.permission_key) INTO v_keys
   FROM public.role_permissions rp JOIN public.permissions p ON p.id = rp.permission_id
   WHERE rp.role_id = v_role AND p.permission_key LIKE 'manufacturing.cost_policy.%';
-  IF v_keys IS DISTINCT FROM ARRAY['manufacturing.cost_policy.approval_settings.manage', 'manufacturing.cost_policy.approve',
-                                   'manufacturing.cost_policy.self_approve', 'manufacturing.cost_policy.unallocated_policy.manage'] THEN
-    RAISE EXCEPTION 'CP205_TEMPLATE_FINDING_CHANGED: %', v_keys;
+  IF v_keys IS DISTINCT FROM ARRAY['manufacturing.cost_policy.approve'] THEN
+    RAISE EXCEPTION 'CP205_TEMPLATE_WILDCARD_GRANTS_EXPLICIT_KEY: %', v_keys;
   END IF;
-  RAISE NOTICE 'CP205_FINDING_TEMPLATE_WILDCARD: a role created from a manufacturing.%% template carries %', v_keys;
+  v_role := public.create_role_from_template('52050205-0000-0000-0000-0000000000a1', '52050205-0000-0000-0000-0000000008a2', 'cp205 named key', NULL);
+  SELECT array_agg(p.permission_key ORDER BY p.permission_key) INTO v_keys
+  FROM public.role_permissions rp JOIN public.permissions p ON p.id = rp.permission_id
+  WHERE rp.role_id = v_role AND p.permission_key LIKE 'manufacturing.cost_policy.%';
+  IF v_keys IS DISTINCT FROM ARRAY['manufacturing.cost_policy.approval_settings.manage', 'manufacturing.cost_policy.approve'] THEN
+    RAISE EXCEPTION 'CP205_TEMPLATE_NAMED_KEY_UNEXPECTED: %', v_keys;
+  END IF;
+  RAISE NOTICE 'CP205_TEMPLATE_EXPLICIT_KEYS_OK';
 END
 $template$;
+
+-- ---------------------------------------------------------------------
+-- 12. Approval bound to the reviewed revision; rate precision.
+-- ---------------------------------------------------------------------
+DO $revision$
+DECLARE
+  v jsonb;
+  v_d uuid;
+  v_g uuid;
+  v_latest int;
+  v_versions int;
+  v_seen int;
+  v_edit jsonb;
+  v_ver uuid;
+  v_days int;
+BEGIN
+  SELECT COALESCE(max(version_no), 0), COALESCE(max(effective_from), current_setting('cp.today')::date) - current_setting('cp.today')::date + 1
+  INTO v_latest, v_days FROM wardah_internal.mfg_cost_policy_versions
+  WHERE org_id = '52050205-0000-0000-0000-0000000000a1';
+  v := pg_temp.cp_call('creator', pg_temp.create_draft(pg_temp.draft(v_days), v_latest, gen_random_uuid()));
+  v_d := (v->>'draft_id')::uuid;
+  IF (v->>'revision')::int IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'CP205_REVISION_AT_CREATE: %', v;
+  END IF;
+  -- The approver reads the draft: revision 1.
+  v := pg_temp.cp_call('approver', $$SELECT public.rpc_get_mfg_cost_policy_205('52050205-0000-0000-0000-0000000000a1')$$);
+  SELECT (e->>'revision')::int INTO v_seen FROM jsonb_array_elements(v->'drafts') e WHERE (e->>'id')::uuid = v_d;
+  IF v_seen IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'CP205_REVISION_NOT_SHOWN: %', v_seen;
+  END IF;
+  -- The creator then changes the machine rate.
+  v_edit := jsonb_set(pg_temp.draft(v_days), '{overhead_pools,0,rate}', '47'::jsonb);
+  v := pg_temp.cp_call('creator', format('SELECT public.rpc_update_mfg_cost_policy_draft_205(%L, %L, %L::jsonb, %s)',
+    '52050205-0000-0000-0000-0000000000a1', v_d, v_edit, v_latest));
+  IF (v->>'revision')::int IS DISTINCT FROM 2 THEN
+    RAISE EXCEPTION 'CP205_REVISION_AFTER_EDIT: %', v;
+  END IF;
+  SELECT count(*) INTO v_versions FROM wardah_internal.mfg_cost_policy_versions WHERE org_id = '52050205-0000-0000-0000-0000000000a1';
+  PERFORM pg_temp.cp_expect('approver', 'approve the revision read before the edit',
+    format('SELECT public.rpc_approve_mfg_cost_policy_draft_205(%L, %L, %s)', '52050205-0000-0000-0000-0000000000a1', v_d, v_seen),
+    '22023:COST_POLICY_DRAFT_REVISION_CONFLICT: current=2');
+  PERFORM pg_temp.cp_expect('approver', 'approve without a revision',
+    format('SELECT public.rpc_approve_mfg_cost_policy_draft_205(%L, %L, NULL)', '52050205-0000-0000-0000-0000000000a1', v_d),
+    '22023:COST_POLICY_DRAFT_REVISION_CONFLICT: current=2');
+  PERFORM pg_temp.cp_expect('approver', 'approve a revision not reached yet',
+    format('SELECT public.rpc_approve_mfg_cost_policy_draft_205(%L, %L, 3)', '52050205-0000-0000-0000-0000000000a1', v_d),
+    '22023:COST_POLICY_DRAFT_REVISION_CONFLICT: current=2');
+  IF (SELECT count(*) FROM wardah_internal.mfg_cost_policy_versions WHERE org_id = '52050205-0000-0000-0000-0000000000a1') <> v_versions
+     OR (SELECT status FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE id = v_d) <> 'draft'
+     OR (SELECT revision FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE id = v_d) <> 2
+     OR EXISTS (SELECT 1 FROM wardah_internal.mfg_cost_policy_approvals_205 WHERE draft_id = v_d) THEN
+    RAISE EXCEPTION 'CP205_REVISION_REFUSAL_WROTE';
+  END IF;
+  -- After reading revision 2 the approver approves it: what is stored is the content of revision 2.
+  v := pg_temp.cp_call('approver', format('SELECT public.rpc_approve_mfg_cost_policy_draft_205(%L, %L, 2)',
+    '52050205-0000-0000-0000-0000000000a1', v_d));
+  v_ver := (v->>'policy_version_id')::uuid;
+  IF (SELECT draft_revision FROM wardah_internal.mfg_cost_policy_approvals_205 WHERE draft_id = v_d) IS DISTINCT FROM 2
+     OR (SELECT rate FROM wardah_internal.mfg_cost_policy_pools WHERE policy_version_id = v_ver AND pool_code = 'MACHINE_OH') <> 47
+     OR NOT EXISTS (SELECT 1 FROM public.audit_logs WHERE action = 'manufacturing.cost_policy.approve' AND entity_id = v_ver::text
+                    AND (metadata->>'draft_revision')::int = 2) THEN
+    RAISE EXCEPTION 'CP205_REVISION_APPROVED_UNEXPECTED';
+  END IF;
+  -- The revision moves with the content only (table owner, past the RPCs).
+  v := pg_temp.cp_call('creator', pg_temp.create_draft(pg_temp.draft(v_days + 1), v_latest + 1, gen_random_uuid()));
+  v_g := (v->>'draft_id')::uuid;
+  BEGIN
+    UPDATE wardah_internal.mfg_cost_policy_drafts_205 SET revision = revision + 1 WHERE id = v_g;
+    RAISE EXCEPTION 'CP205_REVISION_MOVED_WITHOUT_CONTENT';
+  EXCEPTION WHEN object_not_in_prerequisite_state THEN
+    IF SQLERRM <> 'COST_POLICY_DRAFT_REVISION_INVALID' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE wardah_internal.mfg_cost_policy_drafts_205 SET payload = payload || '{"note": "changed"}'::jsonb WHERE id = v_g;
+    RAISE EXCEPTION 'CP205_CONTENT_CHANGED_WITHOUT_REVISION';
+  EXCEPTION WHEN object_not_in_prerequisite_state THEN
+    IF SQLERRM <> 'COST_POLICY_DRAFT_REVISION_INVALID' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE wardah_internal.mfg_cost_policy_drafts_205 SET payload = payload || '{"note": "changed"}'::jsonb, revision = revision + 2
+    WHERE id = v_g;
+    RAISE EXCEPTION 'CP205_REVISION_SKIPPED';
+  EXCEPTION WHEN object_not_in_prerequisite_state THEN
+    IF SQLERRM <> 'COST_POLICY_DRAFT_REVISION_INVALID' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.cp_call('creator', format('SELECT public.rpc_withdraw_mfg_cost_policy_draft_205(%L, %L, %L)',
+    '52050205-0000-0000-0000-0000000000a1', v_g, 'revision guard checked'));
+  RAISE NOTICE 'CP205_APPROVAL_BOUND_TO_REVISION_OK';
+END
+$revision$;
+
+DO $precision$
+DECLARE
+  v jsonb;
+  v_latest int;
+  v_draft jsonb;
+  v_ver uuid;
+  h jsonb := pg_temp.hours('2', '1', '3', '0');
+  v_days int;
+BEGIN
+  SELECT COALESCE(max(version_no), 0), COALESCE(max(effective_from), current_setting('cp.today')::date) - current_setting('cp.today')::date + 1
+  INTO v_latest, v_days FROM wardah_internal.mfg_cost_policy_versions
+  WHERE org_id = '52050205-0000-0000-0000-0000000000a1';
+  v_draft := jsonb_set(jsonb_set(jsonb_set(jsonb_set(pg_temp.draft(v_days),
+    '{default_labor_rate_per_hour}', '1.123456'::jsonb),
+    '{overhead_pools,0,rate}', '1.123456'::jsonb),
+    '{work_center_rules,0,labor_rate_per_hour}', '2.654321'::jsonb),
+    '{work_center_rules,0,pools,0,rate}', '7.000005'::jsonb);
+  PERFORM pg_temp.cp_expect('creator', 'seven decimals at the default',
+    pg_temp.create_draft(jsonb_set(v_draft, '{default_labor_rate_per_hour}', '1.1234567'::jsonb), v_latest, gen_random_uuid()),
+    'COST_POLICY_RATE_INVALID');
+  PERFORM pg_temp.cp_expect('creator', 'seven decimals (trailing zero) at a pool',
+    pg_temp.create_draft(jsonb_set(v_draft, '{overhead_pools,0,rate}', '1.1234560'::jsonb), v_latest, gen_random_uuid()),
+    'COST_POLICY_RATE_INVALID');
+  PERFORM pg_temp.cp_expect('creator', 'seven decimals at a work-center override',
+    pg_temp.create_draft(jsonb_set(v_draft, '{work_center_rules,0,pools,0,rate}', '0.0000001'::jsonb), v_latest, gen_random_uuid()),
+    'COST_POLICY_WC_POOL_RATE_INVALID');
+  v := pg_temp.cp_call('creator', pg_temp.create_draft(v_draft, v_latest, gen_random_uuid()));
+  v := pg_temp.cp_call('approver', pg_temp.approve((v->>'draft_id')::uuid));
+  v_ver := (v->>'policy_version_id')::uuid;
+  -- Work center d1 (overrides): labor 3 h x 2.654321 = 7.962963 -> 7.96; MACHINE_OH 3 h x 7.000005 = 21.000015 -> 21.00;
+  -- LABOR_OH 2 run h x 12 = 24.00. Work center d2 (policy rates, LABOR_OH off): labor 3 h x 1.123456 = 3.370368 -> 3.37;
+  -- MACHINE_OH 3 h x 1.123456 -> 3.37 (a rate first rounded to 1.12 would give 3.36).
+  v := pg_temp.cp_call('approver', pg_temp.preview(v_ver, '52050205-0000-0000-0000-0000000000d1', h));
+  IF (v->'labor'->>'amount')::numeric <> 7.96 OR (v->>'overhead_total')::numeric <> 45.00 OR (v->>'total')::numeric <> 52.96
+     OR (v->'cents'->'pools'->>'MACHINE_OH')::bigint <> 2100 OR (v->'cents'->'pools'->>'LABOR_OH')::bigint <> 2400 THEN
+    RAISE EXCEPTION 'CP205_PRECISION_OVERRIDE_UNEXPECTED: %', v;
+  END IF;
+  v := pg_temp.cp_call('approver', pg_temp.preview(v_ver, '52050205-0000-0000-0000-0000000000d2', h));
+  IF (v->'labor'->>'amount')::numeric <> 3.37 OR (v->'cents'->'pools'->>'MACHINE_OH')::bigint <> 337
+     OR v->'cents'->'pools' ? 'LABOR_OH' OR (v->>'total')::numeric <> 6.74 THEN
+    RAISE EXCEPTION 'CP205_PRECISION_DEFAULT_UNEXPECTED: %', v;
+  END IF;
+  RAISE NOTICE 'CP205_RATE_PRECISION_OK';
+END
+$precision$;
 
 DO $done$ BEGIN RAISE NOTICE 'MFG_COST_POLICY_205_ACCEPTANCE_PASS'; END $done$;
 ROLLBACK;

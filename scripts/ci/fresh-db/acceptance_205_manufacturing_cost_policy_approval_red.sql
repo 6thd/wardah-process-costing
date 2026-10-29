@@ -16,7 +16,7 @@ DECLARE
   v jsonb;
 BEGIN
   IF to_regclass('wardah_internal.mfg_cost_policy_drafts_205') IS NOT NULL
-     OR to_regprocedure('public.rpc_approve_mfg_cost_policy_draft_205(uuid,uuid)') IS NOT NULL
+     OR to_regprocedure('public.rpc_approve_mfg_cost_policy_draft_205(uuid,uuid,integer)') IS NOT NULL
      OR EXISTS (SELECT 1 FROM public.permissions WHERE permission_key LIKE 'manufacturing.cost_policy.%') THEN
     RAISE EXCEPTION 'CP205_RED_NOT_PRE_205';
   END IF;

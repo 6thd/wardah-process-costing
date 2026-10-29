@@ -20,6 +20,11 @@
 #   Revision 4c (owner decisions 205-Q3 and 205-Q4, 2026-10-29): a budget needs a GL account (the cost center stays optional; none = the
 #   account-wide scope); a selected budget that no pool loads is refused unless the company policy allows a controlled exception, recorded with
 #   the version (budgets, reason, treatment, approver), shown with its amounts and never absorbed. The exception relaxes nothing else.
+#   Revision 4d (Codex review of the Migration 205 implementation, 2026-10-29): a 205 rate has the precision 204 stores and accepts
+#   (numeric(18,6): positive, at most six decimal places as PostgreSQL scale() counts them, at most 999999999) and is used exactly; an
+#   amount is the exact product rounded half up to the cent, as 204's round(hours * rate, 2). r4c turned the rate into cents first and so
+#   failed (ValueError) on a rate 204 accepts, such as 1.123456. A recorded labor cost with a fraction of a cent is refused with
+#   COST_POLICY_RECORDED_COST_INVALID (r4c raised ValueError), as the SQL does: no input ends in an error that is not a policy code.
 # legacy_v1_stage() is the revision-1 algorithm, kept only to reproduce the counterexamples it fails on.
 import random
 from fractions import Fraction as F
@@ -158,6 +163,23 @@ def number_205(x, code, positive):
     return n
 
 
+RATE_MAX_205 = 999999999
+
+
+def rate_205(x):
+    """a rate as 204 stores and accepts it (numeric(18,6), C_MAX_RATE of 204), as an exact Fraction: positive, at most six decimal places
+    (trailing zeros count, as PostgreSQL scale() counts them), at most RATE_MAX_205; anything else is COST_POLICY_RATE_INVALID"""
+    from decimal import Decimal, InvalidOperation
+    n = number_205(x, "COST_POLICY_RATE_INVALID", True)
+    try:
+        exponent = Decimal(str(x)).as_tuple().exponent
+    except InvalidOperation:
+        raise StageCostError(f"COST_POLICY_RATE_INVALID: {x!r}") from None
+    if not isinstance(exponent, int) or exponent < -6 or n > RATE_MAX_205:
+        raise StageCostError(f"COST_POLICY_RATE_INVALID: {x!r}")
+    return n
+
+
 def validate_205_version(v):
     """Version-level rules of 205, checked when a draft is approved and again by compute_205. v as compute_204's version, plus:
     pools[i]['activity'] in run|setup|both and pools[i]['budgets'] (budget codes); v['budgets'] = {code: {'gl_account', 'cost_center' (or None),
@@ -169,15 +191,15 @@ def validate_205_version(v):
     if len(codes) != len(set(codes)):
         raise StageCostError("COST_POLICY_POOL_CODE_DUPLICATE")
     if v["labor_cost_source"] == "work_center_rate":
-        number_205(v["default_labor_rate"], "COST_POLICY_RATE_INVALID", True)
+        rate_205(v["default_labor_rate"])
     for p in v["pools"]:
-        number_205(p["rate"], "COST_POLICY_RATE_INVALID", True)
+        rate_205(p["rate"])
     for rule in v.get("wc_rules", {}).values():
         if "labor_rate" in rule:
-            number_205(rule["labor_rate"], "COST_POLICY_RATE_INVALID", True)
+            rate_205(rule["labor_rate"])
         for pr in rule.get("pools", {}).values():
             if "rate" in pr:
-                number_205(pr["rate"], "COST_POLICY_RATE_INVALID", True)
+                rate_205(pr["rate"])
     sources = {}
     for code, b in budgets.items():
         if not b.get("gl_account"):
@@ -302,18 +324,20 @@ def compute_205(version, wc, hours, recorded_labor_cost=None, legacy_resolution=
             raise StageCostError(f"COST_POLICY_DRIVER_MISSING: {r}.{a}")
         h[(r, a)] = number_205(x, f"COST_POLICY_HOURS_INVALID: {r}.{a}", False)
     if v["labor_cost_source"] == "work_center_rate":
-        labor = round_half_up((h[("labor", "run")] + h[("labor", "setup")]) * cents(rule.get("labor_rate", v["default_labor_rate"])))
+        labor = round_half_up((h[("labor", "run")] + h[("labor", "setup")]) * rate_205(rule.get("labor_rate", v["default_labor_rate"])) * 100)
     else:
         if recorded_labor_cost is None:
             raise StageCostError("COST_POLICY_DRIVER_MISSING: recorded_labor_cost")
-        number_205(recorded_labor_cost, "COST_POLICY_RECORDED_COST_INVALID", False)
-        labor = cents(recorded_labor_cost)
+        rec = number_205(recorded_labor_cost, "COST_POLICY_RECORDED_COST_INVALID", False)
+        if (rec * 100).denominator != 1:
+            raise StageCostError(f"COST_POLICY_RECORDED_COST_INVALID: {recorded_labor_cost!r}")
+        labor = int(rec * 100)
     pools = {}
     for p in applying:
         pr = rule.get("pools", {}).get(p["code"], {})
         resource = {"labor_hours": "labor", "machine_hours": "machine"}[p["basis"]]
         driver = sum((h[(resource, a)] for a in ACTIVITIES[p["activity"]]), ZERO)
-        pools[p["code"]] = round_half_up(driver * cents(pr.get("rate", p["rate"])))
+        pools[p["code"]] = round_half_up(driver * rate_205(pr.get("rate", p["rate"])) * 100)
     return {"labor": labor, "pools": pools, "total": labor + sum(pools.values())}
 
 

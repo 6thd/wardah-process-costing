@@ -11,6 +11,8 @@
 #   6. two first creations of the settings row (two different settings) at once: both kept, the second
 #      audited against the first.
 #   7. the same draft idempotency key sent twice at once: one draft, the second call is its replay.
+#   8. the creator edits a draft while an approver approves the revision read before the edit: the
+#      approval waits for the edit and refuses (COST_POLICY_DRAFT_REVISION_CONFLICT); nothing is written.
 # Waiting is measured inside the second session (clock_timestamp), not inferred.
 #
 # Usage: DB=<throwaway database through 205> bash acceptance_205_concurrency.sh
@@ -85,7 +87,7 @@ DS=$(create_draft "$C" "$SELF" 0 0)
 { as_user "$SETTINGS"; echo "BEGIN; SELECT public.rpc_set_cost_policy_self_approval_205('$C', true, 'conc')->>'self_approval_enabled'; SELECT pg_sleep(3); COMMIT;"; } \
   | "${PSQL[@]}" >"$work/c1a.out" 2>&1 &
 sleep 1
-{ as_user "$SELF"; timed "public.rpc_approve_mfg_cost_policy_draft_205('$C', '$DS')"; } | "${PSQL[@]}" >"$work/c1b.out" 2>&1 || true
+{ as_user "$SELF"; timed "public.rpc_approve_mfg_cost_policy_draft_205('$C', '$DS', 1)"; } | "${PSQL[@]}" >"$work/c1b.out" 2>&1 || true
 wait
 { waited_at_least "$work/c1b.out" 1.5 \
   && [ "$("${PSQL[@]}" -c "SELECT self_approved AND self_approval_enabled_at_approval FROM wardah_internal.mfg_cost_policy_approvals_205 WHERE draft_id = '$DS'")" = t ]; } \
@@ -94,7 +96,7 @@ echo "CP205_CONC_FIRST_SETTINGS_ROW_BEFORE_APPROVAL_OK"
 
 # 2. Approval first; a settings change in the meantime waits; the approval keeps the value it read.
 DC=$(create_draft "$C" "$CREATOR" 1 1)
-{ as_user "$APPROVER"; echo "BEGIN; SELECT public.rpc_approve_mfg_cost_policy_draft_205('$C', '$DC')->>'status'; SELECT pg_sleep(3); COMMIT;"; } \
+{ as_user "$APPROVER"; echo "BEGIN; SELECT public.rpc_approve_mfg_cost_policy_draft_205('$C', '$DC', 1)->>'status'; SELECT pg_sleep(3); COMMIT;"; } \
   | "${PSQL[@]}" >"$work/c2a.out" 2>&1 &
 sleep 1
 { as_user "$SETTINGS"; timed "public.rpc_set_cost_policy_self_approval_205('$C', false, 'conc back')"; } | "${PSQL[@]}" >"$work/c2b.out" 2>&1 || true
@@ -108,10 +110,10 @@ echo "CP205_CONC_SETTINGS_CHANGE_WAITS_FOR_APPROVAL_OK"
 # 3. Two approvals with the same expected version.
 DX=$(create_draft "$C" "$CREATOR" 2 2)
 DY=$(create_draft "$C" "$CREATOR" 3 2)
-{ as_user "$APPROVER"; echo "BEGIN; SELECT public.rpc_approve_mfg_cost_policy_draft_205('$C', '$DX')->>'status'; SELECT pg_sleep(3); COMMIT;"; } \
+{ as_user "$APPROVER"; echo "BEGIN; SELECT public.rpc_approve_mfg_cost_policy_draft_205('$C', '$DX', 1)->>'status'; SELECT pg_sleep(3); COMMIT;"; } \
   | "${PSQL[@]}" >"$work/c3a.out" 2>&1 &
 sleep 1
-{ as_user "$APPROVER"; timed "public.rpc_approve_mfg_cost_policy_draft_205('$C', '$DY')"; } | "${PSQL[@]}" >"$work/c3b.out" 2>&1 || true
+{ as_user "$APPROVER"; timed "public.rpc_approve_mfg_cost_policy_draft_205('$C', '$DY', 1)"; } | "${PSQL[@]}" >"$work/c3b.out" 2>&1 || true
 wait
 { grep -qx 'approved' "$work/c3a.out" && grep -q 'COST_POLICY_VERSION_CONFLICT: latest=3' "$work/c3b.out" \
   && [ "$("${PSQL[@]}" -c "SELECT count(*) FROM wardah_internal.mfg_cost_policy_versions WHERE org_id = '$C'")" = 3 ] \
@@ -121,7 +123,7 @@ echo "CP205_CONC_TWO_APPROVALS_OK"
 
 # 4. An approval and the 204 creation path at once.
 DZ=$(create_draft "$C" "$CREATOR" 4 3)
-{ as_user "$APPROVER"; echo "BEGIN; SELECT public.rpc_approve_mfg_cost_policy_draft_205('$C', '$DZ')->>'status'; SELECT pg_sleep(3); COMMIT;"; } \
+{ as_user "$APPROVER"; echo "BEGIN; SELECT public.rpc_approve_mfg_cost_policy_draft_205('$C', '$DZ', 1)->>'status'; SELECT pg_sleep(3); COMMIT;"; } \
   | "${PSQL[@]}" >"$work/c4a.out" 2>&1 &
 sleep 1
 P204=$("${PSQL[@]}" -c "SELECT (('$(draft "$C" 5)'::jsonb - 'budgets') || jsonb_build_object('overhead_pools', jsonb_build_array(jsonb_build_object('pool_code','MACHINE_OH','name','M','basis','machine_hours','rate',40))))::text")
@@ -135,7 +137,7 @@ echo "CP205_CONC_APPROVAL_AND_204_PATH_OK"
 # 5. An approval (version in force today) and an MO insert at once, in org D with no version yet.
 DD=$(create_draft "$D" "$CREATOR" 0 0)
 MO=52050205-0000-0000-0000-00000000c0f5
-{ as_user "$APPROVER"; echo "BEGIN; SELECT public.rpc_approve_mfg_cost_policy_draft_205('$D', '$DD')->>'policy_version_id'; SELECT pg_sleep(3); COMMIT;"; } \
+{ as_user "$APPROVER"; echo "BEGIN; SELECT public.rpc_approve_mfg_cost_policy_draft_205('$D', '$DD', 1)->>'policy_version_id'; SELECT pg_sleep(3); COMMIT;"; } \
   | "${PSQL[@]}" >"$work/c5a.out" 2>&1 &
 sleep 1
 "${PSQL[@]}" -c "INSERT INTO public.manufacturing_orders (id, org_id, order_number, quantity) VALUES ('$MO', '$D', 'CP205-CONC-MO', 1)" >"$work/c5b.out" 2>&1
@@ -166,5 +168,22 @@ sleep 1
 wait
 { grep -qx 'false' "$work/c7a.out" && grep -qx 'true' "$work/c7b.out"   && [ "$("${PSQL[@]}" -c "SELECT count(*) FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE org_id = '$E' AND idempotency_key = '$KEY'")" = 1 ]; }   || { echo "CASE7_FAILED"; cat "$work/c7a.out" "$work/c7b.out"; exit 1; }
 echo "CP205_CONC_IDEMPOTENT_DRAFT_REPLAY_OK"
+
+# 8. An edit and an approval of the revision read before it, at once (the case-7 draft of org E, revision 1).
+DE=$("${PSQL[@]}" -c "SELECT id FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE org_id = '$E' AND idempotency_key = '$KEY'")
+PD2=$("${PSQL[@]}" -c "SELECT jsonb_set('$PD'::jsonb, '{overhead_pools,0,rate}', '41'::jsonb)::text")
+{ as_user "$CREATOR"; echo "BEGIN; SELECT public.rpc_update_mfg_cost_policy_draft_205('$E', '$DE', '$PD2'::jsonb, 0)->>'revision'; SELECT pg_sleep(3); COMMIT;"; } \
+  | "${PSQL[@]}" >"$work/c8a.out" 2>&1 &
+sleep 1
+# The refusal is caught inside the timed block, so the wait is reported as well.
+{ as_user "$APPROVER"; printf "DO \$t\$ DECLARE t0 timestamptz := clock_timestamp(); BEGIN BEGIN PERFORM public.rpc_approve_mfg_cost_policy_draft_205('%s', '%s', 1); EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'REFUSED=%%', SQLERRM; END; RAISE NOTICE 'WAITED=%%', round(extract(epoch FROM clock_timestamp() - t0)::numeric, 2); END \$t\$;\n" "$E" "$DE"; } \
+  | "${PSQL[@]}" >"$work/c8b.out" 2>&1 || true
+wait
+{ grep -qx '2' "$work/c8a.out" && grep -q 'REFUSED=COST_POLICY_DRAFT_REVISION_CONFLICT: current=2' "$work/c8b.out" \
+  && waited_at_least "$work/c8b.out" 1.5 \
+  && [ "$("${PSQL[@]}" -c "SELECT status || '/' || revision FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE id = '$DE'")" = "draft/2" ] \
+  && [ "$("${PSQL[@]}" -c "SELECT count(*) FROM wardah_internal.mfg_cost_policy_versions WHERE org_id = '$E'")" = 0 ]; } \
+  || { echo "CASE8_FAILED"; cat "$work/c8a.out" "$work/c8b.out"; exit 1; }
+echo "CP205_CONC_EDIT_BEFORE_APPROVAL_REFUSES_OLD_REVISION_OK"
 
 echo "CP205_CONCURRENCY_PASS"

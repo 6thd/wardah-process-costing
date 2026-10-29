@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-# Parity cases for Migration 205: every call the calculator controls X1-X19 (controls_205.py) make to the 205 functions of the
-# reference calculator r4c, recorded with the calculator's own outcome, so the SQL functions can be run on exactly those inputs.
+# Parity cases for Migration 205: every call the calculator controls X1-X20 (controls_205.py) make to the 205 functions of the
+# reference calculator r4d, recorded with the calculator's own outcome, so the SQL functions can be run on exactly those inputs.
 # Nothing is typed by hand: the controls run against a recording proxy of the calculator; each call to validate_205_version,
 # compute_205, approve_205_check or unallocated_205 is captured with its arguments and its result or refusal. The controls must
-# still pass 19/19 through the proxy, and the calculator must be r4c (sha256 pinned), or nothing is written.
+# still pass through the proxy, and the calculator must be r4d (sha256 pinned), or nothing is written. A call that ends in anything
+# but a policy refusal (StageCostError) is not left out: it stops the generation (PARITY_205_NON_POLICY_EXCEPTION), so every
+# input the controls exercise is in the evidence.
 # Output: one JSON object per line, {id, fn, args, expect}, in the shape the SQL side reads (budgets and setup_acks of a version
 # as ordered arrays, because the calculator iterates its dicts in insertion order).
 #   python3 -I -B -X utf8 scripts/ci/fresh-db/gen_205_parity_cases.py <out.jsonl>
@@ -17,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 CALC_DIR = ROOT / "docs/db/stage-costing-260"
 CALC = CALC_DIR / "reference_calculator.py"
-R4C_SHA256 = "fab26e6af201071c5ef69099c9ae24c62967b30609a90396546eff0f8f1998df"
+R4D_SHA256 = "f512cc9a61ce2038ae59c4171f7f4eef8b7b2fadae59ca33ad9858d1b2d4098e"
 sys.path.insert(0, str(CALC_DIR))
 import controls_205  # noqa: E402
 from focused_controls import load  # noqa: E402
@@ -56,8 +58,8 @@ def resolution_json(r):
 
 
 def main(out_path):
-    if hashlib.sha256(CALC.read_bytes()).hexdigest() != R4C_SHA256:
-        sys.exit("PARITY_205_CALCULATOR_NOT_R4C")
+    if hashlib.sha256(CALC.read_bytes()).hexdigest() != R4D_SHA256:
+        sys.exit("PARITY_205_CALCULATOR_NOT_R4D")
     rc = load(CALC)
     calls = []
 
@@ -71,7 +73,7 @@ def main(out_path):
             except rc.StageCostError as exc:
                 calls.append((name, snap, {"error": str(exc)}))
                 raise
-            except Exception as exc:          # not a policy refusal: recorded, then left out of parity
+            except Exception as exc:          # not a policy refusal: recorded, and it stops the generation below
                 calls.append((name, snap, {"python_exception": type(exc).__name__}))
                 raise
         return wrapped
@@ -80,15 +82,15 @@ def main(out_path):
     for name in RECORDED:
         setattr(proxy, name, recorder(name, getattr(rc, name)))
     results = controls_205.run(proxy, str(CALC))
+    other = [(i, name, outcome["python_exception"]) for i, (name, _snap, outcome) in enumerate(calls, 1) if "python_exception" in outcome]
+    if other:
+        sys.exit(f"PARITY_205_NON_POLICY_EXCEPTION: {other[:10]} (of {len(other)})")
     failed = [r[0] for r in results if not r[2]]
-    if failed or len(results) != 18:          # X1-X9, X11-X19 (X10 needs the r3 snapshot and checks Python sources only)
+    if failed or len(results) != 19:          # X1-X9, X11-X20 (X10 needs the r3 snapshot and checks Python sources only)
         sys.exit(f"PARITY_205_CONTROLS_DID_NOT_PASS_THROUGH_PROXY: failed={failed} n={len(results)}")
 
-    lines, skipped = [], 0
+    lines = []
     for i, (name, (args, kw), outcome) in enumerate(calls, 1):
-        if "python_exception" in outcome:
-            skipped += 1
-            continue
         if name == "compute_205":
             a = list(args) + [None] * (5 - len(args))
             v, wc, hours, rec, legacy = a[:5]
@@ -109,7 +111,7 @@ def main(out_path):
         d = json.loads(ln)
         key = (d["fn"], "error" if "error" in d["expect"] else "ok")
         by_fn[key] = by_fn.get(key, 0) + 1
-    print(f"PARITY_205_CASES {len(lines)} skipped_non_policy_exceptions={skipped} controls_pass={len(results)}/{len(results)} "
+    print(f"PARITY_205_CASES {len(lines)} non_policy_exceptions=0 controls_pass={len(results)}/{len(results)} "
           + " ".join(f"{f}:{k}={n}" for (f, k), n in sorted(by_fn.items())))
 
 

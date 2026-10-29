@@ -1,6 +1,7 @@
 -- Fingerprint of everything Migration 205 must leave unchanged: the 174 permission functions, every 204
 -- function, trigger, table definition and ACL, the M201 functions 205 relies on, and the rows of the six
--- 204 tables. One line per object; acceptance_205_unchanged_204_174.sh compares the output before and
+-- 204 tables. create_role_from_template is the one function 205 edits (section 1b): here only its ACL,
+-- owner, SECURITY DEFINER and settings; acceptance_205_unchanged_204_174.sh checks its body edits. One line per object; acceptance_205_unchanged_204_174.sh compares the output before and
 -- after 205 (and after a legacy resolution). Read-only.
 \set ON_ERROR_STOP on
 \pset tuples_only on
@@ -12,11 +13,15 @@ FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE (n.nspname = 'public' AND p.proname IN (
          'has_permission', 'wardah_is_sensitive_permission', 'wardah_has_exact_permission', 'rpc_upsert_org_role',
          'rpc_replace_user_roles', 'rpc_delete_org_role', 'rpc_permission_snapshot', 'wardah_is_org_admin',
-         'wardah_assert_org_member', 'is_super_admin', 'create_role_from_template',
+         'wardah_assert_org_member', 'is_super_admin',
          'rpc_get_mfg_cost_policy', 'rpc_create_mfg_cost_policy_version', 'rpc_withdraw_mfg_cost_policy_version',
          'rpc_preview_mfg_cost_absorption'))
    OR (n.nspname = 'wardah_internal' AND (p.proname LIKE '%\_204' ESCAPE '\' OR p.proname = 'manufacturing_settings_can_update_201'))
 ORDER BY 1;
+
+SELECT 'fnacl|' || p.oid::regprocedure::text || '|' || COALESCE(p.proacl::text, 'default') || '|' || p.proowner::regrole::text
+       || '|' || p.prosecdef || '|' || COALESCE(array_to_string(p.proconfig, ','), '')
+FROM pg_proc p WHERE p.oid = 'public.create_role_from_template(uuid,uuid,character varying,uuid)'::regprocedure;
 
 SELECT 'trg|' || c.relname || '|' || t.tgname || '|' || md5(pg_get_triggerdef(t.oid)) || '|' || t.tgenabled::text
 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace

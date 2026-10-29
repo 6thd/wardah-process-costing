@@ -103,7 +103,7 @@ jobs:
           fi
           grep -q 'M205_ALREADY_APPLIED' /tmp/reapply.out
 
-      - name: Parity with the reference calculator r4c (cases recorded from controls X1-X19)
+      - name: Parity with the reference calculator r4d (cases recorded from controls X1-X20)
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -120,7 +120,7 @@ jobs:
             -f scripts/ci/fresh-db/acceptance_205_manufacturing_cost_policy_approval.sql 2>&1 | tee /tmp/cp205.out
           grep -q 'MFG_COST_POLICY_205_ACCEPTANCE_PASS' /tmp/cp205.out
 
-      - name: Two-session checks (org lock, version conflict, pins, idempotency)
+      - name: Two-session checks (org lock, version conflict, pins, idempotency, draft revision)
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -149,7 +149,7 @@ jobs:
           set -Eeuo pipefail
           for f in acceptance_195_legacy_mo_quarantine.sql \
                    acceptance_200_gl_event_mapping_write_closure.sql \
-                   acceptance_201_manufacturing_settings_permissions.sql \
+                   acceptance_201_manufacturing_settings_permissions.sql                    acceptance_176_rbac_direct_write_closure.sql \
                    acceptance_200_201_contract_claims.sql \
                    acceptance_203_stage_wip_mo_lock.sql \
                    acceptance_204_manufacturing_cost_policies.sql \
