@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from focused_controls import load  # noqa: E402
 
-R4_NAMES = {"ACTIVITIES", "POOL_205_KEYS", "validate_205_version", "is_205_version", "compute_205"}
+R4_NAMES = {"ACTIVITIES", "POOL_205_KEYS", "number_205", "validate_205_version", "is_205_version", "compute_205"}
 BUDGETS = {"ELECTRICITY": {"gl_account": "GL-5101", "cost_center": "CC-PROD", "setup": False},
            "DEPRECIATION": {"gl_account": "GL-5201", "cost_center": "CC-PROD", "setup": False},
            "SUPERVISION": {"gl_account": "GL-5301", "cost_center": "CC-PROD", "setup": False},
@@ -58,6 +58,8 @@ def run(rc, calc_path, r3_path=None):
             fn()
         except rc.StageCostError as exc:
             return str(exc).startswith(code), str(exc)
+        except Exception as exc:          # refused, but not with a policy code
+            return False, f"{type(exc).__name__}: {exc}"
         return False, "not refused"
 
     # ---------------------------------------------------------------- DX0 of the design annex through compute_205
@@ -177,6 +179,71 @@ def run(rc, calc_path, r3_path=None):
                         bad += 1
         return bad == 0, f"{n} random versions x 2 work centers: {bad} differences from compute_204 per line"
     control("X9", "labor and every pool line equal compute_204 called with the hours the activity selects (wc rates and applies included)", x9)
+
+    # ---------------------------------------------------------------- Codex review of r4 at e66b1136: three cases found, and the NULL cost center
+    def x11():
+        b = {"B1": {"gl_account": "GL-1", "cost_center": None, "setup": False}, "B2": {"gl_account": "GL-2", "cost_center": None, "setup": False}}
+        v = v205([pool("OH", "machine_hours", "both", "10", ["B1"]), pool("OH", "machine_hours", "both", "20", ["B2"])], budgets=b)
+        ok1, d1 = refused(lambda: rc.validate_205_version(v), "COST_POLICY_POOL_CODE_DUPLICATE")
+        ok2, d2 = refused(lambda: rc.compute_205(v, "WC-C", HOURS), "COST_POLICY_POOL_CODE_DUPLICATE")
+        return ok1 and ok2, f"validate: {d1}; compute: {d2}"
+    control("X11", "two pools with the same code are refused before any amount is computed (no line overwrites another)", x11)
+
+    def x12():
+        good = cases["a"]
+        neg_rate = v205([pool("P", "machine_hours", "both", "-5", ["ELECTRICITY"]), pool("Q", "machine_hours", "both", "1",
+                         ["DEPRECIATION", "SUPERVISION", "SETUP_CREW"])])
+        zero_rate = v205([pool("P", "machine_hours", "both", "0", ["ELECTRICITY"]), pool("Q", "machine_hours", "both", "1",
+                          ["DEPRECIATION", "SUPERVISION", "SETUP_CREW"])])
+        bad_wc = {**good, "wc_rules": {"WC-C": {"pools": {"POWER_OH": {"rate": "-1"}}}}}
+        bad_labor = {**good, "default_labor_rate": "-30"}
+        rec = {**good, "labor_cost_source": "recorded_entry_rate"}
+        checks = [
+            (lambda: rc.compute_205(good, "WC-C", {"labor": {"run": "18", "setup": "2"}, "machine": {"run": "-1", "setup": "0"}}), "COST_POLICY_HOURS_INVALID"),
+            (lambda: rc.compute_205(good, "WC-C", {"labor": {"run": "abc", "setup": "2"}, "machine": {"run": "1", "setup": "0"}}), "COST_POLICY_HOURS_INVALID"),
+            (lambda: rc.validate_205_version(neg_rate), "COST_POLICY_RATE_INVALID"),
+            (lambda: rc.validate_205_version(zero_rate), "COST_POLICY_RATE_INVALID"),
+            (lambda: rc.compute_205(bad_wc, "WC-C", HOURS), "COST_POLICY_RATE_INVALID"),
+            (lambda: rc.compute_205(bad_labor, "WC-C", HOURS), "COST_POLICY_RATE_INVALID"),
+            (lambda: rc.compute_205(rec, "WC-C", HOURS, "-0.01"), "COST_POLICY_RECORDED_COST_INVALID"),
+        ]
+        out = [refused(fn, code) for fn, code in checks]
+        return all(o[0] for o in out), "; ".join(o[1] for o in out)
+    control("X12", "negative or non-numeric hours, non-positive rates (pool, work-center rule, labor) and a negative recorded amount are refused", x12)
+
+    def x13():
+        labor_only = v205([pool("LABOR_OH", "labor_hours", "both", "12", ["ELECTRICITY", "DEPRECIATION", "SUPERVISION", "SETUP_CREW"])])
+        no_machine = {"labor": {"run": "18", "setup": "2"}, "machine": {"run": None, "setup": None}}
+        r1 = rc.compute_205(labor_only, "WC-C", no_machine)
+        run_only = v205([pool("MACHINE_OH", "machine_hours", "run", "40", ["ELECTRICITY", "DEPRECIATION", "SETUP_CREW"]),
+                         pool("LABOR_OH", "labor_hours", "both", "12", ["SUPERVISION"])], {"MACHINE_OH": ["SETUP_CREW"]})
+        r2 = rc.compute_205(run_only, "WC-C", {"labor": {"run": "18", "setup": "2"}, "machine": {"run": "15", "setup": None}})
+        excluded = {**cases["a"], "wc_rules": {"WC-X": {"pools": {"POWER_OH": {"applies": False}, "DEPR_OH": {"applies": False},
+                                                                   "SETUP_OH": {"applies": False}}}}}
+        r3 = rc.compute_205(excluded, "WC-X", no_machine)
+        rec = v205([pool("MACHINE_OH", "machine_hours", "both", "40", ["ELECTRICITY", "DEPRECIATION", "SUPERVISION", "SETUP_CREW"])],
+                   labor_cost_source="recorded_entry_rate")
+        r4 = rc.compute_205(rec, "WC-C", {"labor": {"run": None, "setup": None}, "machine": {"run": "15", "setup": "1.5"}}, "512.40")
+        ok_needed, d_needed = refused(lambda: rc.compute_205(run_only, "WC-C", {"labor": {"run": "18", "setup": "2"},
+                                                                                "machine": {"run": None, "setup": "1"}}),
+                                      "COST_POLICY_DRIVER_MISSING: machine.run")
+        ok = r1["total"] == 60000 + 24000 and r2["pools"]["MACHINE_OH"] == 60000 and set(r3["pools"]) == {"LABOR_OH"} and r4["labor"] == 51240
+        return ok and ok_needed, (f"labor-only {r1['total']}; run-only machine pool {r2['pools']}; excluded pools at WC-X {r3['pools']}; "
+                                  f"recorded labor {r4['labor']}; a needed hour still refused: {d_needed}")
+    control("X13", "only the hours the computation uses are required (pool activity, pools excluded at the work center, labor source)", x13)
+
+    def x14():
+        dup_null = {"B1": {"gl_account": "GL-1", "cost_center": None, "setup": False}, "B2": {"gl_account": "GL-1", "cost_center": None, "setup": False}}
+        overlap = {"B1": {"gl_account": "GL-1", "cost_center": None, "setup": False}, "B2": {"gl_account": "GL-1", "cost_center": "CC-1", "setup": False}}
+        split = {"B1": {"gl_account": "GL-1", "cost_center": "CC-1", "setup": False}, "B2": {"gl_account": "GL-1", "cost_center": "CC-2", "setup": False}}
+
+        def two(b):
+            return v205([pool("P1", "machine_hours", "both", "10", ["B1"]), pool("P2", "machine_hours", "both", "20", ["B2"])], budgets=b)
+        ok1, d1 = refused(lambda: rc.validate_205_version(two(dup_null)), "COST_POLICY_BUDGET_DUPLICATE_SOURCE")
+        ok2, d2 = refused(lambda: rc.validate_205_version(two(overlap)), "COST_POLICY_BUDGET_SOURCE_OVERLAP")
+        rc.validate_205_version(two(split))
+        return ok1 and ok2, f"same account, no cost center, twice: {d1}; account alone and account + center: {d2}; two different centers: accepted"
+    control("X14", "with an optional cost center: the same account twice without a center, or alone and with a center, is refused", x14)
 
     # ---------------------------------------------------------------- revision 3 kept byte-identical
     if r3_path:

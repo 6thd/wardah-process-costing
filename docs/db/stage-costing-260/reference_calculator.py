@@ -15,6 +15,8 @@
 #   implement the approved overhead design for Migration 205 (activity and budgets on each pool, direct labor on all approved direct hours,
 #   one budget in one pool, setup budgets loaded exactly once or by a scoped acknowledgement, legacy 204 versions resolved by a separate
 #   record that never edits the version). Every revision-3 function is unchanged; compute_205_proposed() stays as the superseded design.
+#   Revision 4b (Codex review of e66b1136): duplicate pool codes, non-positive rates, negative or non-numeric hours and amounts are refused;
+#   only the hours the computation uses are required; an account alone and the same account with a cost center cannot both be budgets.
 # legacy_v1_stage() is the revision-1 algorithm, kept only to reproduce the counterexamples it fails on.
 import random
 from fractions import Fraction as F
@@ -140,17 +142,45 @@ ACTIVITIES = {"run": ("run",), "setup": ("setup",), "both": ("run", "setup")}
 POOL_205_KEYS = {"code", "basis", "rate", "activity", "budgets"}
 
 
+def number_205(x, code, positive):
+    """an input amount as an exact Fraction; not a number, negative, or (positive=True) zero is refused with the given code"""
+    try:
+        n = F(str(x))
+    except (TypeError, ValueError, ZeroDivisionError):
+        raise StageCostError(f"{code}: {x!r}") from None
+    if n < 0 or (positive and n == 0):
+        raise StageCostError(f"{code}: {x!r}")
+    return n
+
+
 def validate_205_version(v):
     """Version-level rules of 205, checked when a draft is approved and again by compute_205. v as compute_204's version, plus:
-    pools[i]['activity'] in run|setup|both and pools[i]['budgets'] (budget codes); v['budgets'] = {code: {'gl_account', 'cost_center', 'setup'}};
-    v['setup_acks'] = {pool code: [setup budget codes that pool's run rate covers]}. Refusal codes are the ones the design annex §3 names."""
+    pools[i]['activity'] in run|setup|both and pools[i]['budgets'] (budget codes); v['budgets'] = {code: {'gl_account', 'cost_center' (or None),
+    'setup'}}, the budgets this version selects for loading (not every budget of the ledger); v['setup_acks'] = {pool code: [setup budget codes
+    that pool's run rate covers]}. Refusal codes are the ones the design annex §3 and the 205 plan name."""
     budgets, acks = v["budgets"], v.get("setup_acks", {})
+    codes = [p["code"] for p in v["pools"]]
+    if len(codes) != len(set(codes)):
+        raise StageCostError("COST_POLICY_POOL_CODE_DUPLICATE")
+    if v["labor_cost_source"] == "work_center_rate":
+        number_205(v["default_labor_rate"], "COST_POLICY_RATE_INVALID", True)
+    for p in v["pools"]:
+        number_205(p["rate"], "COST_POLICY_RATE_INVALID", True)
+    for rule in v.get("wc_rules", {}).values():
+        if "labor_rate" in rule:
+            number_205(rule["labor_rate"], "COST_POLICY_RATE_INVALID", True)
+        for pr in rule.get("pools", {}).values():
+            if "rate" in pr:
+                number_205(pr["rate"], "COST_POLICY_RATE_INVALID", True)
     sources = {}
     for code, b in budgets.items():
         key = (b["gl_account"], b.get("cost_center"))
         if key in sources:
             raise StageCostError("COST_POLICY_BUDGET_DUPLICATE_SOURCE")
         sources[key] = code
+    for gl, cc in sources:
+        if cc is None and any(g == gl and c is not None for g, c in sources):
+            raise StageCostError("COST_POLICY_BUDGET_SOURCE_OVERLAP")
     owner = {}
     for p in v["pools"]:
         if not set(p) <= POOL_205_KEYS or p.get("activity") not in ACTIVITIES:
@@ -163,9 +193,9 @@ def validate_205_version(v):
             if b in owner:
                 raise StageCostError("COST_POLICY_BUDGET_DOUBLE_ALLOCATION")
             owner[b] = p
-    for pool_code, codes in acks.items():
+    for pool_code, ack_codes in acks.items():
         pool = next((p for p in v["pools"] if p["code"] == pool_code), None)
-        for b in codes:
+        for b in ack_codes:
             if pool is None or pool["activity"] != "run" or b not in pool["budgets"] or not budgets[b]["setup"]:
                 raise StageCostError("COST_POLICY_SETUP_ACK_INVALID")
     for code, b in budgets.items():
@@ -181,8 +211,10 @@ def is_205_version(v):
 
 def compute_205(version, wc, hours, recorded_labor_cost=None, legacy_resolution=None):
     """205 absorption for one (order, stage, work center, period). hours = {'labor': {'run', 'setup'}, 'machine': {'run', 'setup'}}: approved
-    hours by activity; None is not measured and raises, 0 is a measured zero. Direct labor = all approved direct hours (run + setup) at the
-    policy rate, or the recorded amount, whatever the pools. A pool's driver = the hours of its basis for the activities it covers; work-center
+    hours by activity. Only the hours the computation uses are required: labor run and setup when labor is priced at a rate, and, for every pool
+    that applies at this work center, the hours of its basis for the activities it covers. A required hour that is None is not measured and
+    raises; 0 is a measured zero; a negative or non-numeric hour is refused (a correction goes through its audited path, never a negative
+    hour). Direct labor = all approved direct hours (run + setup) at the policy rate, or the recorded amount, whatever the pools. Work-center
     rules (rate, applies) are read exactly as compute_204 reads them. A version created under 204 (no activity, no budgets) is refused unless a
     legacy resolution supplies those fields; the resolution is a separate record and the version itself is never changed. Returns cents."""
     if is_205_version(version):
@@ -193,30 +225,41 @@ def compute_205(version, wc, hours, recorded_labor_cost=None, legacy_resolution=
         if legacy_resolution is None:
             raise StageCostError("COST_POLICY_LEGACY_UNRESOLVED")
         res = legacy_resolution
-        if {p["code"] for p in version["pools"]} != set(res["pools"]):
+        codes = [p["code"] for p in version["pools"]]
+        if len(codes) != len(set(codes)):
+            raise StageCostError("COST_POLICY_POOL_CODE_DUPLICATE")
+        if set(codes) != set(res["pools"]):
             raise StageCostError("COST_POLICY_LEGACY_POOLS_MISMATCH")
         v = {**version, "pools": [{**p, "activity": res["pools"][p["code"]]["activity"], "budgets": list(res["pools"][p["code"]]["budgets"])}
                                   for p in version["pools"]],
              "budgets": res["budgets"], "setup_acks": res.get("setup_acks", {})}
     validate_205_version(v)
-    for r in ("labor", "machine"):
-        for a in ("run", "setup"):
-            if hours.get(r, {}).get(a) is None:
-                raise StageCostError(f"COST_POLICY_DRIVER_MISSING: {r}.{a}")
     rule = v.get("wc_rules", {}).get(wc, {})
+    applying = [p for p in v["pools"] if rule.get("pools", {}).get(p["code"], {}).get("applies", True) is not False]
+    needed = set()
     if v["labor_cost_source"] == "work_center_rate":
-        labor = round_half_up((F(hours["labor"]["run"]) + F(hours["labor"]["setup"])) * cents(rule.get("labor_rate", v["default_labor_rate"])))
+        needed |= {("labor", "run"), ("labor", "setup")}
+    for p in applying:
+        resource = {"labor_hours": "labor", "machine_hours": "machine"}[p["basis"]]
+        needed |= {(resource, a) for a in ACTIVITIES[p["activity"]]}
+    h = {}
+    for r, a in sorted(needed):
+        x = hours.get(r, {}).get(a)
+        if x is None:
+            raise StageCostError(f"COST_POLICY_DRIVER_MISSING: {r}.{a}")
+        h[(r, a)] = number_205(x, f"COST_POLICY_HOURS_INVALID: {r}.{a}", False)
+    if v["labor_cost_source"] == "work_center_rate":
+        labor = round_half_up((h[("labor", "run")] + h[("labor", "setup")]) * cents(rule.get("labor_rate", v["default_labor_rate"])))
     else:
         if recorded_labor_cost is None:
             raise StageCostError("COST_POLICY_DRIVER_MISSING: recorded_labor_cost")
+        number_205(recorded_labor_cost, "COST_POLICY_RECORDED_COST_INVALID", False)
         labor = cents(recorded_labor_cost)
     pools = {}
-    for p in v["pools"]:
+    for p in applying:
         pr = rule.get("pools", {}).get(p["code"], {})
-        if pr.get("applies", True) is False:
-            continue
         resource = {"labor_hours": "labor", "machine_hours": "machine"}[p["basis"]]
-        driver = sum((F(hours[resource][a]) for a in ACTIVITIES[p["activity"]]), ZERO)
+        driver = sum((h[(resource, a)] for a in ACTIVITIES[p["activity"]]), ZERO)
         pools[p["code"]] = round_half_up(driver * cents(pr.get("rate", p["rate"])))
     return {"labor": labor, "pools": pools, "total": labor + sum(pools.values())}
 
