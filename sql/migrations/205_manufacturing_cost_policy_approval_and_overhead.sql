@@ -1784,6 +1784,10 @@ BEGIN
     RAISE EXCEPTION 'COST_POLICY_VERSION_CONFLICT: latest=%', v_latest_no;
   END IF;
   PERFORM wardah_internal.mfg_cost_policy_draft_v_205(p_org_id, p_draft);
+  -- Saving the same content changes nothing: success, same revision, no row update, no audit row.
+  IF v_d.payload = p_draft AND v_d.expected_latest_version_no = p_expected_latest_version_no THEN
+    RETURN jsonb_build_object('draft_id', p_draft_id, 'status', 'draft', 'revision', v_d.revision, 'unchanged', true);
+  END IF;
   UPDATE wardah_internal.mfg_cost_policy_drafts_205
   SET payload = p_draft, payload_hash = md5(jsonb_build_array(p_draft, p_expected_latest_version_no)::text),
       expected_latest_version_no = p_expected_latest_version_no, revision = v_d.revision + 1, updated_at = now()
@@ -1792,7 +1796,7 @@ BEGIN
   VALUES (p_org_id, auth.uid(), 'manufacturing.cost_policy.draft_update', 'mfg_cost_policy_draft', p_draft_id::text,
           v_d.payload, p_draft, jsonb_build_object('source', 'rpc_update_mfg_cost_policy_draft_205', 'migration', 205,
                                                    'revision', v_d.revision + 1));
-  RETURN jsonb_build_object('draft_id', p_draft_id, 'status', 'draft', 'revision', v_d.revision + 1);
+  RETURN jsonb_build_object('draft_id', p_draft_id, 'status', 'draft', 'revision', v_d.revision + 1, 'unchanged', false);
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.rpc_update_mfg_cost_policy_draft_205(uuid, uuid, jsonb, integer)

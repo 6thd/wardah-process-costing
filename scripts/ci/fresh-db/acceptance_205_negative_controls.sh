@@ -124,6 +124,10 @@ run_control labor_on_run_only parity 'PARITY_205_MISMATCH' \
 run_control overlap_allowed parity 'PARITY_205_MISMATCH' \
   "             WHERE a->>'cc' IS NULL AND b->>'cc' IS NOT NULL) THEN" \
   "             WHERE false) THEN"
+# --- saving an unchanged draft is a no-op (without it the update moves the revision and the guard refuses)
+run_control unchanged_save_not_noop main '[save unchanged draft]' \
+  "  IF v_d.payload = p_draft AND v_d.expected_latest_version_no = p_expected_latest_version_no THEN" \
+  "  IF false THEN"
 # --- the org lock
 run_control approval_without_org_lock conc 'CASE1_FAILED' \
   "  PERFORM wardah_internal.mfg_cost_policy_lock_org_205(p_org_id);

@@ -1064,6 +1064,8 @@ DECLARE
   v_edit jsonb;
   v_ver uuid;
   v_days int;
+  v_audit int;
+  v_upd timestamptz;
 BEGIN
   SELECT COALESCE(max(version_no), 0), COALESCE(max(effective_from), current_setting('cp.today')::date) - current_setting('cp.today')::date + 1
   INTO v_latest, v_days FROM wardah_internal.mfg_cost_policy_versions
@@ -1085,6 +1087,19 @@ BEGIN
     '52050205-0000-0000-0000-0000000000a1', v_d, v_edit, v_latest));
   IF (v->>'revision')::int IS DISTINCT FROM 2 THEN
     RAISE EXCEPTION 'CP205_REVISION_AFTER_EDIT: %', v;
+  END IF;
+  -- Saving the same content again succeeds and changes nothing: same revision, no row update, no audit row.
+  SELECT count(*) INTO v_audit FROM public.audit_logs WHERE action = 'manufacturing.cost_policy.draft_update' AND entity_id = v_d::text;
+  v_upd := (SELECT updated_at FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE id = v_d);
+  PERFORM pg_temp.cp_expect('creator', 'save unchanged draft', format('SELECT public.rpc_update_mfg_cost_policy_draft_205(%L, %L, %L::jsonb, %s)',
+    '52050205-0000-0000-0000-0000000000a1', v_d, v_edit, v_latest), 'OK');
+  v := pg_temp.cp_call('creator', format('SELECT public.rpc_update_mfg_cost_policy_draft_205(%L, %L, %L::jsonb, %s)',
+    '52050205-0000-0000-0000-0000000000a1', v_d, v_edit, v_latest));
+  IF (v->>'revision')::int IS DISTINCT FROM 2 OR (v->>'unchanged')::boolean IS DISTINCT FROM true
+     OR (SELECT revision FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE id = v_d) <> 2
+     OR (SELECT updated_at FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE id = v_d) IS DISTINCT FROM v_upd
+     OR (SELECT count(*) FROM public.audit_logs WHERE action = 'manufacturing.cost_policy.draft_update' AND entity_id = v_d::text) <> v_audit THEN
+    RAISE EXCEPTION 'CP205_UNCHANGED_SAVE_NOT_A_NOOP: %', v;
   END IF;
   SELECT count(*) INTO v_versions FROM wardah_internal.mfg_cost_policy_versions WHERE org_id = '52050205-0000-0000-0000-0000000000a1';
   PERFORM pg_temp.cp_expect('approver', 'approve the revision read before the edit',
