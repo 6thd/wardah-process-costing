@@ -1,6 +1,10 @@
 # Controls for compute_205 / validate_205_version (calculator revision 4, Migration 205 plan; owner approved group A on 2026-10-28).
 # Runs against any calculator file given on the command line, so the same controls can be shown failing on r3 (which has no compute_205) and
 # passing on r4. A second argument (the r3 snapshot) adds the check that every revision-3 definition is byte-identical in the file under test.
+# X15-X19 (owner decisions 205-Q3 and 205-Q4, 2026-10-29), run on r4b and on r4c. X16, X17 and X19 fail on r4b by behaviour (r4b refuses a
+# valid exception, gives BUDGET_UNALLOCATED for an invalid one, and accepts or crashes on a budget without an account); X15 fails on r4b only by
+# absence (approve_205_check, the company policy at approval, is new); X18 guards that the exception relaxes no other rule (on r4b it fails
+# only because r4b refuses every exception).
 # Standard library only; connects to nothing.
 #   python -I -B -X utf8 controls_205.py <calculator> [history/reference_calculator_r3_38a91bdf.py.txt]
 import ast
@@ -13,7 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from focused_controls import load  # noqa: E402
 
-R4_NAMES = {"ACTIVITIES", "POOL_205_KEYS", "number_205", "validate_205_version", "is_205_version", "compute_205"}
+R4_NAMES = {"ACTIVITIES", "POOL_205_KEYS", "number_205", "validate_205_version", "is_205_version", "compute_205",
+            "UNALLOCATED_POLICIES", "UNALLOCATED_EXCEPTION_KEYS", "check_unallocated_exception_205", "unallocated_205", "approve_205_check"}
 BUDGETS = {"ELECTRICITY": {"gl_account": "GL-5101", "cost_center": "CC-PROD", "setup": False},
            "DEPRECIATION": {"gl_account": "GL-5201", "cost_center": "CC-PROD", "setup": False},
            "SUPERVISION": {"gl_account": "GL-5301", "cost_center": "CC-PROD", "setup": False},
@@ -244,6 +249,104 @@ def run(rc, calc_path, r3_path=None):
         rc.validate_205_version(two(split))
         return ok1 and ok2, f"same account, no cost center, twice: {d1}; account alone and account + center: {d2}; two different centers: accepted"
     control("X14", "with an optional cost center: the same account twice without a center, or alone and with a center, is refused", x14)
+
+    # ---------------------------------------------------------------- owner decisions 205-Q4 (company policy for unallocated budgets) and 205-Q3
+    amounts = {"ELECTRICITY": "9000", "DEPRECIATION": "15000", "SUPERVISION": "4800.50", "SETUP_CREW": "3600"}
+    budgets_amt = {c: {**b, "amount": amounts[c]} for c, b in BUDGETS.items()}
+    loaded = [pool("MACHINE_OH", "machine_hours", "run", "40", ["ELECTRICITY", "DEPRECIATION", "SETUP_CREW"])]
+    exception = {"policy": "controlled_exception", "budgets": ["SUPERVISION"], "reason": "supervision kept as a period cost this quarter",
+                 "treatment": "reported as unabsorbed overhead of the period; not charged to orders", "approved_by": "user-approver-1"}
+
+    def q4(exc=exception, budgets=budgets_amt, pools=loaded, acks=None):
+        v = v205(pools, acks if acks is not None else {"MACHINE_OH": ["SETUP_CREW"]}, budgets=budgets)
+        if exc is not None:
+            v["unallocated_exception"] = exc
+        return v
+
+    def x15():
+        checks = [
+            (lambda: rc.approve_205_check(q4(exc=None)), "COST_POLICY_BUDGET_UNALLOCATED"),
+            (lambda: rc.approve_205_check(q4(exc=None), "controlled_exception"), "COST_POLICY_BUDGET_UNALLOCATED"),
+            (lambda: rc.approve_205_check(q4()), "COST_POLICY_UNALLOCATED_EXCEPTION_NOT_ALLOWED"),
+            (lambda: rc.approve_205_check(q4(), "block"), "COST_POLICY_UNALLOCATED_EXCEPTION_NOT_ALLOWED"),
+            (lambda: rc.approve_205_check(q4(), "allow"), "COST_POLICY_UNALLOCATED_POLICY_INVALID"),
+        ]
+        out = [refused(fn, code) for fn, code in checks]
+        full = rc.approve_205_check(cases["b"])
+        return all(o[0] for o in out) and full == {"unallocated": {}, "exception": False}, \
+            "; ".join(o[1] for o in out) + f"; fully allocated version under the default: {full}"
+    control("X15", "default policy blocks: an unallocated budget is refused at approval, an exception is refused under 'block', an unknown policy is refused", x15)
+
+    def x16():
+        v = q4()
+        got = rc.compute_205(v, "WC-C", HOURS)
+        shown = rc.approve_205_check(v, "controlled_exception")
+        without = v205(loaded, {"MACHINE_OH": ["SETUP_CREW"]}, budgets={c: b for c, b in budgets_amt.items() if c != "SUPERVISION"})
+        ref = rc.compute_205(without, "WC-C", HOURS)
+        ok = shown == {"unallocated": {"SUPERVISION": 480050}, "exception": True} and got == ref and "SUPERVISION" not in str(got["pools"])
+        return ok, (f"approval shows {shown}; compute with the exception {got} = compute without that budget {ref} (not absorbed); "
+                    "compute_205 does not read the company policy, so a later change to 'block' does not reopen the approved version")
+    control("X16", "a controlled exception is accepted only under that policy, shows the unloaded budget and its amount, and absorbs nothing of it", x16)
+
+    def x17():
+        def e(**kw):
+            return {**exception, **kw}
+        no_amount = {**budgets_amt, "SUPERVISION": {k: x for k, x in budgets_amt["SUPERVISION"].items() if k != "amount"}}
+        neg_amount = {**budgets_amt, "SUPERVISION": {**budgets_amt["SUPERVISION"], "amount": "-1"}}
+        sub_cent = {**budgets_amt, "SUPERVISION": {**budgets_amt["SUPERVISION"], "amount": "1.001"}}
+        two_unloaded = [pool("MACHINE_OH", "machine_hours", "run", "40", ["ELECTRICITY", "SETUP_CREW"])]
+        checks = [
+            (q4(exc=e(reason="")), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: reason"),
+            (q4(exc=e(treatment="  ")), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: treatment"),
+            (q4(exc=e(approved_by=None)), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: approved_by"),
+            (q4(exc={k: x for k, x in exception.items() if k != "reason"}), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: fields"),
+            (q4(exc=e(note="x")), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: fields"),
+            (q4(exc=e(policy="block")), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: policy"),
+            (q4(exc=e(budgets=["SUPERVISION", "ELECTRICITY"])), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: budgets"),
+            (q4(exc=e(budgets=["SUPERVISION", "SUPERVISION"])), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: budgets"),
+            (q4(exc=e(budgets=[])), "COST_POLICY_BUDGET_UNALLOCATED"),
+            (q4(pools=two_unloaded), "COST_POLICY_BUDGET_UNALLOCATED"),
+            (q4(budgets=no_amount), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: amount"),
+            (q4(budgets=neg_amount), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: amount"),
+            (q4(budgets=sub_cent), "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID: amount"),
+        ]
+        out = [refused(lambda v=v: rc.validate_205_version(v), code) for v, code in checks]
+        return all(o[0] for o in out), "; ".join(o[1] for o in out)
+    control("X17", "an exception without reason, treatment or approver, with other fields, naming a loaded or a repeated budget, or missing an unloaded one or its amount, is refused", x17)
+
+    def x18():
+        dup = {**budgets_amt, "POWER_DUP": {"gl_account": "GL-5101", "cost_center": "CC-PROD", "setup": False, "amount": "1"}}
+        over = {**budgets_amt, "GL_WIDE": {"gl_account": "GL-5101", "cost_center": None, "setup": False, "amount": "1"}}
+        dup_pool = [pool("MACHINE_OH", "machine_hours", "run", "40", ["ELECTRICITY", "DEPRECIATION", "SETUP_CREW"]),
+                    pool("MACHINE_OH", "machine_hours", "run", "40", ["POWER_DUP"])]
+        double = [pool("MACHINE_OH", "machine_hours", "run", "40", ["ELECTRICITY", "DEPRECIATION", "SETUP_CREW"]),
+                  pool("LABOR_OH", "labor_hours", "run", "12", ["ELECTRICITY"])]
+        bad_rate = [pool("MACHINE_OH", "machine_hours", "run", "0", ["ELECTRICITY", "DEPRECIATION", "SETUP_CREW"])]
+        checks = [
+            (q4(budgets=dup, exc={**exception, "budgets": ["SUPERVISION", "POWER_DUP"]}), "COST_POLICY_BUDGET_DUPLICATE_SOURCE"),
+            (q4(budgets=over, exc={**exception, "budgets": ["SUPERVISION", "GL_WIDE"]}), "COST_POLICY_BUDGET_SOURCE_OVERLAP"),
+            (q4(budgets={**budgets_amt, "POWER_DUP": {"gl_account": "GL-9", "cost_center": None, "setup": False, "amount": "1"}}, pools=dup_pool),
+             "COST_POLICY_POOL_CODE_DUPLICATE"),
+            (q4(pools=double), "COST_POLICY_BUDGET_DOUBLE_ALLOCATION"),
+            (q4(pools=bad_rate), "COST_POLICY_RATE_INVALID"),
+            (q4(acks={}), "COST_POLICY_SETUP_TREATMENT_UNSET"),
+        ]
+        out = [refused(lambda v=v: rc.validate_205_version(v), code) for v, code in checks]
+        ok_h, d_h = refused(lambda: rc.compute_205(q4(), "WC-C", {"labor": {"run": "18", "setup": "2"}, "machine": {"run": "-1", "setup": "0"}}),
+                            "COST_POLICY_HOURS_INVALID")
+        return all(o[0] for o in out) and ok_h, "; ".join(o[1] for o in out) + f"; {d_h}"
+    control("X18", "with a valid exception, duplicate source, overlap, duplicate pool code, double allocation, invalid rate, unacknowledged setup and a negative hour are still refused", x18)
+
+    def x19():
+        def one(b):
+            return v205([pool("P1", "machine_hours", "both", "10", ["B1"])], budgets={"B1": b})
+        checks = [({"gl_account": None, "cost_center": "CC-1", "setup": False}, "COST_POLICY_BUDGET_ACCOUNT_REQUIRED"),
+                  ({"cost_center": "CC-1", "setup": False}, "COST_POLICY_BUDGET_ACCOUNT_REQUIRED"),
+                  ({"gl_account": "", "cost_center": None, "setup": False}, "COST_POLICY_BUDGET_ACCOUNT_REQUIRED")]
+        out = [refused(lambda b=b: rc.validate_205_version(one(b)), code) for b, code in checks]
+        rc.validate_205_version(one({"gl_account": "GL-1", "cost_center": None, "setup": False}))
+        return all(o[0] for o in out), "; ".join(o[1] for o in out) + "; account without a center (account-wide scope): accepted"
+    control("X19", "a budget without a GL account is refused; an account without a cost center is the account-wide scope and is accepted", x19)
 
     # ---------------------------------------------------------------- revision 3 kept byte-identical
     if r3_path:
