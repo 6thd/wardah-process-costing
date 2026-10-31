@@ -165,4 +165,55 @@ run_control concurrent_replay_conflict conc 'CASE7_FAILED' \
   "    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_IDEMPOTENCY_CONFLICT';
 "
 
+# --- the draft check (205-Q-1)
+run_control check_ignores_revision main '[check: older revision]' \
+  "  IF p_expected_revision IS DISTINCT FROM v_d.revision THEN" \
+  "  IF false THEN"
+run_control check_open_to_any_member main '[check: plain member]' \
+  "  IF NOT (wardah_internal.mfg_cost_policy_can_read_204(p_org_id)
+          OR COALESCE(public.has_permission(auth.uid(), p_org_id, 'manufacturing.cost_policy.approve'), false)) THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'MANUFACTURING_SETTINGS_READ_DENIED';
+  END IF;
+
+  SELECT * INTO v_d FROM wardah_internal.mfg_cost_policy_drafts_205
+  WHERE id = p_draft_id AND org_id = p_org_id;" \
+  "  SELECT * INTO v_d FROM wardah_internal.mfg_cost_policy_drafts_205
+  WHERE id = p_draft_id AND org_id = p_org_id;"
+run_control check_skips_approval_rules main '[unallocated under block]' \
+  "    PERFORM wardah_internal.mfg_cost_policy_approve_check_205(v_v, v_policy);
+    FOR v_b IN SELECT e FROM jsonb_array_elements(v_v->'budgets') e LOOP" \
+  "    FOR v_b IN SELECT e FROM jsonb_array_elements(v_v->'budgets') e LOOP"
+run_control check_swallows_every_error main 'CP205_CHECK_SWALLOWED' \
+  "  EXCEPTION WHEN SQLSTATE '22023' OR SQLSTATE 'P0001' THEN
+    IF SQLERRM !~ '^COST_POLICY_[A-Z0-9_]+(:|\$)' THEN
+      RAISE;
+    END IF;
+    v_refusal := wardah_internal.mfg_cost_policy_refusal_205(SQLERRM);" \
+  "  EXCEPTION WHEN OTHERS THEN
+    v_refusal := wardah_internal.mfg_cost_policy_refusal_205(SQLERRM);"
+run_control check_keeps_no_policy_filter main 'CP205_CHECK_SWALLOWED' \
+  "  EXCEPTION WHEN SQLSTATE '22023' OR SQLSTATE 'P0001' THEN
+    IF SQLERRM !~ '^COST_POLICY_[A-Z0-9_]+(:|\$)' THEN
+      RAISE;
+    END IF;
+    v_refusal := wardah_internal.mfg_cost_policy_refusal_205(SQLERRM);" \
+  "  EXCEPTION WHEN SQLSTATE '22023' OR SQLSTATE 'P0001' THEN
+    v_refusal := wardah_internal.mfg_cost_policy_refusal_205(SQLERRM);"
+run_control check_returns_cents main 'CP205_CHECK_UNALLOCATED_UNEXPECTED' \
+  "(u.value::numeric * 0.01)::numeric(18,2)" \
+  "u.value::numeric"
+run_control check_preview_in_cents main 'CP205_CHECK_FIGURES_DIFFER' \
+  "        'total', ((v_c->>'total')::numeric / 100)::numeric(18,2));
+    EXCEPTION WHEN SQLSTATE '22023' THEN" \
+  "        'total', (v_c->>'total')::numeric);
+    EXCEPTION WHEN SQLSTATE '22023' THEN"
+run_control check_takes_a_lock conc 'CASE9_FAILED' \
+  "  v_settings := wardah_internal.mfg_cost_policy_settings_205(p_org_id);
+  v_policy := v_settings->>'unallocated_budget_policy';
+  SELECT COALESCE(max(version_no), 0) INTO v_latest_no" \
+  "  PERFORM wardah_internal.mfg_cost_policy_lock_org_205(p_org_id);
+  v_settings := wardah_internal.mfg_cost_policy_settings_205(p_org_id);
+  v_policy := v_settings->>'unallocated_budget_policy';
+  SELECT COALESCE(max(version_no), 0) INTO v_latest_no"
+
 echo "CP205_NEGATIVE_CONTROLS_PASS controls=$n"

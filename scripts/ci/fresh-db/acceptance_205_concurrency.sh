@@ -13,6 +13,8 @@
 #   7. the same draft idempotency key sent twice at once: one draft, the second call is its replay.
 #   8. the creator edits a draft while an approver approves the revision read before the edit: the
 #      approval waits for the edit and refuses (COST_POLICY_DRAFT_REVISION_CONFLICT); nothing is written.
+#   9. the draft check inside an open transaction: no advisory lock, and the approval is not held up; the
+#      check during an approval answers at once from the committed state.
 # Waiting is measured inside the second session (clock_timestamp), not inferred.
 #
 # Usage: DB=<throwaway database through 205> bash acceptance_205_concurrency.sh
@@ -185,5 +187,24 @@ wait
   && [ "$("${PSQL[@]}" -c "SELECT count(*) FROM wardah_internal.mfg_cost_policy_versions WHERE org_id = '$E'")" = 0 ]; } \
   || { echo "CASE8_FAILED"; cat "$work/c8a.out" "$work/c8b.out"; exit 1; }
 echo "CP205_CONC_EDIT_BEFORE_APPROVAL_REFUSES_OLD_REVISION_OK"
+
+# 9. The draft check holds nothing and waits for nothing: run inside an open transaction it leaves no
+#    advisory lock and the approval goes straight through; run during an approval it answers at once.
+{ as_user "$APPROVER"; echo "BEGIN; SELECT public.rpc_check_mfg_cost_policy_draft_205('$E', '$DE', 2)->>'valid'; SELECT count(*) FROM pg_locks WHERE pid = pg_backend_pid() AND locktype = 'advisory'; SELECT pg_sleep(3); COMMIT;"; } \
+  | "${PSQL[@]}" >"$work/c9a.out" 2>&1 &
+sleep 1
+{ as_user "$APPROVER"; printf "DO \$t\$ DECLARE t0 timestamptz := clock_timestamp(); BEGIN PERFORM public.rpc_approve_mfg_cost_policy_draft_205('%s', '%s', 2); RAISE NOTICE 'WAITED=%%', round(extract(epoch FROM clock_timestamp() - t0)::numeric, 2); PERFORM pg_sleep(3); END \$t\$;\n" "$E" "$DE"; } \
+  | "${PSQL[@]}" >"$work/c9b.out" 2>&1 &
+sleep 1.5
+{ as_user "$CREATOR"; printf "DO \$t\$ DECLARE t0 timestamptz := clock_timestamp(); v jsonb; BEGIN v := public.rpc_check_mfg_cost_policy_draft_205('%s', '%s', 2); RAISE NOTICE 'DURING=%%', v->>'valid'; RAISE NOTICE 'WAITED=%%', round(extract(epoch FROM clock_timestamp() - t0)::numeric, 2); END \$t\$;\n" "$E" "$DE"; } \
+  | "${PSQL[@]}" >"$work/c9c.out" 2>&1 || true
+wait
+{ grep -qx 'true' "$work/c9a.out" && grep -qx '0' "$work/c9a.out" \
+  && ! waited_at_least "$work/c9b.out" 1 && ! waited_at_least "$work/c9c.out" 1 && grep -q 'DURING=true' "$work/c9c.out" \
+  && [ "$("${PSQL[@]}" -c "SELECT status FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE id = '$DE'")" = approved ]; } \
+  || { echo "CASE9_FAILED"; cat "$work/c9a.out" "$work/c9b.out" "$work/c9c.out"; exit 1; }
+{ as_user "$CREATOR"; echo "SELECT public.rpc_check_mfg_cost_policy_draft_205('$E', '$DE', 2);"; } | "${PSQL[@]}" >"$work/c9d.out" 2>&1 || true
+grep -q 'COST_POLICY_DRAFT_NOT_PENDING' "$work/c9d.out" || { echo "CASE9_FAILED"; cat "$work/c9d.out"; exit 1; }
+echo "CP205_CONC_CHECK_HOLDS_AND_WAITS_FOR_NOTHING_OK"
 
 echo "CP205_CONCURRENCY_PASS"

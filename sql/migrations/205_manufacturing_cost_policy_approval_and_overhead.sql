@@ -25,7 +25,7 @@
 --   * internal functions: org lock, assigned-permission checker, settings, validator, exception
 --     check, unallocated budgets, approval check, pure and stored compute, draft checks;
 --   * public RPCs: create/update/withdraw/reject/approve draft, create legacy-resolution draft,
---     set self-approval, set unallocated policy, get, preview.
+--     set self-approval, set unallocated policy, get, preview, check a pending draft.
 --
 -- An approval names the draft revision the approver reviewed (rpc_get_mfg_cost_policy_205 shows
 -- it); every edit of a draft moves its revision on, so content edited after it was shown is never
@@ -2171,6 +2171,173 @@ REVOKE ALL ON FUNCTION public.rpc_preview_mfg_cost_absorption_205(uuid, uuid, uu
   FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.rpc_preview_mfg_cost_absorption_205(uuid, uuid, uuid, jsonb, numeric) TO authenticated;
 
+-- A refusal message as {code, detail}: the code, and what follows its colon.
+CREATE FUNCTION wardah_internal.mfg_cost_policy_refusal_205(p_message text)
+RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path = ''
+AS $fn$
+  SELECT jsonb_build_object('code', pg_catalog.split_part(p_message, ':', 1),
+                            'detail', NULLIF(pg_catalog.btrim(pg_catalog.substr(p_message,
+                              pg_catalog.length(pg_catalog.split_part(p_message, ':', 1)) + 2)), ''));
+$fn$;
+REVOKE ALL ON FUNCTION wardah_internal.mfg_cost_policy_refusal_205(text) FROM PUBLIC, anon, authenticated, service_role;
+
+-- 205-Q-1: a pending draft checked against the approval rules, in the approval's order, and its worked
+-- example, for the revision on screen. Read-only: no row, no audit row, no row lock, no advisory lock, so
+-- it reserves nothing and the approval checks everything again under its locks. It does not ask whether
+-- the caller may approve (capabilities, and the approval itself). valid = true therefore promises
+-- nothing to a caller who may not approve, or if the state or the inputs change before the approval.
+-- A policy refusal comes back in the reply; any other error is raised, never swallowed. Amounts are SAR.
+CREATE FUNCTION public.rpc_check_mfg_cost_policy_draft_205(
+  p_org_id uuid, p_draft_id uuid, p_expected_revision integer,
+  p_work_center_id uuid DEFAULT NULL, p_hours jsonb DEFAULT NULL, p_recorded_labor_cost numeric DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $fn$
+DECLARE
+  v_d wardah_internal.mfg_cost_policy_drafts_205%ROWTYPE;
+  v_version wardah_internal.mfg_cost_policy_versions%ROWTYPE;
+  v_settings jsonb;
+  v_policy text;
+  v_latest_no integer;
+  v_v jsonb;
+  v_req jsonb;
+  v_b jsonb;
+  v_n numeric;
+  v_refusal jsonb;
+  v_cents jsonb;
+  v_c jsonb;
+  v_preview jsonb;
+  v_preview_refusal jsonb;
+BEGIN
+  PERFORM public.wardah_assert_org_member(p_org_id);
+  IF NOT (wardah_internal.mfg_cost_policy_can_read_204(p_org_id)
+          OR COALESCE(public.has_permission(auth.uid(), p_org_id, 'manufacturing.cost_policy.approve'), false)) THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'MANUFACTURING_SETTINGS_READ_DENIED';
+  END IF;
+
+  SELECT * INTO v_d FROM wardah_internal.mfg_cost_policy_drafts_205
+  WHERE id = p_draft_id AND org_id = p_org_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_DRAFT_UNKNOWN';
+  END IF;
+  IF v_d.status <> 'draft' THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_DRAFT_NOT_PENDING';
+  END IF;
+  IF p_expected_revision IS DISTINCT FROM v_d.revision THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = format('COST_POLICY_DRAFT_REVISION_CONFLICT: current=%s', v_d.revision);
+  END IF;
+
+  v_settings := wardah_internal.mfg_cost_policy_settings_205(p_org_id);
+  v_policy := v_settings->>'unallocated_budget_policy';
+  SELECT COALESCE(max(version_no), 0) INTO v_latest_no
+  FROM wardah_internal.mfg_cost_policy_versions WHERE org_id = p_org_id;
+
+  BEGIN
+    IF v_d.kind = 'version' THEN
+      IF v_d.expected_latest_version_no <> v_latest_no THEN
+        RAISE EXCEPTION 'COST_POLICY_VERSION_CONFLICT: latest=%', v_latest_no;
+      END IF;
+      v_v := wardah_internal.mfg_cost_policy_draft_v_205(p_org_id, v_d.payload);
+    ELSE
+      SELECT * INTO v_version FROM wardah_internal.mfg_cost_policy_versions
+      WHERE id = v_d.legacy_version_id AND org_id = p_org_id AND withdrawn_at IS NULL;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_VERSION_UNKNOWN';
+      END IF;
+      IF EXISTS (SELECT 1 FROM wardah_internal.mfg_cost_policy_pool_ext_205 WHERE policy_version_id = v_version.id)
+         OR EXISTS (SELECT 1 FROM wardah_internal.mfg_cost_policy_approvals_205 WHERE policy_version_id = v_version.id) THEN
+        RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_LEGACY_NOT_APPLICABLE';
+      END IF;
+      v_req := wardah_internal.mfg_cost_policy_resolution_v_205(p_org_id, v_d.payload);
+      v_v := wardah_internal.mfg_cost_policy_version_v_205(v_version.id);
+      IF NOT (ARRAY(SELECT e->>'code' FROM jsonb_array_elements(v_v->'pools') e)
+                @> ARRAY(SELECT jsonb_object_keys(v_req->'pools'))
+              AND ARRAY(SELECT jsonb_object_keys(v_req->'pools'))
+                @> ARRAY(SELECT e->>'code' FROM jsonb_array_elements(v_v->'pools') e)) THEN
+        RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_LEGACY_POOLS_MISMATCH';
+      END IF;
+      v_v := v_v || jsonb_build_object(
+        'pools', (SELECT jsonb_agg(e || (v_req->'pools'->(e->>'code')) ORDER BY o)
+                  FROM jsonb_array_elements(v_v->'pools') WITH ORDINALITY t(e, o)),
+        'budgets', v_req->'budgets', 'setup_acks', v_req->'setup_acks', 'exception_request', v_req->'exception_request');
+    END IF;
+
+    -- The exception completed in memory as the approval completes it; nothing is kept.
+    v_req := NULLIF(v_v->'exception_request', 'null'::jsonb);
+    v_v := v_v - 'exception_request';
+    IF v_req IS NOT NULL THEN
+      v_v := v_v || jsonb_build_object('unallocated_exception', v_req || jsonb_build_object(
+        'policy', v_policy, 'approved_by', auth.uid()::text));
+    END IF;
+    PERFORM wardah_internal.mfg_cost_policy_approve_check_205(v_v, v_policy);
+    FOR v_b IN SELECT e FROM jsonb_array_elements(v_v->'budgets') e LOOP
+      IF COALESCE(jsonb_typeof(v_b->'amount'), 'null') <> 'null' THEN
+        v_n := wardah_internal.mfg_cost_policy_num_205(v_b->'amount', 'COST_POLICY_BUDGET_AMOUNT_INVALID: ' || (v_b->>'code'), false);
+        IF v_n * 100 <> trunc(v_n * 100) OR v_n > 9999999999999999 THEN
+          RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_BUDGET_AMOUNT_INVALID: ' || (v_b->>'code');
+        END IF;
+      END IF;
+    END LOOP;
+  EXCEPTION WHEN SQLSTATE '22023' OR SQLSTATE 'P0001' THEN
+    IF SQLERRM !~ '^COST_POLICY_[A-Z0-9_]+(:|$)' THEN
+      RAISE;
+    END IF;
+    v_refusal := wardah_internal.mfg_cost_policy_refusal_205(SQLERRM);
+  END;
+
+  -- A refused draft may hold an amount that cannot be read: then no list, and the refusal stands.
+  IF v_v IS NOT NULL THEN
+    BEGIN
+      v_cents := wardah_internal.mfg_cost_policy_unallocated_205(v_v);
+    EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+      v_cents := NULL;
+    END;
+  END IF;
+
+  IF v_refusal IS NULL AND p_work_center_id IS NOT NULL THEN
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM public.work_centers WHERE id = p_work_center_id AND org_id = p_org_id) THEN
+        RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'COST_POLICY_WORK_CENTER_UNKNOWN';
+      END IF;
+      v_c := wardah_internal.mfg_cost_policy_compute_205_v(
+        v_v, p_work_center_id::text, COALESCE(p_hours, '{}'::jsonb), to_jsonb(p_recorded_labor_cost), NULL);
+      -- compute_205_v answers in cents as {labor, pools, total}; the reply is SAR, in the fields of the
+      -- stored-version preview.
+      v_preview := jsonb_build_object(
+        'labor', jsonb_build_object('source', v_v->>'labor_cost_source',
+                                    'amount', ((v_c->>'labor')::numeric / 100)::numeric(18,2)),
+        'overhead', COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('pool_code', p->>'code', 'basis', p->>'basis', 'activity', p->>'activity',
+                             'amount', ((v_c->'pools'->>(p->>'code'))::numeric / 100)::numeric(18,2))
+                           ORDER BY p->>'code')
+          FROM jsonb_array_elements(v_v->'pools') p WHERE v_c->'pools' ? (p->>'code')), '[]'::jsonb),
+        'excluded_pools', COALESCE((
+          SELECT jsonb_agg(p->>'code' ORDER BY p->>'code')
+          FROM jsonb_array_elements(v_v->'pools') p WHERE NOT (v_c->'pools' ? (p->>'code'))), '[]'::jsonb),
+        'overhead_total', (((v_c->>'total')::numeric - (v_c->>'labor')::numeric) / 100)::numeric(18,2),
+        'total', ((v_c->>'total')::numeric / 100)::numeric(18,2));
+    EXCEPTION WHEN SQLSTATE '22023' THEN
+      IF SQLERRM !~ '^COST_POLICY_[A-Z0-9_]+(:|$)' THEN
+        RAISE;
+      END IF;
+      v_preview_refusal := wardah_internal.mfg_cost_policy_refusal_205(SQLERRM);
+    END;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'draft_id', v_d.id, 'kind', v_d.kind, 'revision', v_d.revision, 'latest_version_no', v_latest_no,
+    'policy_at_check', v_settings,
+    'valid', v_refusal IS NULL, 'refusal', v_refusal,
+    'unallocated', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('budget_code', u.key, 'amount', (u.value::numeric * 0.01)::numeric(18,2)) ORDER BY u.key)
+      FROM jsonb_each_text(v_cents) u), '[]'::jsonb),
+    'preview', v_preview, 'preview_refusal', v_preview_refusal,
+    'checked_at', now());
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.rpc_check_mfg_cost_policy_draft_205(uuid, uuid, integer, uuid, jsonb, numeric)
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.rpc_check_mfg_cost_policy_draft_205(uuid, uuid, integer, uuid, jsonb, numeric) TO authenticated;
+
 -- ---------------------------------------------------------------------------
 -- 6. Postflight.
 -- ---------------------------------------------------------------------------
@@ -2202,7 +2369,7 @@ BEGIN
     END IF;
   END LOOP;
   IF (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-      WHERE n.nspname = 'public' AND p.proname LIKE 'rpc\_%\_205' ESCAPE '\') <> 10 THEN
+      WHERE n.nspname = 'public' AND p.proname LIKE 'rpc\_%\_205' ESCAPE '\') <> 11 THEN
     RAISE EXCEPTION 'M205_POSTFLIGHT_RPC_COUNT';
   END IF;
 END

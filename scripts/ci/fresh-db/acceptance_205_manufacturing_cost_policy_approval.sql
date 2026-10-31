@@ -60,7 +60,8 @@ BEGIN
     'public.rpc_approve_mfg_cost_policy_draft_205(uuid,uuid,integer)',
     'public.rpc_set_cost_policy_self_approval_205(uuid,boolean,text)',
     'public.rpc_set_cost_policy_unallocated_policy_205(uuid,text,text)',
-    'public.rpc_preview_mfg_cost_absorption_205(uuid,uuid,uuid,jsonb,numeric)'] LOOP
+    'public.rpc_preview_mfg_cost_absorption_205(uuid,uuid,uuid,jsonb,numeric)',
+    'public.rpc_check_mfg_cost_policy_draft_205(uuid,uuid,integer,uuid,jsonb,numeric)'] LOOP
     IF NOT has_function_privilege('authenticated', v_fn, 'EXECUTE') OR has_function_privilege('anon', v_fn, 'EXECUTE')
        OR has_function_privilege('service_role', v_fn, 'EXECUTE')
        OR NOT (SELECT prosecdef FROM pg_proc WHERE oid = v_fn::regprocedure) THEN
@@ -1200,6 +1201,273 @@ BEGIN
   RAISE NOTICE 'CP205_RATE_PRECISION_OK';
 END
 $precision$;
+
+-- ---------------------------------------------------------------------
+-- 13. Checking a pending draft (205-Q-1): read-only, bound to the revision, same verdict as the approval
+--     for an eligible caller, same figures as the stored preview, amounts in SAR.
+-- ---------------------------------------------------------------------
+CREATE FUNCTION pg_temp.check_d(p_draft uuid, p_rev text, p_wc text DEFAULT NULL, p_hours jsonb DEFAULT NULL, p_rec numeric DEFAULT NULL) RETURNS text LANGUAGE sql AS $fn$
+  SELECT format('SELECT public.rpc_check_mfg_cost_policy_draft_205(%L, %L, %s, %s, %s, %s)',
+                '52050205-0000-0000-0000-0000000000a1', p_draft, p_rev, COALESCE(quote_literal(p_wc) || '::uuid', 'NULL'),
+                COALESCE(quote_literal(p_hours::text) || '::jsonb', 'NULL'), COALESCE(p_rec::text, 'NULL'));
+$fn$;
+-- Latest version number and a free effective-date offset of org A.
+CREATE FUNCTION pg_temp.next_slot(OUT o_latest int, OUT o_days int) LANGUAGE sql AS $fn$
+  SELECT COALESCE(max(version_no), 0)::int,
+         (COALESCE(max(effective_from) FILTER (WHERE withdrawn_at IS NULL), current_setting('cp.today')::date) - current_setting('cp.today')::date + 1)::int
+  FROM wardah_internal.mfg_cost_policy_versions WHERE org_id = '52050205-0000-0000-0000-0000000000a1';
+$fn$;
+-- What the rows behind a check look like: any write moves this.
+CREATE FUNCTION pg_temp.state_hash() RETURNS text LANGUAGE sql AS $fn$
+  SELECT md5(concat_ws('|',
+    (SELECT md5(COALESCE(string_agg(to_jsonb(d)::text, '|' ORDER BY d.id), '')) FROM wardah_internal.mfg_cost_policy_drafts_205 d),
+    (SELECT count(*) FROM wardah_internal.mfg_cost_policy_versions),
+    (SELECT count(*) FROM wardah_internal.mfg_cost_policy_approvals_205),
+    (SELECT count(*) FROM wardah_internal.mfg_cost_policy_budgets_205),
+    (SELECT count(*) FROM wardah_internal.mfg_cost_policy_unallocated_exceptions_205),
+    (SELECT count(*) FROM wardah_internal.mfg_cost_policy_legacy_resolutions_205),
+    (SELECT count(*) FROM wardah_internal.mfg_cost_policy_approval_settings_audit_205),
+    (SELECT count(*) FROM public.audit_logs)));
+$fn$;
+-- The eligible caller gets the refusal in the reply, and the approval refuses with the same code.
+CREATE FUNCTION pg_temp.same_verdict(p_label text, p_draft uuid, p_code text) RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE
+  v jsonb;
+  v_rev text := (SELECT revision::text FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE id = p_draft);
+  v_got text;
+BEGIN
+  v := pg_temp.cp_call('approver', pg_temp.check_d(p_draft, v_rev));
+  IF (v->>'valid')::boolean OR v->'refusal'->>'code' <> p_code OR v->'preview' <> 'null'::jsonb THEN
+    RAISE EXCEPTION 'CP205_CHECK_VERDICT_UNEXPECTED [%]: %', p_label, v;
+  END IF;
+  v_got := pg_temp.cp_expect('approver', p_label || ' at approval', pg_temp.approve(p_draft), p_code);
+  IF position(v->'refusal'->>'code' IN v_got) = 0
+     OR (v->'refusal'->>'detail' IS NOT NULL AND position(v->'refusal'->>'detail' IN v_got) = 0) THEN
+    RAISE EXCEPTION 'CP205_CHECK_VERDICT_DIFFERS [%]: check % approval %', p_label, v->'refusal', v_got;
+  END IF;
+END
+$fn$;
+
+DO $check$
+DECLARE
+  c_org CONSTANT uuid := '52050205-0000-0000-0000-0000000000a1';
+  c_wc1 CONSTANT text := '52050205-0000-0000-0000-0000000000d1';
+  c_wc2 CONSTANT text := '52050205-0000-0000-0000-0000000000d2';
+  h jsonb := pg_temp.hours('"18"', '"2"', '"15"', '"1.5"');
+  s record;
+  v jsonb;
+  w jsonb;
+  d uuid;
+  d2 uuid;
+  v_ver uuid;
+  v_hash text;
+  v_base jsonb;
+  v_bad jsonb;
+  v_case record;
+  res jsonb;
+BEGIN
+  -- The default policy for the verdicts below.
+  IF (SELECT unallocated_budget_policy FROM wardah_internal.mfg_cost_policy_approval_settings_205 WHERE org_id = c_org) = 'controlled_exception' THEN
+    PERFORM pg_temp.cp_call('q4admin', format('SELECT public.rpc_set_cost_policy_unallocated_policy_205(%L, %L, %L)', c_org, 'block', 'section 13'));
+  END IF;
+  s := pg_temp.next_slot();
+  v_base := pg_temp.draft(s.o_days);
+  d := (pg_temp.cp_call('creator', pg_temp.create_draft(v_base, s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+
+  -- Permissions, isolation, the binding to the draft and its revision.
+  PERFORM pg_temp.cp_expect('member', 'check: plain member', pg_temp.check_d(d, '1'), 'MANUFACTURING_SETTINGS_READ_DENIED');
+  PERFORM pg_temp.cp_expect('super_out', 'check: not a member', pg_temp.check_d(d, '1'), 'NOT_ORG_MEMBER');
+  PERFORM pg_temp.cp_expect('b_admin', 'check: draft of another org',
+    format('SELECT public.rpc_check_mfg_cost_policy_draft_205(%L, %L, 1)', '52050205-0000-0000-0000-0000000000b1', d), 'COST_POLICY_DRAFT_UNKNOWN');
+  PERFORM pg_temp.cp_expect('approver', 'check: unknown draft', pg_temp.check_d(gen_random_uuid(), '1'), 'COST_POLICY_DRAFT_UNKNOWN');
+  PERFORM pg_temp.cp_expect('approver', 'check: older revision', pg_temp.check_d(d, '2'), 'COST_POLICY_DRAFT_REVISION_CONFLICT: current=1');
+  PERFORM pg_temp.cp_expect('approver', 'check: no revision', pg_temp.check_d(d, 'NULL'), 'COST_POLICY_DRAFT_REVISION_CONFLICT: current=1');
+
+  -- A reader may check; the check does not ask who may approve: valid here, and the creator cannot approve.
+  v_hash := pg_temp.state_hash();
+  v := pg_temp.cp_call('creator', pg_temp.check_d(d, '1', c_wc1, h));
+  IF NOT (v->>'valid')::boolean OR (v->>'draft_id')::uuid <> d OR (v->>'revision')::int <> 1 OR v->>'kind' <> 'version'
+     OR (v->>'latest_version_no')::int <> s.o_latest OR v->'policy_at_check'->>'unallocated_budget_policy' <> 'block'
+     OR v->'refusal' <> 'null'::jsonb OR v->'preview_refusal' <> 'null'::jsonb OR v ? 'cents' OR v->'preview' ? 'cents'
+     OR v->'unallocated' <> '[]'::jsonb THEN
+    RAISE EXCEPTION 'CP205_CHECK_REPLY_UNEXPECTED: %', v;
+  END IF;
+  PERFORM pg_temp.cp_expect('creator', 'valid is not an approval right', pg_temp.approve(d), 'COST_POLICY_APPROVE_DENIED');
+  PERFORM pg_temp.cp_expect('member', 'valid is not an approval right (member)', pg_temp.approve(d), 'COST_POLICY_APPROVE_DENIED');
+  PERFORM pg_temp.cp_call('approver', pg_temp.check_d(d, '1'));
+  IF pg_temp.state_hash() <> v_hash THEN
+    RAISE EXCEPTION 'CP205_CHECK_WROTE_SOMETHING';
+  END IF;
+
+  -- An edit moves the revision: the older check result cannot be asked for again.
+  v_bad := jsonb_set(v_base, '{overhead_pools,0,rate}', '47'::jsonb);
+  PERFORM pg_temp.cp_call('creator', format('SELECT public.rpc_update_mfg_cost_policy_draft_205(%L, %L, %L::jsonb, %s)', c_org, d, v_bad, s.o_latest));
+  PERFORM pg_temp.cp_expect('approver', 'check: revision before the edit', pg_temp.check_d(d, '1'), 'COST_POLICY_DRAFT_REVISION_CONFLICT: current=2');
+
+  -- Figures: the check of the draft equals the stored preview after approval, field by field, at both work centers.
+  v := pg_temp.cp_call('approver', pg_temp.check_d(d, '2', c_wc1, h));
+  w := pg_temp.cp_call('approver', pg_temp.check_d(d, '2', c_wc2, h));
+  v_ver := (pg_temp.cp_call('approver', pg_temp.approve(d))->>'policy_version_id')::uuid;
+  FOR v_case IN SELECT * FROM (VALUES (c_wc1, v), (c_wc2, w)) t(wc, r) LOOP
+    v_bad := pg_temp.cp_call('approver', pg_temp.preview(v_ver, v_case.wc::uuid, h));
+    IF v_case.r->'preview'->'labor' <> v_bad->'labor' OR v_case.r->'preview'->'overhead' <> v_bad->'overhead'
+       OR v_case.r->'preview'->'excluded_pools' <> v_bad->'excluded_pools'
+       OR (v_case.r->'preview'->>'overhead_total')::numeric <> (v_bad->>'overhead_total')::numeric
+       OR (v_case.r->'preview'->>'total')::numeric <> (v_bad->>'total')::numeric
+       OR (v_case.r->'preview'->>'total')::numeric * 100 <> (v_bad->'cents'->>'total')::numeric THEN
+      RAISE EXCEPTION 'CP205_CHECK_FIGURES_DIFFER: check % stored %', v_case.r->'preview', v_bad;
+    END IF;
+  END LOOP;
+  PERFORM pg_temp.cp_expect('approver', 'check: a decided draft', pg_temp.check_d(d, '2'), 'COST_POLICY_DRAFT_NOT_PENDING');
+
+  -- Same verdict as the approval, for an eligible caller.
+  s := pg_temp.next_slot();
+  v_base := pg_temp.draft(s.o_days);
+  FOR v_case IN SELECT * FROM (VALUES
+    ('unallocated under block', pg_temp.draft(s.o_days, 'unallocated'), 'COST_POLICY_BUDGET_UNALLOCATED'),
+    ('exception under block', pg_temp.draft(s.o_days, 'exception'), 'COST_POLICY_UNALLOCATED_EXCEPTION_NOT_ALLOWED'),
+    ('activity unset', v_base #- '{overhead_pools,0,activity}', 'COST_POLICY_POOL_ACTIVITY_UNSET'),
+    ('pool without budget', jsonb_set(v_base, '{overhead_pools,1,budgets}', '[]'::jsonb), 'COST_POLICY_POOL_WITHOUT_BUDGET'),
+    ('unknown budget', jsonb_set(v_base, '{overhead_pools,1,budgets}', '["NOPE"]'::jsonb), 'COST_POLICY_BUDGET_UNKNOWN'),
+    ('double allocation', jsonb_set(v_base, '{overhead_pools,1,budgets}', '["SUPERVISION","ELECTRICITY"]'::jsonb), 'COST_POLICY_BUDGET_DOUBLE_ALLOCATION'),
+    ('setup unacknowledged', v_base - 'setup_acks', 'COST_POLICY_SETUP_TREATMENT_UNSET'),
+    ('account missing', v_base #- '{budgets,0,gl_account_id}', 'COST_POLICY_BUDGET_ACCOUNT_REQUIRED'),
+    ('duplicate source', jsonb_set(v_base, '{budgets,1,gl_account_id}', v_base->'budgets'->0->'gl_account_id'), 'COST_POLICY_BUDGET_DUPLICATE_SOURCE'),
+    ('amount with a fraction of a cent', jsonb_set(v_base, '{budgets,0,amount}', '10.005'::jsonb), 'COST_POLICY_BUDGET_AMOUNT_INVALID')
+  ) t(label, draft, code) LOOP
+    d2 := (pg_temp.cp_call('creator', pg_temp.create_draft(v_case.draft, s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+    PERFORM pg_temp.same_verdict(v_case.label, d2, v_case.code);
+  END LOOP;
+
+  -- A refused draft still shows the unallocated budget, in SAR; an amount that cannot be read leaves no list, and no error.
+  d2 := (pg_temp.cp_call('creator', pg_temp.create_draft(pg_temp.draft(s.o_days, 'unallocated'), s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+  v := pg_temp.cp_call('approver', pg_temp.check_d(d2, '1'));
+  IF v->'unallocated' <> '[{"amount": 4800.50, "budget_code": "SUPERVISION"}]'::jsonb THEN
+    RAISE EXCEPTION 'CP205_CHECK_UNALLOCATED_UNEXPECTED: %', v;
+  END IF;
+  d2 := (pg_temp.cp_call('creator', pg_temp.create_draft(jsonb_set(pg_temp.draft(s.o_days, 'unallocated'), '{budgets,2,amount}', '"abc"'::jsonb), s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+  v := pg_temp.cp_call('approver', pg_temp.check_d(d2, '1'));
+  IF (v->>'valid')::boolean OR v->'refusal'->>'code' <> 'COST_POLICY_BUDGET_UNALLOCATED' OR v->'unallocated' <> '[]'::jsonb THEN
+    RAISE EXCEPTION 'CP205_CHECK_UNREADABLE_AMOUNT_UNEXPECTED: %', v;
+  END IF;
+
+  -- Inputs of the worked example refuse the example, not the draft.
+  d2 := (pg_temp.cp_call('creator', pg_temp.create_draft(v_base, s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+  v := pg_temp.cp_call('approver', pg_temp.check_d(d2, '1', c_wc1, jsonb_build_object('labor', jsonb_build_object('run', 1))));
+  IF NOT (v->>'valid')::boolean OR v->'preview' <> 'null'::jsonb OR v->'preview_refusal'->>'code' <> 'COST_POLICY_DRIVER_MISSING'
+     OR v->'preview_refusal'->>'detail' <> 'labor.setup' THEN
+    RAISE EXCEPTION 'CP205_CHECK_DRIVER_UNEXPECTED: %', v;
+  END IF;
+  v := pg_temp.cp_call('approver', pg_temp.check_d(d2, '1', c_wc1, pg_temp.hours('-1', '0', '0', '0')));
+  IF v->'preview_refusal'->>'code' <> 'COST_POLICY_HOURS_INVALID' THEN
+    RAISE EXCEPTION 'CP205_CHECK_HOURS_UNEXPECTED: %', v;
+  END IF;
+  v := pg_temp.cp_call('approver', pg_temp.check_d(d2, '1', gen_random_uuid()::text, h));
+  IF NOT (v->>'valid')::boolean OR v->'preview_refusal'->>'code' <> 'COST_POLICY_WORK_CENTER_UNKNOWN' THEN
+    RAISE EXCEPTION 'CP205_CHECK_WORK_CENTER_UNEXPECTED: %', v;
+  END IF;
+
+  -- Errors that are not policy refusals are raised, whatever their SQLSTATE. Run in a block that rolls back
+  -- the replaced function.
+  FOR v_case IN SELECT * FROM (VALUES ('22023'), ('P0001'), ('XX000')) t(state) LOOP
+    BEGIN
+      EXECUTE format($sql$CREATE OR REPLACE FUNCTION wardah_internal.mfg_cost_policy_approve_check_205(p_v jsonb, p_policy text)
+        RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path = '' AS $b$ BEGIN RAISE EXCEPTION USING ERRCODE = %L, MESSAGE = 'cp205 unexpected'; END $b$$sql$, v_case.state);
+      BEGIN
+        v := pg_temp.cp_call('approver', pg_temp.check_d(d2, '1'));
+        RAISE EXCEPTION 'CP205_CHECK_SWALLOWED: %', v;
+      EXCEPTION WHEN OTHERS THEN
+        PERFORM set_config('role', 'none', true);
+        IF SQLERRM <> 'cp205 unexpected' THEN
+          RAISE;
+        END IF;
+      END;
+      RAISE EXCEPTION 'cp205 rollback';
+    EXCEPTION WHEN OTHERS THEN
+      PERFORM set_config('role', 'none', true);
+      IF SQLERRM <> 'cp205 rollback' THEN
+        RAISE;
+      END IF;
+    END;
+  END LOOP;
+
+  -- Valid means the approval goes through for an eligible caller while nothing changes.
+  v := pg_temp.cp_call('approver', pg_temp.check_d(d2, '1'));
+  IF NOT (v->>'valid')::boolean THEN
+    RAISE EXCEPTION 'CP205_CHECK_VALID_EXPECTED: %', v;
+  END IF;
+  PERFORM pg_temp.cp_call('approver', pg_temp.approve(d2));
+  -- ...and a later version makes the pending draft stale: both refuse alike, the rest of the row unchanged.
+  s := pg_temp.next_slot();
+  d := (pg_temp.cp_call('creator', pg_temp.create_draft(pg_temp.draft(s.o_days), s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+  d2 := (pg_temp.cp_call('creator', pg_temp.create_draft(pg_temp.draft(s.o_days + 1), s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+  PERFORM pg_temp.cp_call('approver', pg_temp.approve(d));
+  PERFORM pg_temp.same_verdict('a later version', d2, 'COST_POLICY_VERSION_CONFLICT');
+
+  -- The controlled exception: valid, the unloaded budget in SAR, outside the total, as the stored preview shows.
+  PERFORM pg_temp.cp_call('q4admin', format('SELECT public.rpc_set_cost_policy_unallocated_policy_205(%L, %L, %L)', c_org, 'controlled_exception', 'section 13'));
+  s := pg_temp.next_slot();
+  d := (pg_temp.cp_call('creator', pg_temp.create_draft(pg_temp.draft(s.o_days, 'exception'), s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+  v_hash := pg_temp.state_hash();
+  v := pg_temp.cp_call('approver', pg_temp.check_d(d, '1', c_wc1, h));
+  IF pg_temp.state_hash() <> v_hash THEN
+    RAISE EXCEPTION 'CP205_CHECK_WROTE_SOMETHING (exception)';
+  END IF;
+  IF NOT (v->>'valid')::boolean OR v->'unallocated' <> '[{"amount": 4800.50, "budget_code": "SUPERVISION"}]'::jsonb
+     OR v->'policy_at_check'->>'unallocated_budget_policy' <> 'controlled_exception' THEN
+    RAISE EXCEPTION 'CP205_CHECK_EXCEPTION_UNEXPECTED: %', v;
+  END IF;
+  w := pg_temp.cp_call('approver', pg_temp.approve(d));
+  IF (w->'unallocated'->>'SUPERVISION')::bigint <> 480050 THEN
+    RAISE EXCEPTION 'CP205_APPROVE_UNALLOCATED_NOT_CENTS: %', w;
+  END IF;
+  v_ver := (w->>'policy_version_id')::uuid;
+  w := pg_temp.cp_call('approver', pg_temp.preview(v_ver, c_wc1::uuid, h));
+  IF v->'preview'->'overhead' <> w->'overhead' OR (v->'preview'->>'total')::numeric <> (w->>'total')::numeric
+     OR v->'unallocated' <> w->'unallocated_budgets' THEN
+    RAISE EXCEPTION 'CP205_CHECK_EXCEPTION_FIGURES_DIFFER: % %', v, w;
+  END IF;
+  PERFORM pg_temp.cp_call('q4admin', format('SELECT public.rpc_set_cost_policy_unallocated_policy_205(%L, %L, %L)', c_org, 'block', 'section 13 back'));
+
+  -- A legacy resolution: the merged version is checked and previewed as the approval and the stored preview see it.
+  s := pg_temp.next_slot();
+  v := pg_temp.cp_call('creator', format('SELECT public.rpc_create_mfg_cost_policy_version(%L, %L::jsonb, %s, gen_random_uuid())', c_org,
+    jsonb_build_object('effective_from', (current_setting('cp.today')::date + s.o_days)::text, 'labor_cost_source', 'work_center_rate',
+      'default_labor_rate_per_hour', 30, 'pin_event', 'mo_created',
+      'overhead_pools', jsonb_build_array(
+        jsonb_build_object('pool_code', 'LABOR_OH', 'name', 'L', 'basis', 'labor_hours', 'rate', 12),
+        jsonb_build_object('pool_code', 'MACHINE_OH', 'name', 'M', 'basis', 'machine_hours', 'rate', 40))), s.o_latest));
+  v_ver := (v->>'policy_version_id')::uuid;
+  res := jsonb_build_object(
+    'pools', jsonb_build_array(
+      jsonb_build_object('pool_code', 'LABOR_OH', 'activity', 'both', 'budgets', jsonb_build_array('SUPERVISION')),
+      jsonb_build_object('pool_code', 'MACHINE_OH', 'activity', 'run', 'budgets', jsonb_build_array('ELECTRICITY', 'DEPRECIATION', 'SETUP_CREW'))),
+    'budgets', pg_temp.draft(0)->'budgets', 'setup_acks', pg_temp.draft(0)->'setup_acks');
+  d := (pg_temp.cp_call('creator', format('SELECT public.rpc_create_legacy_resolution_draft_205(%L, %L, %L::jsonb, %L, gen_random_uuid())',
+         c_org, v_ver, jsonb_set(res, '{pools}', jsonb_build_array(res->'pools'->1)), 'section 13'))->>'draft_id')::uuid;
+  PERFORM pg_temp.same_verdict('legacy pools mismatch', d, 'COST_POLICY_LEGACY_POOLS_MISMATCH');
+  d := (pg_temp.cp_call('creator', format('SELECT public.rpc_create_legacy_resolution_draft_205(%L, %L, %L::jsonb, %L, gen_random_uuid())',
+         c_org, v_ver, res, 'section 13'))->>'draft_id')::uuid;
+  d2 := (pg_temp.cp_call('creator', format('SELECT public.rpc_create_legacy_resolution_draft_205(%L, %L, %L::jsonb, %L, gen_random_uuid())',
+         c_org, v_ver, res, 'section 13 second'))->>'draft_id')::uuid;
+  v := pg_temp.cp_call('approver', pg_temp.check_d(d, '1', c_wc2, h));
+  IF NOT (v->>'valid')::boolean OR v->>'kind' <> 'legacy_resolution' OR v->'preview' = 'null'::jsonb THEN
+    RAISE EXCEPTION 'CP205_CHECK_LEGACY_UNEXPECTED: %', v;
+  END IF;
+  PERFORM pg_temp.cp_call('approver', pg_temp.approve(d));
+  w := pg_temp.cp_call('approver', pg_temp.preview(v_ver, c_wc2::uuid, h));
+  IF v->'preview'->'labor' <> w->'labor' OR v->'preview'->'overhead' <> w->'overhead'
+     OR (v->'preview'->>'total')::numeric <> (w->>'total')::numeric THEN
+    RAISE EXCEPTION 'CP205_CHECK_LEGACY_FIGURES_DIFFER: % %', v, w;
+  END IF;
+  PERFORM pg_temp.same_verdict('legacy already resolved', d2, 'COST_POLICY_LEGACY_NOT_APPLICABLE');
+
+  IF (SELECT provolatile FROM pg_proc WHERE oid = 'public.rpc_check_mfg_cost_policy_draft_205(uuid,uuid,integer,uuid,jsonb,numeric)'::regprocedure) <> 's' THEN
+    RAISE EXCEPTION 'CP205_CHECK_NOT_STABLE';
+  END IF;
+  RAISE NOTICE 'CP205_DRAFT_CHECK_OK';
+END
+$check$;
 
 DO $done$ BEGIN RAISE NOTICE 'MFG_COST_POLICY_205_ACCEPTANCE_PASS'; END $done$;
 ROLLBACK;
