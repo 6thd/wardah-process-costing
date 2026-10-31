@@ -11060,6 +11060,17 @@ export type Database = {
           user_accepted_count: number
         }[]
       }
+      rpc_check_mfg_cost_policy_draft_205: {
+        Args: {
+          p_draft_id: string
+          p_expected_revision: number
+          p_hours?: Json
+          p_org_id: string
+          p_recorded_labor_cost?: number
+          p_work_center_id?: string
+        }
+        Returns: Json
+      }
       rpc_close_stage_wip_194: { Args: { p_wip_id: string }; Returns: Json }
       rpc_complete_manufacturing_order: {
         Args: { p_payload: Json }
