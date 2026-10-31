@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # Parity cases for Migration 205: every call the calculator controls X1-X20 (controls_205.py) make to the 205 functions of the
-# reference calculator r4d, recorded with the calculator's own outcome, so the SQL functions can be run on exactly those inputs.
+# reference calculator r4e, recorded with the calculator's own outcome, so the SQL functions can be run on exactly those inputs.
 # Nothing is typed by hand: the controls run against a recording proxy of the calculator; each call to validate_205_version,
 # compute_205, approve_205_check or unallocated_205 is captured with its arguments and its result or refusal. The controls must
-# still pass through the proxy, and the calculator must be r4d (sha256 pinned), or nothing is written. A call that ends in anything
+# still pass through the proxy, and the calculator must be r4e (sha256 pinned), or nothing is written. A call that ends in anything
 # but a policy refusal (StageCostError) is not left out: it stops the generation (PARITY_205_NON_POLICY_EXCEPTION), so every
 # input the controls exercise is in the evidence.
 # Output: one JSON object per line, {id, fn, args, expect}, in the shape the SQL side reads (budgets and setup_acks of a version
@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 CALC_DIR = ROOT / "docs/db/stage-costing-260"
 CALC = CALC_DIR / "reference_calculator.py"
-R4D_SHA256 = "f512cc9a61ce2038ae59c4171f7f4eef8b7b2fadae59ca33ad9858d1b2d4098e"
+R4E_SHA256 = "72ef102672a17378785b09091f1f837330cc10ce529259cc5978fd707627e342"
 sys.path.insert(0, str(CALC_DIR))
 import controls_205  # noqa: E402
 from focused_controls import load  # noqa: E402
@@ -58,8 +58,8 @@ def resolution_json(r):
 
 
 def main(out_path):
-    if hashlib.sha256(CALC.read_bytes()).hexdigest() != R4D_SHA256:
-        sys.exit("PARITY_205_CALCULATOR_NOT_R4D")
+    if hashlib.sha256(CALC.read_bytes()).hexdigest() != R4E_SHA256:
+        sys.exit("PARITY_205_CALCULATOR_NOT_R4E")
     rc = load(CALC)
     calls = []
 

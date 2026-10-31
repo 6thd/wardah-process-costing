@@ -4,7 +4,7 @@
 -- (2026-10-28) and 205-Q1..Q4 (2026-10-29), with the two permission points confirmed on
 -- 2026-10-29: a 205-only checker over role assignments, and "organization super admin" = the org
 -- admin inside the company with the key assigned explicitly, never a platform override.
--- Reference arithmetic: docs/db/stage-costing-260/reference_calculator.py revision 4d
+-- Reference arithmetic: docs/db/stage-costing-260/reference_calculator.py revision 4e
 -- (rate_205, validate_205_version, check_unallocated_exception_205, unallocated_205,
 -- approve_205_check, compute_205), mirrored here function for function. A rate has 204's precision
 -- (numeric(18,6), at most 999999999) and an amount is rounded once, at the cent, as 204 does.

@@ -22,7 +22,8 @@ from focused_controls import load  # noqa: E402
 
 R4_NAMES = {"ACTIVITIES", "POOL_205_KEYS", "number_205", "validate_205_version", "is_205_version", "compute_205",
             "UNALLOCATED_POLICIES", "UNALLOCATED_EXCEPTION_KEYS", "check_unallocated_exception_205", "unallocated_205", "approve_205_check",
-            "RATE_MAX_205", "rate_205"}
+            "RATE_MAX_205", "rate_205", "_check_rates_205", "_check_budget_sources_205", "_budget_owners_205", "_check_setup_acks_205",
+            "_check_budget_treatment_205", "_version_with_resolution_205", "_measured_hours_205", "_labor_cents_205"}
 BUDGETS = {"ELECTRICITY": {"gl_account": "GL-5101", "cost_center": "CC-PROD", "setup": False},
            "DEPRECIATION": {"gl_account": "GL-5201", "cost_center": "CC-PROD", "setup": False},
            "SUPERVISION": {"gl_account": "GL-5301", "cost_center": "CC-PROD", "setup": False},
@@ -261,10 +262,11 @@ def run(rc, calc_path, r3_path=None):
     exception = {"policy": "controlled_exception", "budgets": ["SUPERVISION"], "reason": "supervision kept as a period cost this quarter",
                  "treatment": "reported as unabsorbed overhead of the period; not charged to orders", "approved_by": "user-approver-1"}
 
-    def q4(exc=exception, budgets=budgets_amt, pools=loaded, acks=None):
-        v = v205(pools, acks if acks is not None else {"MACHINE_OH": ["SETUP_CREW"]}, budgets=budgets)
-        if exc is not None:
-            v["unallocated_exception"] = exc
+    def q4(**over):
+        o = {"exc": exception, "budgets": budgets_amt, "pools": loaded, "acks": None, **over}
+        v = v205(o["pools"], o["acks"] if o["acks"] is not None else {"MACHINE_OH": ["SETUP_CREW"]}, budgets=o["budgets"])
+        if o["exc"] is not None:
+            v["unallocated_exception"] = o["exc"]
         return v
 
     def x15():

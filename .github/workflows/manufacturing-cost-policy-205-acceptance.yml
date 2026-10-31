@@ -80,7 +80,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          python3 scripts/ci/fresh-db/pin_205_preflight.py --check --psql "psql -d wardah_pre205"
+          psql -X -At -v ON_ERROR_STOP=1 -d wardah_pre205 -f scripts/ci/fresh-db/acceptance_205_preflight_pins.sql \
+            | python3 scripts/ci/fresh-db/pin_205_preflight.py --check
 
       - name: RED before 205
         shell: bash
@@ -103,7 +104,7 @@ jobs:
           fi
           grep -q 'M205_ALREADY_APPLIED' /tmp/reapply.out
 
-      - name: Parity with the reference calculator r4d (cases recorded from controls X1-X20)
+      - name: Parity with the reference calculator r4e (cases recorded from controls X1-X20)
         shell: bash
         run: |
           set -Eeuo pipefail
