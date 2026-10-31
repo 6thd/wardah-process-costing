@@ -65,6 +65,7 @@
 | تغيير الاعتماد الذاتي | `rpc_set_cost_policy_self_approval_205(p_org_id uuid, p_enabled boolean, p_reason text)` | `approval_settings.manage` بإسناد صريح | `can_manage_approval_settings` | الإعدادات |
 | تغيير سياسة الموازنات غير الموزعة | `rpc_set_cost_policy_unallocated_policy_205(p_org_id uuid, p_policy text, p_reason text)` | مدير المؤسسة **و**`unallocated_policy.manage` بإسناد صريح | `can_manage_unallocated_policy` | الإعدادات |
 | معاينة | `rpc_preview_mfg_cost_absorption_205(p_org_id uuid, p_policy_version_id uuid, p_work_center_id uuid, p_hours jsonb, p_recorded_labor_cost numeric)` | كالقراءة | لإصدار غير مسحوب | مبالغ بالريال و`unallocated_budgets` و`cents` |
+| فحص مسودة ومعاينتها (محلي، §17) | `rpc_check_mfg_cost_policy_draft_205(p_org_id uuid, p_draft_id uuid, p_expected_revision integer, p_work_center_id uuid, p_hours jsonb, p_recorded_labor_cost numeric)` | كالقراءة، ولا يسأل عن أهلية الاعتماد | لمسودة معلقة | `valid` و`refusal` و`unallocated` و`preview` بالريال |
 
 **مساران من 204 يبقيان بعد الانتقال:**
 
@@ -269,7 +270,9 @@
 
 ## 17) عقد مقترح لفحص المسودة ومعاينتها (Q-1)
 
-**مقترح للمراجعة، غير موجود في `444e653f`، ولا يُكتب SQL له قبل قرار Q-1.** يسري على الخيار ب والخيار ج.
+**اعتمد المالك Q-1 = ب، ونُفّذ العقد محليًا في `9fa05da7` على فرع #331، غير مدفوع وغير مراجع.** ما زال غير موجود في `444e653f`. واجهته لم تُكتب.
+
+**تفاصيل حددها التنفيذ:** مسودة مرفوضة فيها مبلغ لا يُقرأ تعيد `unallocated: []` مع رفضها، ومسودة صالحة تعيد القائمة دائمًا. والالتقاط يقتصر على `22023` و`P0001` برسالة تبدأ برمز `COST_POLICY_`.
 
 ### 17.1 التوقيع
 
