@@ -2,7 +2,7 @@
 
 **الحالة:** تصميم للمراجعة (2026-10-31). **لا كود واجهة ولا SQL ولا دمج ولا نشر.** لا يأذن هذا الملف بالتنفيذ.
 
-**الأساس:** عقود `sql/migrations/205_manufacturing_cost_policy_approval_and_overhead.sql` عند `444e653f` (#331، مقبول الفرق الأخير دون إصلاح برمجي، وغير مطبق على أي قاعدة مستضافة)، وواجهة 204 القائمة في `src/features/settings/manufacturing/` و`src/services/mfg-cost-policy-service.ts`. ترتيب النشر في `docs/db/MIGRATION_205_TRANSITION_PLAN.md`.
+**الأساس:** عقود `sql/migrations/205_manufacturing_cost_policy_approval_and_overhead.sql` عند `8c181c3e` (الرأس النهائي لـ#331، مسودة غير مدموجة، وغير مطبق على أي قاعدة مستضافة)، وواجهة 204 القائمة في `src/features/settings/manufacturing/` و`src/services/mfg-cost-policy-service.ts`. ترتيب النشر في `docs/db/MIGRATION_205_TRANSITION_PLAN.md`.
 
 **خارج هذا التصميم:** بقية محرك #260، و#230، و#234، وتحرير سجلات الإنتاج، واستئناف الاستخدام، ومراكز التكلفة.
 
@@ -65,7 +65,7 @@
 | تغيير الاعتماد الذاتي | `rpc_set_cost_policy_self_approval_205(p_org_id uuid, p_enabled boolean, p_reason text)` | `approval_settings.manage` بإسناد صريح | `can_manage_approval_settings` | الإعدادات |
 | تغيير سياسة الموازنات غير الموزعة | `rpc_set_cost_policy_unallocated_policy_205(p_org_id uuid, p_policy text, p_reason text)` | مدير المؤسسة **و**`unallocated_policy.manage` بإسناد صريح | `can_manage_unallocated_policy` | الإعدادات |
 | معاينة | `rpc_preview_mfg_cost_absorption_205(p_org_id uuid, p_policy_version_id uuid, p_work_center_id uuid, p_hours jsonb, p_recorded_labor_cost numeric)` | كالقراءة | لإصدار غير مسحوب | مبالغ بالريال و`unallocated_budgets` و`cents` |
-| فحص مسودة ومعاينتها (محلي، §17) | `rpc_check_mfg_cost_policy_draft_205(p_org_id uuid, p_draft_id uuid, p_expected_revision integer, p_work_center_id uuid, p_hours jsonb, p_recorded_labor_cost numeric)` | كالقراءة، ولا يسأل عن أهلية الاعتماد | لمسودة معلقة | `valid` و`refusal` و`unallocated` و`preview` بالريال |
+| فحص مسودة ومعاينتها (§17) | `rpc_check_mfg_cost_policy_draft_205(p_org_id uuid, p_draft_id uuid, p_expected_revision integer, p_work_center_id uuid, p_hours jsonb, p_recorded_labor_cost numeric)` | كالقراءة، ولا يسأل عن أهلية الاعتماد | لمسودة معلقة | `valid` و`refusal` و`unallocated` و`preview` بالريال |
 
 **مساران من 204 يبقيان بعد الانتقال:**
 
@@ -164,7 +164,7 @@
 
 ## 10) المعاينة 205
 
-- **للإصدارات المخزنة فقط:** الدالة تأخذ `p_policy_version_id`. **لا توجد معاينة لمسودة** في `444e653f` (Q-1، والعقد المقترح في §17).
+- **للإصدارات المخزنة فقط:** الدالة تأخذ `p_policy_version_id`. معاينة المسودة في `rpc_check_mfg_cost_policy_draft_205` (Q-1، §17).
 - لا تستخدم لوحة 205 معاينة 204 أبدًا: فهي لا تعرف نشاط المجمع وتعطي رقمًا مضللًا لإصدار 205.
 - إصدار `legacy_unresolved`: زر المعاينة معطل مع السبب، والخادم يرد `COST_POLICY_LEGACY_UNRESOLVED`.
 - الساعات أربعة حقول: `p_hours = {labor: {run, setup}, machine: {run, setup}}`. الفارغ غير مُرسل (غير مقاس)، والصفر مقاس. الخادم يطلب ما يحتاجه الحساب فقط (`COST_POLICY_DRIVER_MISSING: labor.setup`).
@@ -268,9 +268,9 @@
 
 **الانقطاع:** السحب بلا مفتاح تكرار، فبعد انقطاع الرد تُقرأ الحالة أولًا. `ALREADY_WITHDRAWN` بعد إعادة إرسال يعامل نجاحًا إن طابق السبب المعروض.
 
-## 17) عقد مقترح لفحص المسودة ومعاينتها (Q-1)
+## 17) عقد فحص المسودة ومعاينتها (Q-1)
 
-**اعتمد المالك Q-1 = ب، ونُفّذ العقد محليًا في `9fa05da7` على فرع #331، غير مدفوع وغير مراجع.** ما زال غير موجود في `444e653f`. واجهته لم تُكتب.
+**اعتمد المالك Q-1 = ب، ونُفّذ العقد في `9fa05da7`، وقبل المالك مراجعته المحلية ضمن نطاق Q-1، ودُفع ضمن الرأس النهائي لـ#331 `8c181c3e`، ونجح CI عليه (33 نجاحًا و3 محايدة و1 متخطى).** الطلب مسودة غير مدموجة، و205 غير مطبقة على أي قاعدة مستضافة، وواجهة هذا العقد لم تُكتب.
 
 **تفاصيل حددها التنفيذ:** مسودة مرفوضة فيها مبلغ لا يُقرأ تعيد `unallocated: []` مع رفضها، ومسودة صالحة تعيد القائمة دائمًا. والالتقاط يقتصر على `22023` و`P0001` برسالة تبدأ برمز `COST_POLICY_`.
 
@@ -337,7 +337,7 @@ rpc_check_mfg_cost_policy_draft_205(
 - النص الظاهر: «صالحة عند وقت الفحص، والاعتماد يعيد التحقق». لا تسمى النتيجة موافقة.
 - **زر الاعتماد لا يعتمد على الفحص** ولا يتعطل بغيابه. فشل الاعتماد بعد فحص ناجح حالة عادية، ويعالج بخريطة §14.
 
-### 17.7 الضوابط المطلوبة إن اعتُمد
+### 17.7 الضوابط المطلوبة
 
 - **تطابق الحكم:** لكل حالة قبول، رفض الفحص = رفض الاعتماد بالرمز نفسه لمستدعٍ مؤهل. و`valid: true` **لا يضمن نجاح الاعتماد لكل مستدعٍ**: النجاح مشروط بصلاحية `approve`، وبقواعد الاعتماد الذاتي إن كان المستدعي هو المنشئ، وبثبات الحالة والمدخلات بين الفحص والاعتماد (المراجعة، وآخر إصدار، وسياسة الشركة، والتاريخ). يُختبر التطابق بمستدعٍ مؤهل والحالة ثابتة.
 - **تطابق الأرقام:** معاينة الفحص = `rpc_preview_mfg_cost_absorption_205` بعد الاعتماد، للإصدار وللمعالجة القديمة.
