@@ -1445,7 +1445,8 @@ BEGIN
     'budgets', v_part->'budgets',
     'setup_acks', v_part->'setup_acks',
     'wc_rules', COALESCE((
-      SELECT jsonb_object_agg(r->>'work_center_id',
+      -- Keyed by canonical text, as compute_205_v looks a rule up; the draft keeps what was sent.
+      SELECT jsonb_object_agg((r->>'work_center_id')::uuid::text,
                CASE WHEN COALESCE(jsonb_typeof(r->'labor_rate_per_hour'), 'null') <> 'null'
                     THEN jsonb_build_object('labor_rate', r->'labor_rate_per_hour') ELSE '{}'::jsonb END
                || jsonb_build_object('pools', COALESCE((

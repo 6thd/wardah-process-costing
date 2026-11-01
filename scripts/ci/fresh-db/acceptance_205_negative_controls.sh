@@ -216,4 +216,13 @@ run_control check_takes_a_lock conc 'CASE9_FAILED' \
   v_policy := v_settings->>'unallocated_budget_policy';
   SELECT COALESCE(max(version_no), 0) INTO v_latest_no"
 
+# --- work-center ids in a draft, in every spelling of a uuid
+run_control draft_wc_key_not_canonical main 'CP205_WC_KEY_SPELLING_CHANGES_PREVIEW' \
+  "      SELECT jsonb_object_agg((r->>'work_center_id')::uuid::text," \
+  "      SELECT jsonb_object_agg(r->>'work_center_id',"
+# Only a second spelling gets through: the same spelling twice stays refused, so section 2 still passes.
+run_control wc_duplicate_by_spelling main '[work center twice in two spellings]' \
+  "    IF v_wc = ANY (v_wcs) THEN" \
+  "    IF v_wc = ANY (v_wcs) AND v_item->>'work_center_id' = v_wc::text THEN"
+
 echo "CP205_NEGATIVE_CONTROLS_PASS controls=$n"
