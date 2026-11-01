@@ -24,7 +24,10 @@
 --  12. the approval is bound to the draft revision the approver reviewed: an edit after the approver
 --      read the draft makes the approval of the old revision refuse, and the revision moves only with
 --      the content; rates with 204's precision (six decimals) at the policy default, a pool and a
---      work-center override, each amount rounded once at the cent; seven decimals refused.
+--      work-center override, each amount rounded once at the cent; seven decimals refused;
+--  13. checking a pending draft: read-only, bound to the revision, same verdict as the approval;
+--  14. work-center ids in a draft: every spelling of a uuid gives the same check, equal to the stored
+--      preview, and a work center named twice in two spellings is refused.
 -- Rolled back at the end.
 \set ON_ERROR_STOP on
 
@@ -1468,6 +1471,109 @@ BEGIN
   RAISE NOTICE 'CP205_DRAFT_CHECK_OK';
 END
 $check$;
+
+-- ---------------------------------------------------------------------
+-- 14. Work-center ids in a draft: validation accepts every spelling a uuid has, and approval stores the
+--     uuid, so the check of the draft reads the same rules whatever the spelling, and shows the figures
+--     the stored preview shows. The draft keeps the text it was saved with.
+-- ---------------------------------------------------------------------
+CREATE FUNCTION pg_temp.respell(p_draft jsonb, p_spelling text) RETURNS jsonb LANGUAGE sql AS $fn$
+  SELECT jsonb_set(p_draft, '{work_center_rules}', (
+    SELECT jsonb_agg(jsonb_set(r, '{work_center_id}', to_jsonb(CASE p_spelling
+             WHEN 'lower' THEN r->>'work_center_id'
+             WHEN 'upper' THEN upper(r->>'work_center_id')
+             WHEN 'braced' THEN '{' || upper(r->>'work_center_id') || '}'
+             WHEN 'undashed' THEN replace(upper(r->>'work_center_id'), '-', '') END)) ORDER BY o)
+    FROM jsonb_array_elements(p_draft->'work_center_rules') WITH ORDINALITY t(r, o)));
+$fn$;
+
+DO $spell$
+DECLARE
+  c_wc1 CONSTANT text := '52050205-0000-0000-0000-0000000000d1';
+  c_wc2 CONSTANT text := '52050205-0000-0000-0000-0000000000d2';
+  h jsonb := pg_temp.hours('"18"', '"2"', '"15"', '"1.5"');
+  s record;
+  v_base jsonb;
+  v_up jsonb;
+  v_case record;
+  l1 jsonb;
+  l2 jsonb;
+  v jsonb;
+  w jsonb;
+  d uuid;
+  v_ver uuid;
+  v_hash text;
+BEGIN
+  s := pg_temp.next_slot();
+  v_base := pg_temp.draft(s.o_days);
+  v_up := pg_temp.respell(v_base, 'upper');
+  IF v_up->'work_center_rules' = v_base->'work_center_rules' THEN
+    RAISE EXCEPTION 'CP205_WC_FIXTURE_NOT_RESPELLED: %', v_up->'work_center_rules';
+  END IF;
+
+  -- The rules with their canonical spelling, against figures worked by hand: 20 labor hours at the
+  -- work center's 35 (30 is the default), 15 machine run hours at the pool's 55 there (46 is the policy
+  -- rate), 18 labor run hours at 12; and at the second work center LABOR_OH is excluded.
+  d := (pg_temp.cp_call('creator', pg_temp.create_draft(v_base, s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+  l1 := pg_temp.cp_call('approver', pg_temp.check_d(d, '1', c_wc1, h))->'preview';
+  l2 := pg_temp.cp_call('approver', pg_temp.check_d(d, '1', c_wc2, h))->'preview';
+  IF (l1->'labor'->>'amount')::numeric <> 700 OR (l1->>'total')::numeric <> 1741
+     OR (SELECT (e->>'amount')::numeric FROM jsonb_array_elements(l1->'overhead') e WHERE e->>'pool_code' = 'MACHINE_OH') <> 825
+     OR l1->'excluded_pools' <> '[]'::jsonb OR l2->'excluded_pools' <> '["LABOR_OH"]'::jsonb
+     OR (l2->>'total')::numeric <> 1290 THEN
+    RAISE EXCEPTION 'CP205_WC_RULES_NOT_APPLIED: % %', l1, l2;
+  END IF;
+
+  -- The same draft under another spelling: same figures, and the check leaves the saved text and its
+  -- revision as they were.
+  FOR v_case IN SELECT * FROM (VALUES ('upper'), ('braced'), ('undashed')) t(spelling) LOOP
+    v := pg_temp.respell(v_base, v_case.spelling);
+    d := (pg_temp.cp_call('creator', pg_temp.create_draft(v, s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+    v_hash := pg_temp.state_hash();
+    w := pg_temp.cp_call('approver', pg_temp.check_d(d, '1', c_wc1, h))->'preview';
+    IF w IS DISTINCT FROM l1 THEN
+      RAISE EXCEPTION 'CP205_WC_KEY_SPELLING_CHANGES_PREVIEW [% rate]: check % canonical %', v_case.spelling, w, l1;
+    END IF;
+    w := pg_temp.cp_call('approver', pg_temp.check_d(d, '1', c_wc2, h))->'preview';
+    IF w IS DISTINCT FROM l2 THEN
+      RAISE EXCEPTION 'CP205_WC_KEY_SPELLING_CHANGES_PREVIEW [% exclusion]: check % canonical %', v_case.spelling, w, l2;
+    END IF;
+    IF pg_temp.state_hash() <> v_hash THEN
+      RAISE EXCEPTION 'CP205_WC_CHECK_WROTE_SOMETHING [%]', v_case.spelling;
+    END IF;
+    IF (SELECT payload <> v OR revision <> 1 FROM wardah_internal.mfg_cost_policy_drafts_205 WHERE id = d) THEN
+      RAISE EXCEPTION 'CP205_WC_DRAFT_REWRITTEN [%]', v_case.spelling;
+    END IF;
+  END LOOP;
+
+  -- A work center named twice is one work center, however the two rules spell it; the verdict is the
+  -- same at the check and at the approval.
+  FOR v_case IN SELECT * FROM (VALUES ('upper'), ('braced'), ('undashed')) t(spelling) LOOP
+    v := jsonb_set(v_base, '{work_center_rules}', jsonb_build_array(
+           v_base->'work_center_rules'->0, pg_temp.respell(v_base, v_case.spelling)->'work_center_rules'->0));
+    d := (pg_temp.cp_call('creator', pg_temp.create_draft(v, s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+    PERFORM pg_temp.same_verdict('work center twice in two spellings', d, 'COST_POLICY_WORK_CENTER_DUPLICATE');
+  END LOOP;
+
+  -- Approved in upper case: the rows hold the uuid, and the stored preview equals the check of the draft.
+  d := (pg_temp.cp_call('creator', pg_temp.create_draft(v_up, s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
+  v_ver := (pg_temp.cp_call('approver', pg_temp.approve(d))->>'policy_version_id')::uuid;
+  IF (SELECT count(*) FROM wardah_internal.mfg_cost_policy_wc_rules
+      WHERE policy_version_id = v_ver AND work_center_id::text IN (c_wc1, c_wc2)) <> 2 THEN
+    RAISE EXCEPTION 'CP205_WC_RULES_NOT_STORED: %', v_ver;
+  END IF;
+  FOR v_case IN SELECT * FROM (VALUES (c_wc1, l1), (c_wc2, l2)) t(wc, p) LOOP
+    w := pg_temp.cp_call('approver', pg_temp.preview(v_ver, v_case.wc::uuid, h));
+    IF v_case.p->'labor' <> w->'labor' OR v_case.p->'overhead' <> w->'overhead'
+       OR v_case.p->'excluded_pools' <> w->'excluded_pools'
+       OR (v_case.p->>'overhead_total')::numeric <> (w->>'overhead_total')::numeric
+       OR (v_case.p->>'total')::numeric <> (w->>'total')::numeric THEN
+      RAISE EXCEPTION 'CP205_WC_CHECK_DIFFERS_FROM_STORED: check % stored %', v_case.p, w;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'CP205_WC_KEY_SPELLING_OK';
+END
+$spell$;
 
 DO $done$ BEGIN RAISE NOTICE 'MFG_COST_POLICY_205_ACCEPTANCE_PASS'; END $done$;
 ROLLBACK;
