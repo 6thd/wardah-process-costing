@@ -1546,13 +1546,16 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- A work center named twice is one work center, however the two rules spell it; the verdict is the
-  -- same at the check and at the approval.
+  -- A work center named twice is one work center, however the two rules spell it: refused on save and
+  -- on edit, so no such draft reaches a check or an approval.
   FOR v_case IN SELECT * FROM (VALUES ('upper'), ('braced'), ('undashed')) t(spelling) LOOP
     v := jsonb_set(v_base, '{work_center_rules}', jsonb_build_array(
            v_base->'work_center_rules'->0, pg_temp.respell(v_base, v_case.spelling)->'work_center_rules'->0));
-    d := (pg_temp.cp_call('creator', pg_temp.create_draft(v, s.o_latest, gen_random_uuid()))->>'draft_id')::uuid;
-    PERFORM pg_temp.same_verdict('work center twice in two spellings', d, 'COST_POLICY_WORK_CENTER_DUPLICATE');
+    PERFORM pg_temp.cp_expect('creator', 'work center twice in two spellings', pg_temp.create_draft(v, s.o_latest, gen_random_uuid()),
+                              'COST_POLICY_WORK_CENTER_DUPLICATE: work_center_rules[2]');
+    PERFORM pg_temp.cp_expect('creator', 'work center twice in two spellings, on edit',
+      format('SELECT public.rpc_update_mfg_cost_policy_draft_205(%L, %L, %L::jsonb, %s)', '52050205-0000-0000-0000-0000000000a1', d, v, s.o_latest),
+      'COST_POLICY_WORK_CENTER_DUPLICATE: work_center_rules[2]');
   END LOOP;
 
   -- Approved in upper case: the rows hold the uuid, and the stored preview equals the check of the draft.
