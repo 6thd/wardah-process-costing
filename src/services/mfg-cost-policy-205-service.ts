@@ -10,9 +10,11 @@
  * - `absent`: الخطأ `code === 'PGRST202'` على هذا الاستدعاء وحده. نص الرسالة لا يكفي.
  * - `present`: نجاح الاستدعاء وتحقق شكل الرد كاملًا.
  * - `denied`: `MANUFACTURING_SETTINGS_READ_DENIED`، وهو رمز لا ترفعه إلا 205 المطبقة.
- * - `unknown`: كل ما عدا ذلك، ومنه رد بشكل غير متوقع. لا كتابة ولا لوحة 204 فيه.
+ * - `unknown`: كل ما عدا ذلك، ومنه رد بشكل غير متوقع، أو رد لمؤسسة غير المطلوبة. لا كتابة ولا لوحة 204 فيه.
+ *
+ * المؤسسة تُمرر صراحة من الاختيار الحالي، ولا تُستنتج من الجلسة هنا.
  */
-import { supabase, getEffectiveTenantId } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 import type {
   CostPolicyStatus,
   CostPolicyVersion,
@@ -134,6 +136,8 @@ export type CostPolicy205Discovery =
 const VERSION_STATUSES: readonly CostPolicyStatus[] = ['scheduled', 'current', 'superseded', 'withdrawn']
 const LABOR_SOURCES: readonly LaborCostSource[] = ['work_center_rate', 'recorded_entry_rate']
 const PIN_EVENTS: readonly PinEvent[] = ['mo_created', 'production_started']
+const OVERHEAD_BASES: readonly OverheadBasis[] = ['labor_hours', 'machine_hours']
+const POOL_ACTIVITIES: readonly PoolActivity[] = ['run', 'setup', 'both']
 const POLICY_205: readonly Policy205Status[] = ['approved_205', 'legacy_resolved', 'legacy_unresolved']
 const UNALLOCATED_POLICIES: readonly UnallocatedBudgetPolicy[] = ['block', 'controlled_exception']
 const DRAFT_KINDS: readonly DraftKind[] = ['version', 'legacy_resolution']
@@ -176,6 +180,15 @@ function strOrNull(value: unknown, path: string): string | null {
   return value === null || value === undefined ? null : str(value, path)
 }
 
+function num(value: unknown, path: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) fail(path)
+  return value
+}
+
+function numOrNull(value: unknown, path: string): number | null {
+  return value === null || value === undefined ? null : num(value, path)
+}
+
 function int(value: unknown, path: string, min = 0): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < min) fail(path)
   return value
@@ -195,6 +208,23 @@ function objOrNull(value: unknown, path: string): Json | null {
   return value === null || value === undefined ? null : obj(value, path)
 }
 
+/** حقول `data_205` التي تقرؤها اللوحة: أنشطة المجمعات، ورموز الموازنات. */
+function checkData205(data: Json, p: string): void {
+  arr(data.pools, `${p}.pools`).forEach((raw, j) => {
+    const pool = obj(raw, `${p}.pools[${j}]`)
+    str(pool.code, `${p}.pools[${j}].code`)
+    if (pool.activity !== undefined && pool.activity !== null) oneOf(pool.activity, POOL_ACTIVITIES, `${p}.pools[${j}].activity`)
+  })
+  if (data.budgets === undefined || data.budgets === null) return
+  arr(data.budgets, `${p}.budgets`).forEach((raw, j) => {
+    str(obj(raw, `${p}.budgets[${j}]`).code, `${p}.budgets[${j}].code`)
+  })
+}
+
+/**
+ * يتحقق من كل حقل متداخل تعرضه اللوحة، لا من الحقول العليا وحدها، فرد يمر من هنا لا يُسقط
+ * العرض. ما لا تعرضه UI-1 (عناصر `work_center_rules`، ونوع الاعتماد) لا يُفحص.
+ */
 function parseVersion(raw: unknown, i: number): CostPolicyVersion205 {
   const p = `versions[${i}]`
   const v = obj(raw, p)
@@ -203,18 +233,40 @@ function parseVersion(raw: unknown, i: number): CostPolicyVersion205 {
   str(v.effective_from, `${p}.effective_from`)
   oneOf(v.status, VERSION_STATUSES, `${p}.status`)
   oneOf(v.labor_cost_source, LABOR_SOURCES, `${p}.labor_cost_source`)
+  numOrNull(v.default_labor_rate_per_hour, `${p}.default_labor_rate_per_hour`)
   oneOf(v.pin_event, PIN_EVENTS, `${p}.pin_event`)
   int(v.pinned_order_count, `${p}.pinned_order_count`)
   int(v.awaiting_start_order_count, `${p}.awaiting_start_order_count`)
-  arr(v.overhead_pools, `${p}.overhead_pools`)
+  strOrNull(v.withdraw_reason, `${p}.withdraw_reason`)
+  arr(v.overhead_pools, `${p}.overhead_pools`).forEach((rawPool, j) => {
+    const q = `${p}.overhead_pools[${j}]`
+    const pool = obj(rawPool, q)
+    str(pool.pool_code, `${q}.pool_code`)
+    oneOf(pool.basis, OVERHEAD_BASES, `${q}.basis`)
+    num(pool.rate, `${q}.rate`)
+  })
   arr(v.work_center_rules, `${p}.work_center_rules`)
   oneOf(v.policy_205, POLICY_205, `${p}.policy_205`)
   const data = objOrNull(v.data_205, `${p}.data_205`)
-  if (data) arr(data.pools, `${p}.data_205.pools`)
-  objOrNull(v.approval, `${p}.approval`)
-  objOrNull(v.legacy_resolution, `${p}.legacy_resolution`)
+  if (data) checkData205(data, `${p}.data_205`)
+  const approval = objOrNull(v.approval, `${p}.approval`)
+  if (approval) {
+    str(approval.approved_by, `${p}.approval.approved_by`)
+    str(approval.approved_at, `${p}.approval.approved_at`)
+    int(approval.draft_revision, `${p}.approval.draft_revision`, 1)
+    bool(approval.self_approved, `${p}.approval.self_approved`)
+  }
+  const legacy = objOrNull(v.legacy_resolution, `${p}.legacy_resolution`)
+  if (legacy) {
+    str(legacy.approved_by, `${p}.legacy_resolution.approved_by`)
+    str(legacy.resolved_at, `${p}.legacy_resolution.resolved_at`)
+  }
   const exc = objOrNull(v.unallocated_exception, `${p}.unallocated_exception`)
-  if (exc) obj(exc.budgets, `${p}.unallocated_exception.budgets`)
+  if (exc) {
+    obj(exc.budgets, `${p}.unallocated_exception.budgets`)
+    str(exc.reason, `${p}.unallocated_exception.reason`)
+    str(exc.treatment, `${p}.unallocated_exception.treatment`)
+  }
   return v as unknown as CostPolicyVersion205
 }
 
@@ -288,10 +340,12 @@ async function sessionUserId(): Promise<string | null> {
   return data.session?.user.id ?? null
 }
 
-/** يكتشف حالة 205 بقراءة واحدة. لا يرفع أبدًا: كل فشل يصبح حالة. */
-export async function discoverCostPolicy205(): Promise<CostPolicy205Discovery> {
+/**
+ * يكتشف حالة 205 لمؤسسة `orgId` بقراءة واحدة. لا يرفع أبدًا: كل فشل يصبح حالة. ورد يحمل
+ * `org_id` غير المطلوب لا يُعرض، أيًا كان سبب وصوله.
+ */
+export async function discoverCostPolicy205(orgId: string | null): Promise<CostPolicy205Discovery> {
   try {
-    const orgId = await getEffectiveTenantId()
     if (!orgId) return { status: 'unknown', reason: 'ORG_UNRESOLVED' }
     const { data, error } = await supabase.rpc('rpc_get_mfg_cost_policy_205', { p_org_id: orgId })
     if (error) {
@@ -301,7 +355,9 @@ export async function discoverCostPolicy205(): Promise<CostPolicy205Discovery> {
       if (error.message === 'MANUFACTURING_SETTINGS_READ_DENIED') return { status: 'denied' }
       return { status: 'unknown', reason: error.message || error.code || 'RPC_ERROR' }
     }
-    return { status: 'present', state: parseCostPolicy205State(data, await sessionUserId()) }
+    const state = parseCostPolicy205State(data, await sessionUserId())
+    if (state.orgId !== orgId) return { status: 'unknown', reason: 'COST_POLICY_205_ORG_MISMATCH' }
+    return { status: 'present', state }
   } catch (error) {
     return { status: 'unknown', reason: error instanceof Error ? error.message : String(error) }
   }

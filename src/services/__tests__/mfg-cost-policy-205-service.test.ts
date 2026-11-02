@@ -21,31 +21,39 @@ import {
 import { cp205Response, ORG, SESSION_USER } from './fixtures/cost-policy-205'
 import pg17 from './fixtures/cost-policy-205-get.pg17.json'
 
+const OTHER_ORG = '52050205-0000-0000-0000-0000000000b1'
+const version0 = (patch: Record<string, unknown>) => {
+  const v = (cp205Response().versions as Record<string, unknown>[])[0]
+  return { versions: [{ ...v, ...patch }] }
+}
+const data0 = (cp205Response().versions as Record<string, unknown>[])[0].data_205 as Record<string, unknown>
+
 beforeEach(() => {
   mockRpc.mockReset()
   mockGetSession.mockReset()
   mockTenant.mockReset()
-  mockTenant.mockResolvedValue(ORG)
+  // The session's own resolution points at another organization: the read must take the one it is given.
+  mockTenant.mockResolvedValue(OTHER_ORG)
   mockGetSession.mockResolvedValue({ data: { session: { user: { id: SESSION_USER } } } })
 })
 
 describe('discoverCostPolicy205: the four states (design §2)', () => {
   it('is absent only on PGRST202 from rpc_get_mfg_cost_policy_205', async () => {
     mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.rpc_get_mfg_cost_policy_205(p_org_id) in the schema cache' } })
-    await expect(discoverCostPolicy205()).resolves.toEqual({ status: 'absent' })
+    await expect(discoverCostPolicy205(ORG)).resolves.toEqual({ status: 'absent' })
     expect(mockRpc).toHaveBeenCalledTimes(1)
     expect(mockRpc).toHaveBeenCalledWith('rpc_get_mfg_cost_policy_205', { p_org_id: ORG })
   })
 
   it('does not take the "Could not find the function" text without the code as absence', async () => {
     mockRpc.mockResolvedValue({ data: null, error: { code: '', message: 'Could not find the function public.rpc_get_mfg_cost_policy_205' } })
-    const result = await discoverCostPolicy205()
+    const result = await discoverCostPolicy205(ORG)
     expect(result.status).toBe('unknown')
   })
 
   it('is denied on MANUFACTURING_SETTINGS_READ_DENIED', async () => {
     mockRpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'MANUFACTURING_SETTINGS_READ_DENIED' } })
-    await expect(discoverCostPolicy205()).resolves.toEqual({ status: 'denied' })
+    await expect(discoverCostPolicy205(ORG)).resolves.toEqual({ status: 'denied' })
   })
 
   it.each([
@@ -54,18 +62,29 @@ describe('discoverCostPolicy205: the four states (design §2)', () => {
     ['another database error', { code: 'P0001', message: 'NOT_ORG_MEMBER' }],
   ])('is unknown on %s', async (_label, error) => {
     mockRpc.mockResolvedValue({ data: null, error })
-    await expect(discoverCostPolicy205()).resolves.toEqual({ status: 'unknown', reason: error.message })
+    await expect(discoverCostPolicy205(ORG)).resolves.toEqual({ status: 'unknown', reason: error.message })
   })
 
   it('is unknown when the call throws (network)', async () => {
     mockRpc.mockRejectedValue(new TypeError('Failed to fetch'))
-    await expect(discoverCostPolicy205()).resolves.toEqual({ status: 'unknown', reason: 'Failed to fetch' })
+    await expect(discoverCostPolicy205(ORG)).resolves.toEqual({ status: 'unknown', reason: 'Failed to fetch' })
   })
 
   it('is unknown without an organization, and calls nothing', async () => {
-    mockTenant.mockResolvedValue(null)
-    await expect(discoverCostPolicy205()).resolves.toEqual({ status: 'unknown', reason: 'ORG_UNRESOLVED' })
+    await expect(discoverCostPolicy205(null)).resolves.toEqual({ status: 'unknown', reason: 'ORG_UNRESOLVED' })
     expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('reads the organization it is given, not the one the session resolves', async () => {
+    mockRpc.mockResolvedValue({ data: cp205Response(), error: null })
+    await discoverCostPolicy205(ORG)
+    expect(mockRpc).toHaveBeenCalledWith('rpc_get_mfg_cost_policy_205', { p_org_id: ORG })
+    expect(mockTenant).not.toHaveBeenCalled()
+  })
+
+  it('is unknown on a reply for another organization, which is never shown', async () => {
+    mockRpc.mockResolvedValue({ data: cp205Response({ org_id: OTHER_ORG }), error: null })
+    await expect(discoverCostPolicy205(ORG)).resolves.toEqual({ status: 'unknown', reason: 'COST_POLICY_205_ORG_MISMATCH' })
   })
 
   it.each([
@@ -76,17 +95,25 @@ describe('discoverCostPolicy205: the four states (design §2)', () => {
     ['an unknown approval path', { versions: [{ ...(cp205Response().versions as Record<string, unknown>[])[0], policy_205: 'other' }] }],
     ['an unknown company policy', { settings: { self_approval_enabled: false, unallocated_budget_policy: 'allow' } }],
     ['drafts that are not a list', { drafts: {} }],
+    // Nested fields the panel reads: each of these used to pass the parser and break the rendering.
+    ['a null pool in overhead_pools', version0({ overhead_pools: [null] })],
+    ['budgets that are an object', version0({ data_205: { ...data0, budgets: {} } })],
+    ['an empty approval', version0({ approval: {} })],
+    ['a pool of an unknown basis', version0({ overhead_pools: [{ pool_code: 'LABOR_OH', name: 'L', name_ar: null, basis: 'tons', rate: 12 }] })],
+    ['a data_205 pool of an unknown activity', version0({ data_205: { ...data0, pools: [{ code: 'LABOR_OH', basis: 'labor_hours', rate: 12, activity: 'idle' }] } })],
+    ['an empty legacy resolution', version0({ legacy_resolution: {} })],
+    ['an unallocated exception without its treatment', version0({ unallocated_exception: { budgets: { SUPERVISION: 4800.5 }, reason: 'period cost', approved_by: 'u' } })],
     ['a null response', null],
   ])('is unknown on a malformed reply: %s', async (_label, overrides) => {
     mockRpc.mockResolvedValue({ data: overrides === null ? null : cp205Response(overrides as Record<string, unknown>), error: null })
-    const result = await discoverCostPolicy205()
+    const result = await discoverCostPolicy205(ORG)
     expect(result.status).toBe('unknown')
     expect(result.status === 'unknown' && result.reason).toMatch(/^COST_POLICY_205_RESPONSE_INVALID: /)
   })
 
   it('is present on a reply of the contract shape, with the session user for display only', async () => {
     mockRpc.mockResolvedValue({ data: cp205Response(), error: null })
-    const result = await discoverCostPolicy205()
+    const result = await discoverCostPolicy205(ORG)
     expect(result.status).toBe('present')
     if (result.status !== 'present') return
     expect(result.state.sessionUserId).toBe(SESSION_USER)

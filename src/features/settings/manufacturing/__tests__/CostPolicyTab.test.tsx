@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from '@/test/test-utils'
 import userEvent from '@testing-library/user-event'
 import { focusManager } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import { cp205Response, ORG, SESSION_USER } from '@/services/__tests__/fixtures/cost-policy-205'
 import pg17 from '@/services/__tests__/fixtures/cost-policy-205-get.pg17.json'
@@ -9,6 +9,9 @@ import { CostPolicyTab } from '../CostPolicyTab'
 
 // The real services run against this client, so every RPC the tab reaches is recorded.
 const rpc = vi.fn()
+// The organization chosen in the selector. The session resolver follows it, as the server would.
+let authOrg: string | null = ORG
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ currentOrgId: authOrg }) }))
 vi.mock('@/lib/supabase', () => {
   const chain = { select: () => chain, eq: () => chain, order: () => Promise.resolve({ data: [], error: null }) }
   return {
@@ -17,11 +20,12 @@ vi.mock('@/lib/supabase', () => {
       from: () => chain,
       auth: { getSession: () => Promise.resolve({ data: { session: { user: { id: SESSION_USER } } } }) },
     },
-    getEffectiveTenantId: () => Promise.resolve(ORG),
+    getEffectiveTenantId: () => Promise.resolve(authOrg),
   }
 })
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
+const ORG_B = '52050205-0000-0000-0000-0000000000b1'
 const ABSENT = { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.rpc_get_mfg_cost_policy_205(p_org_id) in the schema cache' } }
 const STATE_204 = {
   org_id: ORG, today: '2026-10-22', current_version_id: 'v1', latest_version_no: 1,
@@ -53,8 +57,11 @@ function route(responses: Record<string, unknown>) {
 
 beforeEach(async () => {
   rpc.mockReset()
+  authOrg = ORG
   await act(async () => { await i18n.changeLanguage('en') })
 })
+// A failed focus test must not leave the window focused for the next one.
+afterEach(() => { act(() => { focusManager.setFocused(undefined) }) })
 
 describe('CostPolicyTab: discovery of 205 and the two panels', () => {
   it('absent: shows the 204 panel, with creation disabled under the freeze and nothing written', async () => {
@@ -175,5 +182,99 @@ describe('CostPolicyTab: discovery of 205 and the two panels', () => {
 
     await user.click(within(alert).getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(called()).toEqual(['rpc_get_mfg_cost_policy_205', 'rpc_get_mfg_cost_policy_205']))
+  })
+})
+
+describe('CostPolicyTab: the organization of the reply', () => {
+  it('switching the organization without a reload reads the new one, and a late reply of the previous one shows nothing of it', async () => {
+    let releaseA!: (reply: unknown) => void
+    rpc.mockImplementation((fn: string, args: { p_org_id: string }) => {
+      if (fn !== 'rpc_get_mfg_cost_policy_205') throw new Error(`unexpected RPC ${fn}`)
+      if (args.p_org_id === ORG) return new Promise(resolve => { releaseA = resolve })
+      return Promise.resolve({ data: cp205Response({ org_id: ORG_B, settings: { self_approval_enabled: true, unallocated_budget_policy: 'block' } }), error: null })
+    })
+    const { rerender } = render(<CostPolicyTab />)
+    await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1))
+
+    authOrg = ORG_B
+    rerender(<CostPolicyTab />)
+    expect(await screen.findByTestId('cp205-self-approval')).toHaveTextContent('On')
+
+    // The reply of the first organization arrives after the switch.
+    await act(async () => { releaseA({ data: cp205Response(), error: null }) })
+    expect(screen.getByTestId('cp205-self-approval')).toHaveTextContent('On')
+    expect(screen.getByTestId('cp205-unallocated-policy')).toHaveTextContent('Blocked')
+    expect(rpc.mock.calls.map(c => (c[1] as { p_org_id: string }).p_org_id)).toEqual([ORG, ORG_B])
+  })
+
+  it('a reply naming another organization is unknown, and neither panel is shown', async () => {
+    route({ rpc_get_mfg_cost_policy_205: { data: cp205Response({ org_id: ORG_B }), error: null } })
+    render(<CostPolicyTab />)
+
+    expect(await screen.findByTestId('cp205-unknown')).toHaveTextContent('COST_POLICY_205_ORG_MISMATCH')
+    expect(screen.queryByTestId('cp205-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cp-version-1')).not.toBeInTheDocument()
+  })
+
+  it('no organization selected: reads nothing and shows unknown', async () => {
+    authOrg = null
+    route({})
+    render(<CostPolicyTab />)
+
+    expect(await screen.findByTestId('cp205-unknown')).toHaveTextContent('ORG_UNRESOLVED')
+    expect(rpc).not.toHaveBeenCalled()
+  })
+})
+
+describe('CostPolicyTab: malformed nested fields end in unknown', () => {
+  const v0 = (patch: Record<string, unknown>) => {
+    const v = (cp205Response().versions as Record<string, unknown>[])[0]
+    return cp205Response({ versions: [{ ...v, ...patch }] })
+  }
+  const data0 = (cp205Response().versions as Record<string, unknown>[])[0].data_205 as Record<string, unknown>
+
+  it.each([
+    ['a null pool in overhead_pools', v0({ overhead_pools: [null] })],
+    ['budgets that are an object', v0({ data_205: { ...data0, budgets: {} } })],
+    ['an empty approval', v0({ approval: {} })],
+  ])('%s: no crash, no 204 panel, no 205 panel', async (_label, reply) => {
+    route({ rpc_get_mfg_cost_policy_205: { data: reply, error: null } })
+    render(<CostPolicyTab />)
+
+    expect(await screen.findByTestId('cp205-unknown')).toHaveTextContent('COST_POLICY_205_RESPONSE_INVALID')
+    expect(screen.queryByTestId('cp205-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cp-version-1')).not.toBeInTheDocument()
+    expect(called()).toEqual(['rpc_get_mfg_cost_policy_205'])
+  })
+})
+
+describe('CostPolicyTab: an old absent result is not shown while discovery runs again', () => {
+  it.each([
+    ['present', { data: cp205Response(), error: null }, 'cp205-panel'],
+    ['denied', { data: null, error: { code: '42501', message: 'MANUFACTURING_SETTINGS_READ_DENIED' } }, 'cp205-denied'],
+    ['unknown', { data: null, error: { code: '', message: 'Internal Server Error' } }, 'cp205-unknown'],
+  ])('back on the tab with a slow check that ends %s: the 204 panel goes at once and never returns', async (_label, reply, testId) => {
+    let pending: Promise<unknown> | null = null
+    let release!: (value: unknown) => void
+    route({
+      rpc_get_mfg_cost_policy_205: () => pending ?? ABSENT,
+      rpc_get_mfg_cost_policy: { data: STATE_204, error: null },
+    })
+    render(<CostPolicyTab />)
+    expect(await screen.findByTestId('cp-version-1')).toBeInTheDocument()
+
+    pending = new Promise(resolve => { release = resolve })
+    act(() => { focusManager.setFocused(false) })
+    act(() => { focusManager.setFocused(true) })
+
+    await waitFor(() => expect(called().filter(fn => fn === 'rpc_get_mfg_cost_policy_205')).toHaveLength(2))
+    expect(screen.queryByTestId('cp-version-1')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New version' })).not.toBeInTheDocument()
+
+    await act(async () => { release(reply) })
+    expect(await screen.findByTestId(testId)).toBeInTheDocument()
+    expect(screen.queryByTestId('cp-version-1')).not.toBeInTheDocument()
+    expect(called().some(fn => WRITES.includes(fn))).toBe(false)
+    act(() => { focusManager.setFocused(undefined) })
   })
 })
