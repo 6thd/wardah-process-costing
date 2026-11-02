@@ -34,7 +34,7 @@ describe('Settings overview — manufacturing settings card', () => {
     await act(async () => { await i18n.changeLanguage('en') })
   })
 
-  it.each([['manufacturing.settings.read'], ['manufacturing.settings.update']])(
+  it.each([['manufacturing.settings.read'], ['manufacturing.settings.update'], ['manufacturing.cost_policy.approve']])(
     '%s alone shows only the Manufacturing Settings card, linked to /settings/manufacturing',
     (key) => {
       keys.current = [key]

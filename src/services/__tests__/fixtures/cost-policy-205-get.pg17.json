@@ -1,0 +1,5827 @@
+{
+ "_source": "Reply of rpc_get_mfg_cost_policy_205 for the approver of org A, generated on local PostgreSQL 17 from the 205 file at main 29fac7d6 (sha256 32f2e22b) after the committed 205 acceptance, then rolled back. Not hand-written.",
+ "session_user": "52050205-0000-0000-0000-000000000a03",
+ "reply": {
+  "today": "2026-11-02",
+  "drafts": [
+   {
+    "id": "06eb7a4f-00c7-40d9-af58-5a023cd41b1d",
+    "kind": "version",
+    "reason": null,
+    "status": "approved",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-09",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 1.123456,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 7.000005,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 2.654321
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 1.123456
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": "b3574124-7caf-4aeb-a6c0-0933268b4f92",
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 100
+   },
+   {
+    "id": "24d66a96-2f89-45a0-afd2-0756528e422e",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-15",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000D1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000D2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 106
+   },
+   {
+    "id": "2537093c-a1e8-4eec-8ab5-3b9875456b09",
+    "kind": "legacy_resolution",
+    "reason": "section 13",
+    "status": "approved",
+    "payload": {
+     "pools": [
+      {
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "both",
+       "pool_code": "LABOR_OH"
+      },
+      {
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ]
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": "ef92d649-2e08-4c4a-bd69-169fd7b072da",
+    "result_version_id": "ef92d649-2e08-4c4a-bd69-169fd7b072da",
+    "unallocated_budgets": [],
+    "expected_latest_version_no": null
+   },
+   {
+    "id": "2f6ee45c-c347-4648-9cb5-ce8074620f4c",
+    "kind": "version",
+    "reason": null,
+    "status": "approved",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-15",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000D1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000D2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": "290922d4-c4c4-4265-91bf-5ef91f9300b8",
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 106
+   },
+   {
+    "id": "3c1b75d8-7529-4909-be9d-2e8c19a38e58",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-15",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "520502050000000000000000000000D1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "520502050000000000000000000000D2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 106
+   },
+   {
+    "id": "436924da-2808-4a83-bb94-736799c571bb",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 10.005,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "5367d4f8-6863-400c-a733-c84c05d28a17",
+    "kind": "version",
+    "reason": null,
+    "status": "rejected",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2026-11-03",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a05",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": "stale",
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 1
+   },
+   {
+    "id": "55f1c40e-a6e6-4515-b5a7-d046e707609e",
+    "kind": "version",
+    "reason": null,
+    "status": "approved",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2026-11-02",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": "1d112769-1cc4-4a9f-ad4f-d70ee6ea497c",
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 0
+   },
+   {
+    "id": "577f6622-45e4-4e1d-89dc-1c2445e21160",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2026-11-04",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "unallocated_exception": {
+      "budgets": [
+       "SUPERVISION"
+      ],
+      "treatment": "reported as unabsorbed overhead of the period; not charged to orders"
+     },
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 2
+   },
+   {
+    "id": "57fa0b1e-b2d6-44ac-9eaf-8532d2f3095f",
+    "kind": "version",
+    "reason": null,
+    "status": "approved",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-12",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": "6e699a2f-b9f2-4814-9266-ae9fd06575f7",
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 103
+   },
+   {
+    "id": "5a8eefd6-8b02-4788-8484-f7d14a060208",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "5abfba8d-169a-41ae-ac4a-51f82ba051d9",
+    "kind": "legacy_resolution",
+    "reason": "section 13 second",
+    "status": "draft",
+    "payload": {
+     "pools": [
+      {
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "both",
+       "pool_code": "LABOR_OH"
+      },
+      {
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ]
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": "ef92d649-2e08-4c4a-bd69-169fd7b072da",
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": null
+   },
+   {
+    "id": "5b13e0d2-155c-42a2-af9e-92c1f33d734a",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "69ed117b-2cb6-4ea1-97b3-f37f1bc0c3dc",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "6ba53746-1a21-4897-86dc-4746f3e8d07f",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2026-11-05",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "unallocated_exception": {
+      "reason": "supervision kept as a period cost this quarter",
+      "budgets": [
+       "SUPERVISION"
+      ],
+      "treatment": "reported as unabsorbed overhead of the period; not charged to orders"
+     },
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 3
+   },
+   {
+    "id": "794f2ced-e1b4-469f-a99c-c28a8cd204a0",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-15",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "{52050205-0000-0000-0000-0000000000D1}",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "{52050205-0000-0000-0000-0000000000D2}"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 106
+   },
+   {
+    "id": "811e7c8e-60f7-4068-9c21-b7655ac4fb74",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-13",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 103
+   },
+   {
+    "id": "82204a67-9092-46b4-b0ee-e3407a843d40",
+    "kind": "version",
+    "reason": null,
+    "status": "approved",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-13",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "unallocated_exception": {
+      "reason": "supervision kept as a period cost this quarter",
+      "budgets": [
+       "SUPERVISION"
+      ],
+      "treatment": "reported as unabsorbed overhead of the period; not charged to orders"
+     },
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": "7783eb8b-7541-4bee-a17f-9391000a9486",
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 104
+   },
+   {
+    "id": "82b1b03f-a6b5-4081-9da3-e3af14057efb",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": "abc",
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": "abc",
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "84770fc3-5648-4574-a9a2-7ba03c247b81",
+    "kind": "version",
+    "reason": null,
+    "status": "approved",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-10",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 47,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 2,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": "d058ef9d-2e1b-4bfd-91d9-d1193d89998c",
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 101
+   },
+   {
+    "id": "8c9c8568-5e87-4ab4-bb1c-3edbcc8352a9",
+    "kind": "version",
+    "reason": null,
+    "status": "withdrawn",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-09",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a02",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": "revision guard checked",
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 100
+   },
+   {
+    "id": "92c31c26-bd4c-4dd3-8c19-f64c2cad5d23",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "9b2ae0fc-2cf1-4e60-b702-78d78f90df05",
+    "kind": "version",
+    "reason": null,
+    "status": "withdrawn",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2026-11-03",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a01",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a01",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": "not needed",
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 1
+   },
+   {
+    "id": "9cc8e06d-7d5a-444e-b0e9-70ce48fe1443",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-15",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 106
+   },
+   {
+    "id": "9d76569b-c74f-4e58-8598-bb777b66406b",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION",
+        "ELECTRICITY"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "9eb9197c-3d64-4e8e-b5bd-ee0b92db40d0",
+    "kind": "version",
+    "reason": null,
+    "status": "approved",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-08",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 47,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 2,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": "af47b062-7758-480b-ae00-ba7f66c2de5f",
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 99
+   },
+   {
+    "id": "9f834a96-3853-4380-a313-da1ba71efbe2",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "adfa2730-d1f8-40a8-84cc-fde371f0e632",
+    "kind": "legacy_resolution",
+    "reason": "version created before 205",
+    "status": "approved",
+    "payload": {
+     "pools": [
+      {
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "both",
+       "pool_code": "LABOR_OH"
+      },
+      {
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ]
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a04",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": "40a2d591-e04d-49c0-adb0-bf527a23ff88",
+    "result_version_id": "40a2d591-e04d-49c0-adb0-bf527a23ff88",
+    "unallocated_budgets": [],
+    "expected_latest_version_no": null
+   },
+   {
+    "id": "b4451504-09e4-49c6-a578-1c46a6c661e9",
+    "kind": "version",
+    "reason": null,
+    "status": "withdrawn",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2026-11-04",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "unallocated_exception": {
+      "reason": "supervision kept as a period cost this quarter",
+      "budgets": [
+       "SUPERVISION"
+      ],
+      "treatment": "reported as unabsorbed overhead of the period; not charged to orders"
+     },
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a02",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": "test",
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 2
+   },
+   {
+    "id": "b4487de1-44b5-45cf-b08c-4ead225ddb5a",
+    "kind": "version",
+    "reason": null,
+    "status": "approved",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": "f45c0b9d-9486-4b02-909f-8e77d3a1cb22",
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "bb27a6de-886a-4447-9d97-43d05cd14e07",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2026-11-04",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 2
+   },
+   {
+    "id": "c73c4d1b-556b-42cd-8238-4299d28c41ef",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "cd9fcf43-302c-427a-ad38-1b09591d08c3",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "NOPE"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "ce6b6e28-d5a9-40d0-b510-31750ff7dc11",
+    "kind": "version",
+    "reason": null,
+    "status": "approved",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2026-11-04",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "unallocated_exception": {
+      "reason": "supervision kept as a period cost this quarter",
+      "budgets": [
+       "SUPERVISION"
+      ],
+      "treatment": "reported as unabsorbed overhead of the period; not charged to orders"
+     },
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a03",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": "f79aaa27-1e7d-49d3-8f24-34c6f423f9db",
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 2
+   },
+   {
+    "id": "db529049-e817-4a82-b800-9dc458f3728e",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "dcf35f44-0821-4635-bb00-a300f76ce59c",
+    "kind": "legacy_resolution",
+    "reason": "partial",
+    "status": "withdrawn",
+    "payload": {
+     "pools": [
+      {
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ]
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a02",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": "partial",
+    "legacy_version_id": "40a2d591-e04d-49c0-adb0-bf527a23ff88",
+    "result_version_id": null,
+    "unallocated_budgets": [],
+    "expected_latest_version_no": null
+   },
+   {
+    "id": "e380f4f6-ec53-42fd-b26d-e482d507eea6",
+    "kind": "version",
+    "reason": null,
+    "status": "draft",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2027-12-11",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "unallocated_exception": {
+      "reason": "supervision kept as a period cost this quarter",
+      "budgets": [
+       "SUPERVISION"
+      ],
+      "treatment": "reported as unabsorbed overhead of the period; not charged to orders"
+     },
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 102
+   },
+   {
+    "id": "e4c3c2a8-38d9-4cea-9812-f2e9ccb4a14c",
+    "kind": "legacy_resolution",
+    "reason": "section 13",
+    "status": "draft",
+    "payload": {
+     "pools": [
+      {
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      }
+     ],
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ]
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": null,
+    "decided_by": null,
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": "ef92d649-2e08-4c4a-bd69-169fd7b072da",
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": null
+   },
+   {
+    "id": "e52618af-f282-4b6d-9a9c-edbc9b27b5a8",
+    "kind": "version",
+    "reason": null,
+    "status": "withdrawn",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2026-11-04",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "L",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "ELECTRICITY"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      }
+     ],
+     "unallocated_exception": {
+      "reason": "supervision kept as a period cost this quarter",
+      "budgets": [
+       "SUPERVISION"
+      ],
+      "treatment": "reported as unabsorbed overhead of the period; not charged to orders"
+     },
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a02",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": "test",
+    "legacy_version_id": null,
+    "result_version_id": null,
+    "unallocated_budgets": [
+     {
+      "amount": 4800.5,
+      "budget_code": "SUPERVISION"
+     }
+    ],
+    "expected_latest_version_no": 2
+   },
+   {
+    "id": "f5dbc5f0-2300-488d-8d4a-08b6fdc4d336",
+    "kind": "version",
+    "reason": null,
+    "status": "approved",
+    "payload": {
+     "budgets": [
+      {
+       "amount": 9000,
+       "budget_code": "ELECTRICITY",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a1",
+       "setup_related": false
+      },
+      {
+       "amount": 15000,
+       "budget_code": "DEPRECIATION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a2",
+       "setup_related": false
+      },
+      {
+       "amount": 4800.5,
+       "budget_code": "SUPERVISION",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a3",
+       "setup_related": false
+      },
+      {
+       "amount": 3600,
+       "budget_code": "SETUP_CREW",
+       "gl_account_id": "52050205-0000-0000-0000-0000000005a4",
+       "planned_hours": 60,
+       "setup_related": true
+      }
+     ],
+     "pin_event": "mo_created",
+     "setup_acks": [
+      {
+       "pool_code": "MACHINE_OH",
+       "budget_code": "SETUP_CREW"
+      }
+     ],
+     "effective_from": "2026-11-03",
+     "overhead_pools": [
+      {
+       "name": "Machine overhead",
+       "rate": 46,
+       "basis": "machine_hours",
+       "budgets": [
+        "ELECTRICITY",
+        "DEPRECIATION",
+        "SETUP_CREW"
+       ],
+       "activity": "run",
+       "pool_code": "MACHINE_OH"
+      },
+      {
+       "name": "Labor overhead",
+       "rate": 12,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run",
+       "pool_code": "LABOR_OH"
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "work_center_rules": [
+      {
+       "pools": [
+        {
+         "rate": 55,
+         "applies": true,
+         "pool_code": "MACHINE_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+       "labor_rate_per_hour": 35
+      },
+      {
+       "pools": [
+        {
+         "applies": false,
+         "pool_code": "LABOR_OH"
+        }
+       ],
+       "work_center_id": "52050205-0000-0000-0000-0000000000d2"
+      }
+     ],
+     "default_labor_rate_per_hour": 30
+    },
+    "revision": 1,
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a04",
+    "decided_at": "2026-11-02T10:55:43.408624+00:00",
+    "decided_by": "52050205-0000-0000-0000-000000000a04",
+    "updated_at": "2026-11-02T10:55:43.408624+00:00",
+    "decision_reason": null,
+    "legacy_version_id": null,
+    "result_version_id": "ea24294e-6ced-4861-832d-00e9f4a328ac",
+    "unallocated_budgets": [],
+    "expected_latest_version_no": 1
+   }
+  ],
+  "org_id": "52050205-0000-0000-0000-0000000000a1",
+  "settings": {
+   "self_approval_enabled": false,
+   "unallocated_budget_policy": "block"
+  },
+  "versions": [
+   {
+    "id": "290922d4-c4c4-4265-91bf-5ef91f9300b8",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "229dca74-ff41-4532-a541-ab2db3ae4384",
+     "kind": "version",
+     "draft_id": "2f6ee45c-c347-4648-9cb5-ce8074620f4c",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 1,
+     "policy_version_id": "290922d4-c4c4-4265-91bf-5ef91f9300b8",
+     "unallocated_policy_at_approval": "block",
+     "self_approval_enabled_at_approval": false
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "LABOR_OH",
+       "rate": 12.0,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run"
+      },
+      {
+       "code": "MACHINE_OH",
+       "rate": 46.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 55.0,
+         "applies": true
+        }
+       },
+       "labor_rate": 35.0
+      },
+      "52050205-0000-0000-0000-0000000000d2": {
+       "pools": {
+        "LABOR_OH": {
+         "applies": false
+        }
+       }
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "approved_205",
+    "version_no": 107,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2027-12-15",
+    "overhead_pools": [
+     {
+      "name": "Labor overhead",
+      "rate": 12.0,
+      "basis": "labor_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "LABOR_OH"
+     },
+     {
+      "name": "Machine overhead",
+      "rate": 46.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 55.0,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 35.0,
+      "work_center_name_ar": null
+     },
+     {
+      "pools": [
+       {
+        "rate": null,
+        "applies": false,
+        "pool_code": "LABOR_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d2",
+      "work_center_code": "WC-B",
+      "work_center_name": "Packing",
+      "labor_rate_per_hour": null,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "ef92d649-2e08-4c4a-bd69-169fd7b072da",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "5b60c961-78a9-4b67-aee1-148975e7d3d8",
+     "kind": "legacy_resolution",
+     "draft_id": "2537093c-a1e8-4eec-8ab5-3b9875456b09",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 1,
+     "policy_version_id": "ef92d649-2e08-4c4a-bd69-169fd7b072da",
+     "unallocated_policy_at_approval": "block",
+     "self_approval_enabled_at_approval": false
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "LABOR_OH",
+       "rate": 12.0,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "both"
+      },
+      {
+       "code": "MACHINE_OH",
+       "rate": 40.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {},
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "legacy_resolved",
+    "version_no": 106,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2027-12-14",
+    "overhead_pools": [
+     {
+      "name": "L",
+      "rate": 12.0,
+      "basis": "labor_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "LABOR_OH"
+     },
+     {
+      "name": "M",
+      "rate": 40.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": {
+     "reason": "section 13",
+     "draft_id": "2537093c-a1e8-4eec-8ab5-3b9875456b09",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "resolved_at": "2026-11-02T10:55:43.408624+00:00",
+     "policy_version_id": "ef92d649-2e08-4c4a-bd69-169fd7b072da"
+    },
+    "work_center_rules": [],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "7783eb8b-7541-4bee-a17f-9391000a9486",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "707b7136-bc97-4440-bda8-e2c89c8a1ee0",
+     "kind": "version",
+     "draft_id": "82204a67-9092-46b4-b0ee-e3407a843d40",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 1,
+     "policy_version_id": "7783eb8b-7541-4bee-a17f-9391000a9486",
+     "unallocated_policy_at_approval": "controlled_exception",
+     "self_approval_enabled_at_approval": false
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "MACHINE_OH",
+       "rate": 46.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 55.0,
+         "applies": true
+        }
+       },
+       "labor_rate": 35.0
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0,
+     "unallocated_exception": {
+      "policy": "controlled_exception",
+      "reason": "supervision kept as a period cost this quarter",
+      "budgets": [
+       "SUPERVISION"
+      ],
+      "treatment": "reported as unabsorbed overhead of the period; not charged to orders",
+      "approved_by": "52050205-0000-0000-0000-000000000a03"
+     }
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "approved_205",
+    "version_no": 105,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2027-12-13",
+    "overhead_pools": [
+     {
+      "name": "Machine overhead",
+      "rate": 46.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 55.0,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 35.0,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": {
+     "reason": "supervision kept as a period cost this quarter",
+     "budgets": {
+      "SUPERVISION": 4800.5
+     },
+     "draft_id": "82204a67-9092-46b4-b0ee-e3407a843d40",
+     "treatment": "reported as unabsorbed overhead of the period; not charged to orders",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "policy_version_id": "7783eb8b-7541-4bee-a17f-9391000a9486",
+     "policy_at_approval": "controlled_exception"
+    },
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "6e699a2f-b9f2-4814-9266-ae9fd06575f7",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "d73cca09-282c-4932-941c-6a8286268d09",
+     "kind": "version",
+     "draft_id": "57fa0b1e-b2d6-44ac-9eaf-8532d2f3095f",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 1,
+     "policy_version_id": "6e699a2f-b9f2-4814-9266-ae9fd06575f7",
+     "unallocated_policy_at_approval": "block",
+     "self_approval_enabled_at_approval": false
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "LABOR_OH",
+       "rate": 12.0,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run"
+      },
+      {
+       "code": "MACHINE_OH",
+       "rate": 46.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 55.0,
+         "applies": true
+        }
+       },
+       "labor_rate": 35.0
+      },
+      "52050205-0000-0000-0000-0000000000d2": {
+       "pools": {
+        "LABOR_OH": {
+         "applies": false
+        }
+       }
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "approved_205",
+    "version_no": 104,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2027-12-12",
+    "overhead_pools": [
+     {
+      "name": "Labor overhead",
+      "rate": 12.0,
+      "basis": "labor_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "LABOR_OH"
+     },
+     {
+      "name": "Machine overhead",
+      "rate": 46.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 55.0,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 35.0,
+      "work_center_name_ar": null
+     },
+     {
+      "pools": [
+       {
+        "rate": null,
+        "applies": false,
+        "pool_code": "LABOR_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d2",
+      "work_center_code": "WC-B",
+      "work_center_name": "Packing",
+      "labor_rate_per_hour": null,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "f45c0b9d-9486-4b02-909f-8e77d3a1cb22",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "b11fe8f7-c3c9-483c-9c27-a137d459e56a",
+     "kind": "version",
+     "draft_id": "b4487de1-44b5-45cf-b08c-4ead225ddb5a",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 1,
+     "policy_version_id": "f45c0b9d-9486-4b02-909f-8e77d3a1cb22",
+     "unallocated_policy_at_approval": "block",
+     "self_approval_enabled_at_approval": false
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "LABOR_OH",
+       "rate": 12.0,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run"
+      },
+      {
+       "code": "MACHINE_OH",
+       "rate": 46.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 55.0,
+         "applies": true
+        }
+       },
+       "labor_rate": 35.0
+      },
+      "52050205-0000-0000-0000-0000000000d2": {
+       "pools": {
+        "LABOR_OH": {
+         "applies": false
+        }
+       }
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "approved_205",
+    "version_no": 103,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2027-12-11",
+    "overhead_pools": [
+     {
+      "name": "Labor overhead",
+      "rate": 12.0,
+      "basis": "labor_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "LABOR_OH"
+     },
+     {
+      "name": "Machine overhead",
+      "rate": 46.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 55.0,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 35.0,
+      "work_center_name_ar": null
+     },
+     {
+      "pools": [
+       {
+        "rate": null,
+        "applies": false,
+        "pool_code": "LABOR_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d2",
+      "work_center_code": "WC-B",
+      "work_center_name": "Packing",
+      "labor_rate_per_hour": null,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "d058ef9d-2e1b-4bfd-91d9-d1193d89998c",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "4b80fdfd-ae8a-4ade-90e1-1487937905a2",
+     "kind": "version",
+     "draft_id": "84770fc3-5648-4574-a9a2-7ba03c247b81",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 2,
+     "policy_version_id": "d058ef9d-2e1b-4bfd-91d9-d1193d89998c",
+     "unallocated_policy_at_approval": "block",
+     "self_approval_enabled_at_approval": false
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "LABOR_OH",
+       "rate": 12.0,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run"
+      },
+      {
+       "code": "MACHINE_OH",
+       "rate": 47.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 55.0,
+         "applies": true
+        }
+       },
+       "labor_rate": 35.0
+      },
+      "52050205-0000-0000-0000-0000000000d2": {
+       "pools": {
+        "LABOR_OH": {
+         "applies": false
+        }
+       }
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "approved_205",
+    "version_no": 102,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2027-12-10",
+    "overhead_pools": [
+     {
+      "name": "Labor overhead",
+      "rate": 12.0,
+      "basis": "labor_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "LABOR_OH"
+     },
+     {
+      "name": "Machine overhead",
+      "rate": 47.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 55.0,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 35.0,
+      "work_center_name_ar": null
+     },
+     {
+      "pools": [
+       {
+        "rate": null,
+        "applies": false,
+        "pool_code": "LABOR_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d2",
+      "work_center_code": "WC-B",
+      "work_center_name": "Packing",
+      "labor_rate_per_hour": null,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "b3574124-7caf-4aeb-a6c0-0933268b4f92",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "0762e9f2-74f3-484b-a1b1-d42f63bb7f22",
+     "kind": "version",
+     "draft_id": "06eb7a4f-00c7-40d9-af58-5a023cd41b1d",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 1,
+     "policy_version_id": "b3574124-7caf-4aeb-a6c0-0933268b4f92",
+     "unallocated_policy_at_approval": "block",
+     "self_approval_enabled_at_approval": false
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "LABOR_OH",
+       "rate": 12.0,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run"
+      },
+      {
+       "code": "MACHINE_OH",
+       "rate": 1.123456,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 7.000005,
+         "applies": true
+        }
+       },
+       "labor_rate": 2.654321
+      },
+      "52050205-0000-0000-0000-0000000000d2": {
+       "pools": {
+        "LABOR_OH": {
+         "applies": false
+        }
+       }
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 1.123456
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "approved_205",
+    "version_no": 101,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2027-12-09",
+    "overhead_pools": [
+     {
+      "name": "Labor overhead",
+      "rate": 12.0,
+      "basis": "labor_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "LABOR_OH"
+     },
+     {
+      "name": "Machine overhead",
+      "rate": 1.123456,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 7.000005,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 2.654321,
+      "work_center_name_ar": null
+     },
+     {
+      "pools": [
+       {
+        "rate": null,
+        "applies": false,
+        "pool_code": "LABOR_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d2",
+      "work_center_code": "WC-B",
+      "work_center_name": "Packing",
+      "labor_rate_per_hour": null,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 1.123456
+   },
+   {
+    "id": "af47b062-7758-480b-ae00-ba7f66c2de5f",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "d4c060ed-7c0d-429f-b89c-b6ab9d0bee2e",
+     "kind": "version",
+     "draft_id": "9eb9197c-3d64-4e8e-b5bd-ee0b92db40d0",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 2,
+     "policy_version_id": "af47b062-7758-480b-ae00-ba7f66c2de5f",
+     "unallocated_policy_at_approval": "block",
+     "self_approval_enabled_at_approval": false
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "LABOR_OH",
+       "rate": 12.0,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run"
+      },
+      {
+       "code": "MACHINE_OH",
+       "rate": 47.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 55.0,
+         "applies": true
+        }
+       },
+       "labor_rate": 35.0
+      },
+      "52050205-0000-0000-0000-0000000000d2": {
+       "pools": {
+        "LABOR_OH": {
+         "applies": false
+        }
+       }
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "approved_205",
+    "version_no": 100,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2027-12-08",
+    "overhead_pools": [
+     {
+      "name": "Labor overhead",
+      "rate": 12.0,
+      "basis": "labor_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "LABOR_OH"
+     },
+     {
+      "name": "Machine overhead",
+      "rate": 47.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 55.0,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 35.0,
+      "work_center_name_ar": null
+     },
+     {
+      "pools": [
+       {
+        "rate": null,
+        "applies": false,
+        "pool_code": "LABOR_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d2",
+      "work_center_code": "WC-B",
+      "work_center_name": "Packing",
+      "labor_rate_per_hour": null,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "f298f810-7351-40f9-815a-8a497f803052",
+    "note": null,
+    "status": "scheduled",
+    "approval": null,
+    "data_205": {
+     "pools": [],
+     "wc_rules": {},
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": null,
+    "policy_205": "legacy_unresolved",
+    "version_no": 99,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2027-12-07",
+    "overhead_pools": [],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "40a2d591-e04d-49c0-adb0-bf527a23ff88",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "0fa28409-2714-46c2-bccf-da56a7e402f8",
+     "kind": "legacy_resolution",
+     "draft_id": "adfa2730-d1f8-40a8-84cc-fde371f0e632",
+     "created_by": "52050205-0000-0000-0000-000000000a04",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 1,
+     "policy_version_id": "40a2d591-e04d-49c0-adb0-bf527a23ff88",
+     "unallocated_policy_at_approval": "block",
+     "self_approval_enabled_at_approval": false
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "LABOR_OH",
+       "rate": 12.0,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "both"
+      },
+      {
+       "code": "MACHINE_OH",
+       "rate": 40.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 55.0,
+         "applies": true
+        }
+       },
+       "labor_rate": 35.0
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "legacy_resolved",
+    "version_no": 4,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2026-11-12",
+    "overhead_pools": [
+     {
+      "name": "L",
+      "rate": 12.0,
+      "basis": "labor_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "LABOR_OH"
+     },
+     {
+      "name": "M",
+      "rate": 40.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": {
+     "reason": "version created before 205",
+     "draft_id": "adfa2730-d1f8-40a8-84cc-fde371f0e632",
+     "created_by": "52050205-0000-0000-0000-000000000a04",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "resolved_at": "2026-11-02T10:55:43.408624+00:00",
+     "policy_version_id": "40a2d591-e04d-49c0-adb0-bf527a23ff88"
+    },
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 55.0,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 35.0,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "f79aaa27-1e7d-49d3-8f24-34c6f423f9db",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "729d6556-55e5-4b82-9e3d-5082bd2905f9",
+     "kind": "version",
+     "draft_id": "ce6b6e28-d5a9-40d0-b510-31750ff7dc11",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 1,
+     "policy_version_id": "f79aaa27-1e7d-49d3-8f24-34c6f423f9db",
+     "unallocated_policy_at_approval": "controlled_exception",
+     "self_approval_enabled_at_approval": true
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "MACHINE_OH",
+       "rate": 46.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 55.0,
+         "applies": true
+        }
+       },
+       "labor_rate": 35.0
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0,
+     "unallocated_exception": {
+      "policy": "controlled_exception",
+      "reason": "supervision kept as a period cost this quarter",
+      "budgets": [
+       "SUPERVISION"
+      ],
+      "treatment": "reported as unabsorbed overhead of the period; not charged to orders",
+      "approved_by": "52050205-0000-0000-0000-000000000a03"
+     }
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "approved_205",
+    "version_no": 3,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2026-11-04",
+    "overhead_pools": [
+     {
+      "name": "Machine overhead",
+      "rate": 46.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 55.0,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 35.0,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": {
+     "reason": "supervision kept as a period cost this quarter",
+     "budgets": {
+      "SUPERVISION": 4800.5
+     },
+     "draft_id": "ce6b6e28-d5a9-40d0-b510-31750ff7dc11",
+     "treatment": "reported as unabsorbed overhead of the period; not charged to orders",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "policy_version_id": "f79aaa27-1e7d-49d3-8f24-34c6f423f9db",
+     "policy_at_approval": "controlled_exception"
+    },
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "ea24294e-6ced-4861-832d-00e9f4a328ac",
+    "note": null,
+    "status": "scheduled",
+    "approval": {
+     "id": "523919fd-7ed0-4822-ab86-7c952cc559d7",
+     "kind": "version",
+     "draft_id": "f5dbc5f0-2300-488d-8d4a-08b6fdc4d336",
+     "created_by": "52050205-0000-0000-0000-000000000a04",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a04",
+     "self_approved": true,
+     "draft_revision": 1,
+     "policy_version_id": "ea24294e-6ced-4861-832d-00e9f4a328ac",
+     "unallocated_policy_at_approval": "block",
+     "self_approval_enabled_at_approval": true
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "LABOR_OH",
+       "rate": 12.0,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run"
+      },
+      {
+       "code": "MACHINE_OH",
+       "rate": 46.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 55.0,
+         "applies": true
+        }
+       },
+       "labor_rate": 35.0
+      },
+      "52050205-0000-0000-0000-0000000000d2": {
+       "pools": {
+        "LABOR_OH": {
+         "applies": false
+        }
+       }
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a04",
+    "policy_205": "approved_205",
+    "version_no": 2,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2026-11-03",
+    "overhead_pools": [
+     {
+      "name": "Labor overhead",
+      "rate": 12.0,
+      "basis": "labor_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "LABOR_OH"
+     },
+     {
+      "name": "Machine overhead",
+      "rate": 46.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 55.0,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 35.0,
+      "work_center_name_ar": null
+     },
+     {
+      "pools": [
+       {
+        "rate": null,
+        "applies": false,
+        "pool_code": "LABOR_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d2",
+      "work_center_code": "WC-B",
+      "work_center_name": "Packing",
+      "labor_rate_per_hour": null,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 0,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   },
+   {
+    "id": "1d112769-1cc4-4a9f-ad4f-d70ee6ea497c",
+    "note": null,
+    "status": "current",
+    "approval": {
+     "id": "d9bc32dd-f6a7-43a2-89b9-b7c9f0468bbc",
+     "kind": "version",
+     "draft_id": "55f1c40e-a6e6-4515-b5a7-d046e707609e",
+     "created_by": "52050205-0000-0000-0000-000000000a02",
+     "approved_at": "2026-11-02T10:55:43.408624+00:00",
+     "approved_by": "52050205-0000-0000-0000-000000000a03",
+     "self_approved": false,
+     "draft_revision": 1,
+     "policy_version_id": "1d112769-1cc4-4a9f-ad4f-d70ee6ea497c",
+     "unallocated_policy_at_approval": "block",
+     "self_approval_enabled_at_approval": false
+    },
+    "data_205": {
+     "pools": [
+      {
+       "code": "LABOR_OH",
+       "rate": 12.0,
+       "basis": "labor_hours",
+       "budgets": [
+        "SUPERVISION"
+       ],
+       "activity": "run"
+      },
+      {
+       "code": "MACHINE_OH",
+       "rate": 46.0,
+       "basis": "machine_hours",
+       "budgets": [
+        "DEPRECIATION",
+        "ELECTRICITY",
+        "SETUP_CREW"
+       ],
+       "activity": "run"
+      }
+     ],
+     "budgets": [
+      {
+       "code": "DEPRECIATION",
+       "setup": false,
+       "amount": 15000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a2",
+       "cost_center": null
+      },
+      {
+       "code": "ELECTRICITY",
+       "setup": false,
+       "amount": 9000.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a1",
+       "cost_center": null
+      },
+      {
+       "code": "SETUP_CREW",
+       "setup": true,
+       "amount": 3600.0,
+       "gl_account": "52050205-0000-0000-0000-0000000005a4",
+       "cost_center": null
+      },
+      {
+       "code": "SUPERVISION",
+       "setup": false,
+       "amount": 4800.5,
+       "gl_account": "52050205-0000-0000-0000-0000000005a3",
+       "cost_center": null
+      }
+     ],
+     "wc_rules": {
+      "52050205-0000-0000-0000-0000000000d1": {
+       "pools": {
+        "MACHINE_OH": {
+         "rate": 55.0,
+         "applies": true
+        }
+       },
+       "labor_rate": 35.0
+      },
+      "52050205-0000-0000-0000-0000000000d2": {
+       "pools": {
+        "LABOR_OH": {
+         "applies": false
+        }
+       }
+      }
+     },
+     "setup_acks": [
+      {
+       "pool": "MACHINE_OH",
+       "budgets": [
+        "SETUP_CREW"
+       ]
+      }
+     ],
+     "labor_cost_source": "work_center_rate",
+     "default_labor_rate": 30.0
+    },
+    "pin_event": "mo_created",
+    "created_at": "2026-11-02T10:55:43.408624+00:00",
+    "created_by": "52050205-0000-0000-0000-000000000a02",
+    "policy_205": "approved_205",
+    "version_no": 1,
+    "withdrawn_at": null,
+    "withdrawn_by": null,
+    "effective_from": "2026-11-02",
+    "overhead_pools": [
+     {
+      "name": "Labor overhead",
+      "rate": 12.0,
+      "basis": "labor_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "LABOR_OH"
+     },
+     {
+      "name": "Machine overhead",
+      "rate": 46.0,
+      "basis": "machine_hours",
+      "name_ar": null,
+      "basis_uom": "hour",
+      "pool_code": "MACHINE_OH"
+     }
+    ],
+    "withdraw_reason": null,
+    "labor_cost_source": "work_center_rate",
+    "legacy_resolution": null,
+    "work_center_rules": [
+     {
+      "pools": [
+       {
+        "rate": 55.0,
+        "applies": true,
+        "pool_code": "MACHINE_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d1",
+      "work_center_code": "WC-A",
+      "work_center_name": "Mixing",
+      "labor_rate_per_hour": 35.0,
+      "work_center_name_ar": null
+     },
+     {
+      "pools": [
+       {
+        "rate": null,
+        "applies": false,
+        "pool_code": "LABOR_OH"
+       }
+      ],
+      "work_center_id": "52050205-0000-0000-0000-0000000000d2",
+      "work_center_code": "WC-B",
+      "work_center_name": "Packing",
+      "labor_rate_per_hour": null,
+      "work_center_name_ar": null
+     }
+    ],
+    "pinned_order_count": 1,
+    "stage_costing_method": "weighted_average",
+    "unallocated_exception": null,
+    "awaiting_start_order_count": 0,
+    "default_labor_rate_per_hour": 30.0
+   }
+  ],
+  "supported": {
+   "pin_events": [
+    "mo_created",
+    "production_started"
+   ],
+   "overhead_bases": [
+    "labor_hours",
+    "machine_hours"
+   ],
+   "pool_activities": [
+    "run",
+    "setup",
+    "both"
+   ],
+   "labor_cost_sources": [
+    "work_center_rate",
+    "recorded_entry_rate"
+   ],
+   "cost_centers_accepted": false,
+   "stage_costing_methods": [
+    "weighted_average"
+   ],
+   "unallocated_budget_policies": [
+    "block",
+    "controlled_exception"
+   ]
+  },
+  "capabilities": {
+   "can_create": false,
+   "can_approve": true,
+   "can_self_approve": false,
+   "can_manage_approval_settings": false,
+   "can_manage_unallocated_policy": false
+  },
+  "settings_audit": [
+   {
+    "id": 6,
+    "reason": "section 13 back",
+    "setting": "unallocated_budget_policy",
+    "new_value": "block",
+    "old_value": "controlled_exception",
+    "changed_at": "2026-11-02T10:55:43.408624+00:00",
+    "changed_by": "52050205-0000-0000-0000-000000000a07"
+   },
+   {
+    "id": 5,
+    "reason": "section 13",
+    "setting": "unallocated_budget_policy",
+    "new_value": "controlled_exception",
+    "old_value": "block",
+    "changed_at": "2026-11-02T10:55:43.408624+00:00",
+    "changed_by": "52050205-0000-0000-0000-000000000a07"
+   },
+   {
+    "id": 4,
+    "reason": "back to four eyes",
+    "setting": "self_approval_enabled",
+    "new_value": "false",
+    "old_value": "true",
+    "changed_at": "2026-11-02T10:55:43.408624+00:00",
+    "changed_by": "52050205-0000-0000-0000-000000000a06"
+   },
+   {
+    "id": 3,
+    "reason": "quarter closed",
+    "setting": "unallocated_budget_policy",
+    "new_value": "block",
+    "old_value": "controlled_exception",
+    "changed_at": "2026-11-02T10:55:43.408624+00:00",
+    "changed_by": "52050205-0000-0000-0000-000000000a07"
+   },
+   {
+    "id": 2,
+    "reason": "quarter with idle supervision",
+    "setting": "unallocated_budget_policy",
+    "new_value": "controlled_exception",
+    "old_value": "block",
+    "changed_at": "2026-11-02T10:55:43.408624+00:00",
+    "changed_by": "52050205-0000-0000-0000-000000000a07"
+   },
+   {
+    "id": 1,
+    "reason": "small team this quarter",
+    "setting": "self_approval_enabled",
+    "new_value": "true",
+    "old_value": "false",
+    "changed_at": "2026-11-02T10:55:43.408624+00:00",
+    "changed_by": "52050205-0000-0000-0000-000000000a06"
+   }
+  ],
+  "latest_version_no": 107,
+  "current_version_id": "1d112769-1cc4-4a9f-ad4f-d70ee6ea497c"
+ }
+}

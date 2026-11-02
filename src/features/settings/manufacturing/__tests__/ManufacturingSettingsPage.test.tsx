@@ -8,6 +8,8 @@ import { ManufacturingSettingsPage } from '../ManufacturingSettingsPage'
 vi.mock('@/components/ui/page-header', () => ({
   PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
 }))
+// The tab has its own tests (CostPolicyTab.test.tsx); here only where the page places it matters.
+vi.mock('../CostPolicyTab', () => ({ CostPolicyTab: () => <div data-testid="cost-policy-tab">cost policy tab</div> }))
 
 const toastError = vi.fn()
 const toastSuccess = vi.fn()
@@ -144,6 +146,28 @@ describe('ManufacturingSettingsPage', () => {
       eventCode: 'FG_RECEIPT', workCenterCode: null, debitAccountCode: '135100',
       creditAccountCode: '134100', description: null, isActive: true,
     }))
+  })
+
+  it('shows only the cost-policy tab, open, to a user the settings reads refuse (the 205 approve key alone)', async () => {
+    service.getQualityPolicy.mockRejectedValue(new Error('MANUFACTURING_SETTINGS_READ_DENIED'))
+    render(<ManufacturingSettingsPage />)
+
+    expect(await screen.findByTestId('cost-policy-tab')).toBeInTheDocument()
+    expect(screen.getByText(/You can see the cost policy only/)).toBeInTheDocument()
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    // The default tab mounts while the read is pending and may read once; nothing in it writes,
+    // and once the refusal is known it is gone.
+    expect(screen.queryByRole('checkbox', { name: 'Ready' })).not.toBeInTheDocument()
+    expect(service.setMaterialIssueStatuses).not.toHaveBeenCalled()
+    expect(service.listGlEventMappings).not.toHaveBeenCalled()
+  })
+
+  it('keeps the error and the tabs for any other failure of the settings read', async () => {
+    service.getQualityPolicy.mockRejectedValue(new Error('Failed to fetch'))
+    render(<ManufacturingSettingsPage />)
+
+    expect(await screen.findByText('Failed to fetch')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Cost policies' })).toBeInTheDocument()
   })
 
   it('shows a translated refusal when the database denies the save', async () => {

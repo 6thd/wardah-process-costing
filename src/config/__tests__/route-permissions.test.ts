@@ -144,7 +144,7 @@ describe('resolveRoutePermission — fail-closed contract', () => {
       const expected = {
         anyOf: [
           'settings.organization.read', 'settings.users.read', 'settings.roles.read',
-          'manufacturing.settings.read', 'manufacturing.settings.update',
+          'manufacturing.settings.read', 'manufacturing.settings.update', 'manufacturing.cost_policy.approve',
         ],
       };
       expect(resolveRoutePermission('settings', '/')).toEqual(expected);
@@ -161,12 +161,17 @@ describe('resolveRoutePermission — fail-closed contract', () => {
   });
 
   describe('settings — /manufacturing (M201 keys)', () => {
-    it('admits manufacturing.settings.read or .update, and nothing else', () => {
+    it('admits manufacturing.settings.read, .update or the 205 approve key, and nothing else', () => {
       const requirement = resolveRoutePermission('settings', '/manufacturing');
-      expect(requirement).toEqual({ anyOf: ['manufacturing.settings.read', 'manufacturing.settings.update'] });
+      expect(requirement).toEqual({
+        anyOf: ['manufacturing.settings.read', 'manufacturing.settings.update', 'manufacturing.cost_policy.approve'],
+      });
       const has = (keys: string[]) => (k: string) => keys.includes(k);
       expect(requirement && satisfiesRouteRequirement(requirement, has(['manufacturing.settings.read']))).toBe(true);
       expect(requirement && satisfiesRouteRequirement(requirement, has(['manufacturing.settings.update']))).toBe(true);
+      // rpc_get_mfg_cost_policy_205 lets an approve holder read; the route must not stop them first (205 design §13).
+      expect(requirement && satisfiesRouteRequirement(requirement, has(['manufacturing.cost_policy.approve']))).toBe(true);
+      expect(requirement && satisfiesRouteRequirement(requirement, has(['manufacturing.cost_policy.self_approve']))).toBe(false);
       expect(requirement && satisfiesRouteRequirement(requirement, has(['settings.organization.read']))).toBe(false);
       expect(requirement && satisfiesRouteRequirement(requirement, has(['manufacturing.orders.read', 'manufacturing.stage_costs.read']))).toBe(false);
     });

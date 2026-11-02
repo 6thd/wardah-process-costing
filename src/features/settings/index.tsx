@@ -41,8 +41,10 @@ function SettingsOverview() {
   const canReadOrganization = hasPermissionKey('settings.organization.read')
   const canReadUsers = hasPermissionKey('settings.users.read')
   const canReadRoles = hasPermissionKey('settings.roles.read')
+  // يطابق SETTINGS_MANUFACTURING في route-permissions.ts، ومنه approve (Migration 205).
   const canReadManufacturingSettings =
     hasPermissionKey('manufacturing.settings.read') || hasPermissionKey('manufacturing.settings.update')
+    || hasPermissionKey('manufacturing.cost_policy.approve')
 
   const settingsCategories = [
     {
