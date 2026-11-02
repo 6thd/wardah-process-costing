@@ -11,6 +11,22 @@
 #     stale, and a stale calculation cannot be approved or posted;
 #   * compute_204() is exactly Migration 204 §4 (labor_hours, machine_hours, recorded_labor_cost); the run/setup extension is a separate,
 #     proposed compute_205_proposed() and is never presented as a 204 input.
+# Revision 4 (owner approved group A, 2026-10-28; additive, closes gap G1 of the design annex): compute_205() and validate_205_version()
+#   implement the approved overhead design for Migration 205 (activity and budgets on each pool, direct labor on all approved direct hours,
+#   one budget in one pool, setup budgets loaded exactly once or by a scoped acknowledgement, legacy 204 versions resolved by a separate
+#   record that never edits the version). Every revision-3 function is unchanged; compute_205_proposed() stays as the superseded design.
+#   Revision 4b (Codex review of e66b1136): duplicate pool codes, non-positive rates, negative or non-numeric hours and amounts are refused;
+#   only the hours the computation uses are required; an account alone and the same account with a cost center cannot both be budgets.
+#   Revision 4c (owner decisions 205-Q3 and 205-Q4, 2026-10-29): a budget needs a GL account (the cost center stays optional; none = the
+#   account-wide scope); a selected budget that no pool loads is refused unless the company policy allows a controlled exception, recorded with
+#   the version (budgets, reason, treatment, approver), shown with its amounts and never absorbed. The exception relaxes nothing else.
+#   Revision 4d (Codex review of the Migration 205 implementation, 2026-10-29): a 205 rate has the precision 204 stores and accepts
+#   (numeric(18,6): positive, at most six decimal places as PostgreSQL scale() counts them, at most 999999999) and is used exactly; an
+#   amount is the exact product rounded half up to the cent, as 204's round(hours * rate, 2). r4c turned the rate into cents first and so
+#   failed (ValueError) on a rate 204 accepts, such as 1.123456. A recorded labor cost with a fraction of a cent is refused with
+#   COST_POLICY_RECORDED_COST_INVALID (r4c raised ValueError), as the SQL does: no input ends in an error that is not a policy code.
+#   Revision 4e (CI of the Migration 205 pull request, 2026-10-31): validate_205_version and compute_205 are the statements of r4d in the same
+#   order, grouped into private helpers for readability; no behaviour changes (the parity cases recorded on r4d and r4e are byte-identical).
 # legacy_v1_stage() is the revision-1 algorithm, kept only to reproduce the counterexamples it fails on.
 import random
 from fractions import Fraction as F
@@ -129,6 +145,243 @@ def compute_205_proposed(version, wc, hours, recorded_labor_cost=None):
             driver = lh if resource == "labor" else mh
         pools[p["code"]] = round_half_up(driver * cents(pr.get("rate", p["rate"])))
     return {"labor": labor, "pools": pools, "total": labor + sum(pools.values()), "labor_hours": lh, "machine_hours": mh}
+
+
+# ---------------------------------------------------------------- 205 (revision 4): approved overhead design, group A
+ACTIVITIES = {"run": ("run",), "setup": ("setup",), "both": ("run", "setup")}
+POOL_205_KEYS = {"code", "basis", "rate", "activity", "budgets"}
+UNALLOCATED_POLICIES = ("block", "controlled_exception")
+UNALLOCATED_EXCEPTION_KEYS = {"policy", "budgets", "reason", "treatment", "approved_by"}
+
+
+def number_205(x, code, positive):
+    """an input amount as an exact Fraction; not a number, negative, or (positive=True) zero is refused with the given code"""
+    try:
+        n = F(str(x))
+    except (TypeError, ValueError, ZeroDivisionError):
+        raise StageCostError(f"{code}: {x!r}") from None
+    if n < 0 or (positive and n == 0):
+        raise StageCostError(f"{code}: {x!r}")
+    return n
+
+
+RATE_MAX_205 = 999999999
+
+
+def rate_205(x):
+    """a rate as 204 stores and accepts it (numeric(18,6), C_MAX_RATE of 204), as an exact Fraction: positive, at most six decimal places
+    (trailing zeros count, as PostgreSQL scale() counts them), at most RATE_MAX_205; anything else is COST_POLICY_RATE_INVALID"""
+    from decimal import Decimal, InvalidOperation
+    n = number_205(x, "COST_POLICY_RATE_INVALID", True)
+    try:
+        exponent = Decimal(str(x)).as_tuple().exponent
+    except InvalidOperation:
+        raise StageCostError(f"COST_POLICY_RATE_INVALID: {x!r}") from None
+    if not isinstance(exponent, int) or exponent < -6 or n > RATE_MAX_205:
+        raise StageCostError(f"COST_POLICY_RATE_INVALID: {x!r}")
+    return n
+
+
+def _check_rates_205(v):
+    """every rate of the version: the labor default when labor is priced at a rate, each pool, each work-center override"""
+    if v["labor_cost_source"] == "work_center_rate":
+        rate_205(v["default_labor_rate"])
+    for p in v["pools"]:
+        rate_205(p["rate"])
+    for rule in v.get("wc_rules", {}).values():
+        if "labor_rate" in rule:
+            rate_205(rule["labor_rate"])
+        for pr in rule.get("pools", {}).values():
+            if "rate" in pr:
+                rate_205(pr["rate"])
+
+
+def _check_budget_sources_205(budgets):
+    """a budget needs an account; one code per (account, center); an account alone and the same account with a center cannot both be budgets"""
+    sources = {}
+    for code, b in budgets.items():
+        if not b.get("gl_account"):
+            raise StageCostError(f"COST_POLICY_BUDGET_ACCOUNT_REQUIRED: {code}")
+        key = (b["gl_account"], b.get("cost_center"))
+        if key in sources:
+            raise StageCostError("COST_POLICY_BUDGET_DUPLICATE_SOURCE")
+        sources[key] = code
+    for gl, cc in sources:
+        if cc is None and any(g == gl and c is not None for g, c in sources):
+            raise StageCostError("COST_POLICY_BUDGET_SOURCE_OVERLAP")
+
+
+def _budget_owners_205(pools, budgets):
+    """{budget code: the pool that loads it}, with each pool's own rules: an activity, at least one budget, known budgets, one budget in one pool"""
+    owner = {}
+    for p in pools:
+        if not set(p) <= POOL_205_KEYS or p.get("activity") not in ACTIVITIES:
+            raise StageCostError("COST_POLICY_POOL_ACTIVITY_UNSET")
+        if not p.get("budgets"):
+            raise StageCostError("COST_POLICY_POOL_WITHOUT_BUDGET")
+        for b in p["budgets"]:
+            if b not in budgets:
+                raise StageCostError("COST_POLICY_BUDGET_UNKNOWN")
+            if b in owner:
+                raise StageCostError("COST_POLICY_BUDGET_DOUBLE_ALLOCATION")
+            owner[b] = p
+    return owner
+
+
+def _check_setup_acks_205(pools, budgets, acks):
+    """a scoped acknowledgement names a setup budget of a run pool"""
+    for pool_code, ack_codes in acks.items():
+        pool = next((p for p in pools if p["code"] == pool_code), None)
+        for b in ack_codes:
+            if pool is None or pool["activity"] != "run" or b not in pool["budgets"] or not budgets[b]["setup"]:
+                raise StageCostError("COST_POLICY_SETUP_ACK_INVALID")
+
+
+def _check_budget_treatment_205(budgets, owner, acks, exc):
+    """every budget is loaded or excepted; a setup budget in a run pool needs its acknowledgement"""
+    excepted = set(exc.get("budgets") or []) if isinstance(exc, dict) else set()
+    for code, b in budgets.items():
+        if code not in owner:
+            if code in excepted:
+                continue
+            raise StageCostError("COST_POLICY_SETUP_TREATMENT_UNSET" if b["setup"] else "COST_POLICY_BUDGET_UNALLOCATED")
+        if b["setup"] and owner[code]["activity"] == "run" and code not in acks.get(owner[code]["code"], []):
+            raise StageCostError("COST_POLICY_SETUP_TREATMENT_UNSET")
+
+
+def validate_205_version(v):
+    """Version-level rules of 205, checked when a draft is approved and again by compute_205. v as compute_204's version, plus:
+    pools[i]['activity'] in run|setup|both and pools[i]['budgets'] (budget codes); v['budgets'] = {code: {'gl_account', 'cost_center' (or None),
+    'setup'}}, the budgets this version selects for loading (not every budget of the ledger); v['setup_acks'] = {pool code: [setup budget codes
+    that pool's run rate covers]}; v['unallocated_exception'] (optional) = the controlled exception recorded at approval (205-Q4). Refusal codes
+    are the ones the design annex §3 and the 205 plan name."""
+    budgets, acks = v["budgets"], v.get("setup_acks", {})
+    codes = [p["code"] for p in v["pools"]]
+    if len(codes) != len(set(codes)):
+        raise StageCostError("COST_POLICY_POOL_CODE_DUPLICATE")
+    _check_rates_205(v)
+    _check_budget_sources_205(budgets)
+    owner = _budget_owners_205(v["pools"], budgets)
+    _check_setup_acks_205(v["pools"], budgets, acks)
+    exc = v.get("unallocated_exception")
+    _check_budget_treatment_205(budgets, owner, acks, exc)
+    if exc is not None:
+        check_unallocated_exception_205(exc, budgets, owner)
+
+
+def check_unallocated_exception_205(exc, budgets, owner):
+    """The controlled exception of 205-Q4, as recorded with the approved version: it names exactly the selected budgets no pool loads, each with
+    its amount, and records a reason, a treatment and the approver. It never covers a loaded budget and relaxes no other rule."""
+    bad = "COST_POLICY_UNALLOCATED_EXCEPTION_INVALID"
+    if not isinstance(exc, dict) or set(exc) != UNALLOCATED_EXCEPTION_KEYS:
+        raise StageCostError(f"{bad}: fields")
+    if exc["policy"] != "controlled_exception":
+        raise StageCostError(f"{bad}: policy")
+    listed = list(exc["budgets"] or [])
+    if not listed or len(listed) != len(set(listed)) or set(listed) != {c for c in budgets if c not in owner}:
+        raise StageCostError(f"{bad}: budgets")
+    for k in ("reason", "treatment", "approved_by"):
+        if not isinstance(exc[k], str) or not exc[k].strip():
+            raise StageCostError(f"{bad}: {k}")
+    for c in listed:
+        if budgets[c].get("amount") is None or (number_205(budgets[c]["amount"], f"{bad}: amount {c}", False) * 100).denominator != 1:
+            raise StageCostError(f"{bad}: amount {c}")
+
+
+def unallocated_205(v):
+    """{budget code: amount in cents} of the selected budgets no pool loads: shown at approval and in the preview, never absorbed."""
+    owned = {b for p in v["pools"] for b in p["budgets"]}
+    return {c: cents(b["amount"]) for c, b in v["budgets"].items() if c not in owned}
+
+
+def approve_205_check(v, company_policy="block"):
+    """Approval-time rule of 205-Q4: company_policy is the company's setting when the version is approved ('block' by default). A version that
+    carries an exception is refused under 'block'; then every version rule applies. Returns what the approval screen shows: the unloaded
+    budgets and their amounts. A later change of the company policy does not reopen an approved version (compute_205 does not read it)."""
+    if company_policy not in UNALLOCATED_POLICIES:
+        raise StageCostError(f"COST_POLICY_UNALLOCATED_POLICY_INVALID: {company_policy!r}")
+    if v.get("unallocated_exception") is not None and company_policy != "controlled_exception":
+        raise StageCostError("COST_POLICY_UNALLOCATED_EXCEPTION_NOT_ALLOWED")
+    validate_205_version(v)
+    return {"unallocated": unallocated_205(v), "exception": v.get("unallocated_exception") is not None}
+
+
+def is_205_version(v):
+    return "budgets" in v and all("activity" in p for p in v["pools"])
+
+
+def _version_with_resolution_205(version, legacy_resolution):
+    """a 205 version as it is; a version created under 204 with its legacy resolution merged into a copy (the version itself never changes)"""
+    if is_205_version(version):
+        if legacy_resolution is not None:
+            raise StageCostError("COST_POLICY_LEGACY_NOT_APPLICABLE")
+        return version
+    if legacy_resolution is None:
+        raise StageCostError("COST_POLICY_LEGACY_UNRESOLVED")
+    res = legacy_resolution
+    codes = [p["code"] for p in version["pools"]]
+    if len(codes) != len(set(codes)):
+        raise StageCostError("COST_POLICY_POOL_CODE_DUPLICATE")
+    if set(codes) != set(res["pools"]):
+        raise StageCostError("COST_POLICY_LEGACY_POOLS_MISMATCH")
+    v = {**version, "pools": [{**p, "activity": res["pools"][p["code"]]["activity"], "budgets": list(res["pools"][p["code"]]["budgets"])}
+                              for p in version["pools"]],
+         "budgets": res["budgets"], "setup_acks": res.get("setup_acks", {})}
+    if "unallocated_exception" in res:
+        v["unallocated_exception"] = res["unallocated_exception"]
+    return v
+
+
+def _measured_hours_205(v, applying, hours):
+    """{(resource, activity): exact hours} for the hours the computation uses, and only those"""
+    needed = set()
+    if v["labor_cost_source"] == "work_center_rate":
+        needed |= {("labor", "run"), ("labor", "setup")}
+    for p in applying:
+        resource = {"labor_hours": "labor", "machine_hours": "machine"}[p["basis"]]
+        needed |= {(resource, a) for a in ACTIVITIES[p["activity"]]}
+    h = {}
+    for r, a in sorted(needed):
+        x = hours.get(r, {}).get(a)
+        if x is None:
+            raise StageCostError(f"COST_POLICY_DRIVER_MISSING: {r}.{a}")
+        h[(r, a)] = number_205(x, f"COST_POLICY_HOURS_INVALID: {r}.{a}", False)
+    return h
+
+
+def _labor_cents_205(v, rule, h, recorded_labor_cost):
+    """direct labor in cents: all approved direct hours at the rate, or the recorded amount"""
+    if v["labor_cost_source"] == "work_center_rate":
+        return round_half_up((h[("labor", "run")] + h[("labor", "setup")]) * rate_205(rule.get("labor_rate", v["default_labor_rate"])) * 100)
+    if recorded_labor_cost is None:
+        raise StageCostError("COST_POLICY_DRIVER_MISSING: recorded_labor_cost")
+    rec = number_205(recorded_labor_cost, "COST_POLICY_RECORDED_COST_INVALID", False)
+    if (rec * 100).denominator != 1:
+        raise StageCostError(f"COST_POLICY_RECORDED_COST_INVALID: {recorded_labor_cost!r}")
+    return int(rec * 100)
+
+
+def compute_205(version, wc, hours, recorded_labor_cost=None, legacy_resolution=None):
+    """205 absorption for one (order, stage, work center, period). hours = {'labor': {'run', 'setup'}, 'machine': {'run', 'setup'}}: approved
+    hours by activity. Only the hours the computation uses are required: labor run and setup when labor is priced at a rate, and, for every pool
+    that applies at this work center, the hours of its basis for the activities it covers. A required hour that is None is not measured and
+    raises; 0 is a measured zero; a negative or non-numeric hour is refused (a correction goes through its audited path, never a negative
+    hour). Direct labor = all approved direct hours (run + setup) at the policy rate, or the recorded amount, whatever the pools. Work-center
+    rules (rate, applies) are read exactly as compute_204 reads them. A version created under 204 (no activity, no budgets) is refused unless a
+    legacy resolution supplies those fields; the resolution is a separate record and the version itself is never changed. Returns cents."""
+    v = _version_with_resolution_205(version, legacy_resolution)
+    validate_205_version(v)
+    rule = v.get("wc_rules", {}).get(wc, {})
+    applying = [p for p in v["pools"] if rule.get("pools", {}).get(p["code"], {}).get("applies", True) is not False]
+    h = _measured_hours_205(v, applying, hours)
+    labor = _labor_cents_205(v, rule, h, recorded_labor_cost)
+    pools = {}
+    for p in applying:
+        pr = rule.get("pools", {}).get(p["code"], {})
+        resource = {"labor_hours": "labor", "machine_hours": "machine"}[p["basis"]]
+        driver = sum((h[(resource, a)] for a in ACTIVITIES[p["activity"]]), ZERO)
+        pools[p["code"]] = round_half_up(driver * rate_205(pr.get("rate", p["rate"])) * 100)
+    return {"labor": labor, "pools": pools, "total": labor + sum(pools.values())}
 
 
 # ---------------------------------------------------------------- one stage, one period, weighted average (revision 2)

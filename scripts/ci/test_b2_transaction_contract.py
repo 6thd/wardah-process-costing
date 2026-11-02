@@ -71,7 +71,7 @@ class B2Controls(unittest.TestCase):
             root = Path(directory)
             (root / 'psql').write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$ARGV_LOG"\nexit "$FAKE_RC"\n')
             (root / 'psql').chmod(0o755)
-            names = ['194_legacy.sql'] + [f'{n}_candidate.sql' for n in range(195, 205)]
+            names = ['194_legacy.sql'] + [f'{n}_candidate.sql' for n in range(195, 206)]
             for name in names:
                 (root / name).write_text('SELECT 1;\n')
             (root / 'order').write_text('\n'.join(names) + '\n')
@@ -89,18 +89,18 @@ class B2Controls(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs['executable'], require_program('bash'))
         self.assertIs(run.call_args.kwargs['shell'], False)
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(len(calls), 11)
+        self.assertEqual(len(calls), 12)
         self.assertNotIn('--single-transaction', calls[0])
         for call in calls[1:]:
             self.assertIn('--single-transaction', call)
             self.assertIn('ON_ERROR_STOP=1', call)
             self.assertTrue(call.startswith('-X '))
-        self.assertEqual(report.count('PASS '), 11)
+        self.assertEqual(report.count('PASS '), 12)
 
     def test_nonzero_exit_without_error_text_is_not_a_pass(self):
         result, _, report = self.run_chain(7)
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(report.count('PSQL_EXIT_7'), 11)
+        self.assertEqual(report.count('PSQL_EXIT_7'), 12)
         self.assertNotIn('PASS ', report)
 
 
