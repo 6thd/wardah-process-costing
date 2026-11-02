@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -5,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/ui/loading-state'
 import { useAuth } from '@/contexts/AuthContext'
 import { discoverCostPolicy205 } from '@/services/mfg-cost-policy-205-service'
-import { CostPolicy204Panel } from './CostPolicy204Panel'
+import { CostPolicy204Panel, useCostPolicy204Scope } from './CostPolicy204Panel'
 import { CostPolicy205Panel } from './CostPolicy205Panel'
 import { costPolicy205QueryKey } from './queryKeys'
 
@@ -17,6 +18,8 @@ import { costPolicy205QueryKey } from './queryKeys'
  *   الشاشة بعد تطبيق 205 دون نشر جديد.
  * - `denied` و`unknown` لا يعرضان لوحة 204 ولا أي كتابة، ولا يعودان إلى المسار القديم.
  * - القراءة للمؤسسة المختارة، والمفتاح يحملها: تبديلها يقرأ من جديد، ولا يظهر رد مؤسسة سابقة.
+ *   ولوحة 204 تأخذ المؤسسة نفسها، ومدخلاتها غير المرسلة تُحفظ هنا لهذه المؤسسة وحدها: تبقى
+ *   عبر فحص ينتهي `absent`، وتُمحى حين ينتهي بغيره، ولا تنتقل إلى مؤسسة أخرى.
  */
 export function CostPolicyTab() {
   const { t } = useTranslation()
@@ -28,13 +31,18 @@ export function CostPolicyTab() {
     refetchOnWindowFocus: 'always',
     retry: false,
   })
+  const { scope, clear } = useCostPolicy204Scope(currentOrgId)
+  const settled = discovery.data?.status
+  useEffect(() => {
+    if (settled && settled !== 'absent') clear()
+  }, [settled, clear])
 
   if (discovery.isLoading || !discovery.data) return <LoadingSpinner />
   const result = discovery.data
   if (result.status === 'absent' && discovery.isFetching) return <LoadingSpinner />
   switch (result.status) {
     case 'absent':
-      return <CostPolicy204Panel />
+      return scope ? <CostPolicy204Panel key={scope.orgId} scope={scope} /> : <LoadingSpinner />
     case 'present':
       return <CostPolicy205Panel state={result.state} />
     case 'denied':

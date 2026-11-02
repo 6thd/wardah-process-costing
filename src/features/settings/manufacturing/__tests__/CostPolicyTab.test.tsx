@@ -2,6 +2,7 @@ import { act, render, screen, waitFor, within } from '@/test/test-utils'
 import userEvent from '@testing-library/user-event'
 import { focusManager } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { toast } from 'sonner'
 import i18n from '@/i18n'
 import { cp205Response, ORG, SESSION_USER } from '@/services/__tests__/fixtures/cost-policy-205'
 import pg17 from '@/services/__tests__/fixtures/cost-policy-205-get.pg17.json'
@@ -9,23 +10,54 @@ import { CostPolicyTab } from '../CostPolicyTab'
 
 // The real services run against this client, so every RPC the tab reaches is recorded.
 const rpc = vi.fn()
-// The organization chosen in the selector. The session resolver follows it, as the server would.
+// The organization chosen in the selector. The session resolver follows it, as the server would, unless a
+// test sets `tenantOrg` to another one.
 let authOrg: string | null = ORG
+let tenantOrg: string | null = null
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ currentOrgId: authOrg }) }))
-vi.mock('@/lib/supabase', () => {
-  const chain = { select: () => chain, eq: () => chain, order: () => Promise.resolve({ data: [], error: null }) }
-  return {
-    supabase: {
-      rpc: (...args: unknown[]) => rpc(...args),
-      from: () => chain,
-      auth: { getSession: () => Promise.resolve({ data: { session: { user: { id: SESSION_USER } } } }) },
+// Every read of work_centers is recorded with the organization it filters on; each organization has its own centers.
+const workCenterReads: string[] = []
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    rpc: (...args: unknown[]) => rpc(...args),
+    from: () => {
+      let org = ''
+      const chain = {
+        select: () => chain,
+        eq: (column: string, value: string) => { if (column === 'org_id') { org = value; workCenterReads.push(value) } return chain },
+        order: () => Promise.resolve({ data: org === ORG ? [{ id: 'wc-a', code: 'WC-A', name: 'Mixing', name_ar: null }] : [{ id: 'wc-z', code: 'WC-Z', name: 'Other', name_ar: null }], error: null }),
+      }
+      return chain
     },
-    getEffectiveTenantId: () => Promise.resolve(authOrg),
-  }
-})
+    auth: { getSession: () => Promise.resolve({ data: { session: { user: { id: SESSION_USER } } } }) },
+  },
+  getEffectiveTenantId: () => Promise.resolve(tenantOrg ?? authOrg),
+}))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
 const ORG_B = '52050205-0000-0000-0000-0000000000b1'
+/** The 204 state of an organization: its own version numbers (1-2 for ORG, 7-8 for ORG_B), v2 withdrawable. */
+function state204(org: string, withdrawn = false) {
+  const n = org === ORG ? 1 : 7
+  const base = {
+    labor_cost_source: 'work_center_rate', default_labor_rate_per_hour: 30, stage_costing_method: 'weighted_average', pin_event: 'mo_created', note: null,
+    awaiting_start_order_count: 0, withdraw_reason: null, work_center_rules: [],
+    overhead_pools: [{ pool_code: 'LABOR_OH', name: 'Labor overhead', name_ar: null, basis: 'labor_hours', rate: 12 }],
+  }
+  return {
+    org_id: org, today: '2026-10-22', current_version_id: `${org}-v1`, latest_version_no: n + 1,
+    versions: [
+      { ...base, id: `${org}-v2`, version_no: n + 1, effective_from: '2026-11-21', status: withdrawn ? 'withdrawn' : 'scheduled', pinned_order_count: 0 },
+      { ...base, id: `${org}-v1`, version_no: n, effective_from: '2026-10-22', status: 'current', pinned_order_count: 1 },
+    ],
+    supported: { labor_cost_sources: ['work_center_rate', 'recorded_entry_rate'], overhead_bases: ['labor_hours', 'machine_hours'], stage_costing_methods: ['weighted_average'], pin_events: ['mo_created', 'production_started'] },
+    capabilities: { can_manage: true },
+  }
+}
+const PREVIEW = {
+  labor: { source: 'work_center_rate', hours: 10, rate_per_hour: 30, rate_source: 'policy_default', amount: 300 },
+  overhead: [], excluded_pools: [], overhead_total: 0, total: 300,
+}
 const ABSENT = { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.rpc_get_mfg_cost_policy_205(p_org_id) in the schema cache' } }
 const STATE_204 = {
   org_id: ORG, today: '2026-10-22', current_version_id: 'v1', latest_version_no: 1,
@@ -46,18 +78,23 @@ const WRITES = [
   'rpc_set_cost_policy_self_approval_205', 'rpc_set_cost_policy_unallocated_policy_205',
 ]
 const called = () => rpc.mock.calls.map(c => c[0] as string)
+const orgsOf = (fn: string) => rpc.mock.calls.filter(c => c[0] === fn).map(c => (c[1] as { p_org_id: string }).p_org_id)
 
 function route(responses: Record<string, unknown>) {
-  rpc.mockImplementation(async (fn: string) => {
+  rpc.mockImplementation(async (fn: string, args: Record<string, unknown>) => {
     const r = responses[fn]
     if (r === undefined) throw new Error(`unexpected RPC ${fn}`)
-    return typeof r === 'function' ? (r as () => unknown)() : r
+    return typeof r === 'function' ? (r as (a: Record<string, unknown>) => unknown)(args) : r
   })
 }
 
 beforeEach(async () => {
   rpc.mockReset()
   authOrg = ORG
+  tenantOrg = null
+  workCenterReads.length = 0
+  vi.mocked(toast.success).mockReset()
+  vi.mocked(toast.error).mockReset()
   await act(async () => { await i18n.changeLanguage('en') })
 })
 // A failed focus test must not leave the window focused for the next one.
@@ -276,5 +313,126 @@ describe('CostPolicyTab: an old absent result is not shown while discovery runs 
     expect(screen.queryByTestId('cp-version-1')).not.toBeInTheDocument()
     expect(called().some(fn => WRITES.includes(fn))).toBe(false)
     act(() => { focusManager.setFocused(undefined) })
+  })
+})
+
+describe('CostPolicyTab: the 204 panel is bound to the selected organization', () => {
+  it('reads, lists work centers, previews and withdraws for the selected organization, not the one the session resolves', async () => {
+    tenantOrg = ORG_B
+    route({
+      rpc_get_mfg_cost_policy_205: ABSENT,
+      rpc_get_mfg_cost_policy: (a: { p_org_id: string }) => ({ data: state204(a.p_org_id), error: null }),
+      rpc_preview_mfg_cost_absorption: { data: PREVIEW, error: null },
+      rpc_withdraw_mfg_cost_policy_version: (a: { p_org_id: string }) => ({ data: state204(a.p_org_id, true), error: null }),
+    })
+    const user = userEvent.setup({ delay: null })
+    render(<CostPolicyTab />)
+
+    const v2 = await screen.findByTestId('cp-version-2')
+    const workCenter = screen.getByLabelText('Work center') as HTMLSelectElement
+    await waitFor(() => expect(within(workCenter).getAllByRole('option').length).toBeGreaterThan(1))
+    await user.selectOptions(workCenter, 'wc-a')
+    await user.type(screen.getByLabelText('Labor hours'), '10')
+    await user.click(screen.getByRole('button', { name: 'Calculate' }))
+    expect(await screen.findByRole('table', { name: 'Absorption result' })).toBeInTheDocument()
+
+    await user.click(within(v2).getByRole('button', { name: 'Withdraw' }))
+    await user.type(screen.getByLabelText('Reason for withdrawal'), 'Rates not approved')
+    await user.click(screen.getByRole('button', { name: 'Confirm withdrawal' }))
+    await waitFor(() => expect(orgsOf('rpc_withdraw_mfg_cost_policy_version')).toEqual([ORG]))
+
+    expect(orgsOf('rpc_get_mfg_cost_policy').every(o => o === ORG)).toBe(true)
+    expect(orgsOf('rpc_preview_mfg_cost_absorption')).toEqual([ORG])
+    expect(workCenterReads.length).toBeGreaterThan(0)
+    expect(workCenterReads.every(o => o === ORG)).toBe(true)
+  })
+
+  it('refuses a 204 policy reply that names another organization, and shows none of it', async () => {
+    route({
+      rpc_get_mfg_cost_policy_205: ABSENT,
+      rpc_get_mfg_cost_policy: { data: state204(ORG_B), error: null },
+    })
+    render(<CostPolicyTab />)
+
+    expect(await screen.findByText(/another organization/)).toBeInTheDocument()
+    expect(screen.queryByTestId('cp-version-7')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cp-version-8')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Withdraw' })).not.toBeInTheDocument()
+  })
+
+  it('switching the organization without a reload shows the new one, drops the late reply of the previous one and carries none of its inputs', async () => {
+    let releaseWithdrawA!: () => void
+    route({
+      rpc_get_mfg_cost_policy_205: ABSENT,
+      rpc_get_mfg_cost_policy: (a: { p_org_id: string }) => ({ data: state204(a.p_org_id), error: null }),
+      rpc_withdraw_mfg_cost_policy_version: (a: { p_org_id: string }) =>
+        new Promise(resolve => { releaseWithdrawA = () => resolve({ data: state204(a.p_org_id, true), error: null }) }),
+    })
+    const user = userEvent.setup({ delay: null })
+    const { rerender } = render(<CostPolicyTab />)
+
+    const v2 = await screen.findByTestId('cp-version-2')
+    await user.type(screen.getByLabelText('Labor hours'), '5')
+    await user.click(within(v2).getByRole('button', { name: 'Withdraw' }))
+    await user.type(screen.getByLabelText('Reason for withdrawal'), 'keep A')
+    await user.click(screen.getByRole('button', { name: 'Confirm withdrawal' }))
+    await waitFor(() => expect(orgsOf('rpc_withdraw_mfg_cost_policy_version')).toEqual([ORG]))
+
+    authOrg = ORG_B
+    rerender(<CostPolicyTab />)
+    expect(await screen.findByTestId('cp-version-8')).toBeInTheDocument()
+    expect(screen.queryByTestId('cp-version-1')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Reason for withdrawal')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Labor hours')).toHaveValue(null)
+
+    // The withdrawal of the first organization answers after the switch.
+    await act(async () => { releaseWithdrawA() })
+    expect(screen.getByTestId('cp-version-8')).toBeInTheDocument()
+    expect(screen.queryByTestId('cp-version-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cp-version-2')).not.toBeInTheDocument()
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(orgsOf('rpc_get_mfg_cost_policy').at(-1)).toBe(ORG_B)
+  })
+
+  it('keeps the unsent withdrawal reason and preview inputs through a check that ends absent, and allows no withdrawal during it', async () => {
+    let pending: Promise<unknown> | null = null
+    let release!: (value: unknown) => void
+    route({
+      rpc_get_mfg_cost_policy_205: () => pending ?? ABSENT,
+      rpc_get_mfg_cost_policy: (a: { p_org_id: string }) => ({ data: state204(a.p_org_id), error: null }),
+      rpc_withdraw_mfg_cost_policy_version: (a: { p_org_id: string }) => ({ data: state204(a.p_org_id, true), error: null }),
+    })
+    const user = userEvent.setup({ delay: null })
+    render(<CostPolicyTab />)
+
+    const v2 = await screen.findByTestId('cp-version-2')
+    const workCenter = screen.getByLabelText('Work center') as HTMLSelectElement
+    await waitFor(() => expect(within(workCenter).getAllByRole('option').length).toBeGreaterThan(1))
+    await user.selectOptions(workCenter, 'wc-a')
+    await user.type(screen.getByLabelText('Labor hours'), '3')
+    await user.click(within(v2).getByRole('button', { name: 'Withdraw' }))
+    await user.type(screen.getByLabelText('Reason for withdrawal'), 'Rates not approved')
+
+    pending = new Promise(resolve => { release = resolve })
+    act(() => { focusManager.setFocused(false) })
+    act(() => { focusManager.setFocused(true) })
+    await waitFor(() => expect(called().filter(fn => fn === 'rpc_get_mfg_cost_policy_205')).toHaveLength(2))
+    // During the check neither the panel nor any of its actions is there.
+    expect(screen.queryByRole('button', { name: 'Confirm withdrawal' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Reason for withdrawal')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Calculate' })).not.toBeInTheDocument()
+
+    pending = null
+    await act(async () => { release(ABSENT) })
+    expect(await screen.findByLabelText('Reason for withdrawal')).toHaveValue('Rates not approved')
+    expect(screen.getByLabelText('Labor hours')).toHaveValue(3)
+    // The kept work center is selected again once the centers of this organization are listed.
+    await waitFor(() => expect(screen.getByLabelText('Work center')).toHaveValue('wc-a'))
+    expect(called()).not.toContain('rpc_withdraw_mfg_cost_policy_version')
+
+    await user.click(screen.getByRole('button', { name: 'Confirm withdrawal' }))
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('rpc_withdraw_mfg_cost_policy_version', {
+      p_org_id: ORG, p_policy_version_id: `${ORG}-v2`, p_reason: 'Rates not approved',
+    }))
   })
 })

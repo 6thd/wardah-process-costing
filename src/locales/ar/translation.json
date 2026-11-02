@@ -1950,7 +1950,8 @@
         "COST_POLICY_ORG_TIMEZONE_INVALID": "توقيت المؤسسة غير صالح؛ أصلحه قبل نشر سياسة.",
         "COST_POLICY_PIN_EVENT_UNSUPPORTED": "توقيت التثبيت هذا غير مدعوم.",
         "COST_POLICY_INVALID": "السياسة غير صالحة.",
-        "COST_POLICY_FUNCTION_NOT_PERMITTED": "هذا الإجراء مغلق في قاعدة البيانات، ولم يُحفظ شيء."
+        "COST_POLICY_FUNCTION_NOT_PERMITTED": "هذا الإجراء مغلق في قاعدة البيانات، ولم يُحفظ شيء.",
+        "COST_POLICY_ORG_MISMATCH": "الرد يخص مؤسسة أخرى، فلم يُعرض منه شيء. أعد تحميل الصفحة."
       },
       "createFrozen": "الإنشاء بهذا المسار متوقف بالإيقاف الإداري. يحل محله مسار الاعتماد الجديد بعد تطبيق Migration 205."
     },

@@ -5,6 +5,10 @@
  * لا يُدمج هذا الملف قبل تطبيق 204 على Production والتحقق منها (DB-first). وحتى
  * ذلك الحين تعيد الشاشة «غير متاح» بدل نموذج لا يحفظ: غياب الدالة يُكتشف من
  * رسالة PostgREST ويُرفع `COST_POLICY_NOT_DEPLOYED`.
+ *
+ * القراءة والسحب والمعاينة ومراكز العمل تأخذ المؤسسة صراحة من الاختيار الحالي، ولا تستنتجها من
+ * الجلسة؛ ورد سياسة لمؤسسة غير المطلوبة يُرفض (`COST_POLICY_ORG_MISMATCH`). الإنشاء القديم وحده
+ * ما زال يستنتجها، وهو غير مستدعى من الواجهة حتى طلب التنظيف (T10).
  */
 import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 
@@ -56,6 +60,7 @@ export interface CostPolicyVersion {
 }
 
 export interface CostPolicyState {
+  orgId: string
   today: string
   currentVersionId: string | null
   latestVersionNo: number
@@ -106,6 +111,11 @@ async function requireOrgId(): Promise<string> {
   return orgId
 }
 
+function requireGivenOrgId(orgId: string): string {
+  if (!orgId) throw new Error('ORG_UNRESOLVED')
+  return orgId
+}
+
 function throwRpcError(error: { message: string; code?: string }): never {
   // PostgREST: function absent from the schema cache -> 204 not applied here.
   if (error.code === 'PGRST202' || /Could not find the function/i.test(error.message)) {
@@ -119,11 +129,14 @@ function throwRpcError(error: { message: string; code?: string }): never {
   throw new Error(error.message)
 }
 
-function toState(data: unknown): CostPolicyState {
+/** حالة 204 من الرد، بعد التحقق من أنه للمؤسسة المطلوبة: رد مؤسسة أخرى لا يُعرض أيًا كان سبب وصوله. */
+function toState(data: unknown, orgId: string): CostPolicyState {
   if (data === null || typeof data !== 'object') throw new Error('COST_POLICY_RESPONSE_INVALID')
   const row = data as Record<string, unknown>
+  if (row.org_id !== orgId) throw new Error('COST_POLICY_ORG_MISMATCH')
   const capabilities = (row.capabilities ?? {}) as Record<string, unknown>
   return {
+    orgId,
     today: String(row.today),
     currentVersionId: (row.current_version_id as string | null) ?? null,
     latestVersionNo: Number(row.latest_version_no ?? 0),
@@ -133,11 +146,11 @@ function toState(data: unknown): CostPolicyState {
   }
 }
 
-export async function getCostPolicy(): Promise<CostPolicyState> {
-  const orgId = await requireOrgId()
+export async function getCostPolicy(orgId: string): Promise<CostPolicyState> {
+  requireGivenOrgId(orgId)
   const { data, error } = await db204.rpc('rpc_get_mfg_cost_policy', { p_org_id: orgId })
   if (error) throwRpcError(error)
-  return toState(data)
+  return toState(data, orgId)
 }
 
 /**
@@ -156,28 +169,28 @@ export async function createCostPolicyVersion(
   })
   if (error) throwRpcError(error)
   const row = data as Record<string, unknown>
-  return { state: toState(data), versionId: String(row.policy_version_id), replayed: row.replayed === true }
+  return { state: toState(data, orgId), versionId: String(row.policy_version_id), replayed: row.replayed === true }
 }
 
-export async function withdrawCostPolicyVersion(versionId: string, reason: string): Promise<CostPolicyState> {
-  const orgId = await requireOrgId()
+export async function withdrawCostPolicyVersion(orgId: string, versionId: string, reason: string): Promise<CostPolicyState> {
+  requireGivenOrgId(orgId)
   const { data, error } = await db204.rpc('rpc_withdraw_mfg_cost_policy_version', {
     p_org_id: orgId,
     p_policy_version_id: versionId,
     p_reason: reason,
   })
   if (error) throwRpcError(error)
-  return toState(data)
+  return toState(data, orgId)
 }
 
-export async function previewAbsorption(input: {
+export async function previewAbsorption(orgId: string, input: {
   versionId: string
   workCenterId: string
   laborHours: number | null
   machineHours: number | null
   recordedLaborCost: number | null
 }): Promise<AbsorptionPreview> {
-  const orgId = await requireOrgId()
+  requireGivenOrgId(orgId)
   const { data, error } = await db204.rpc('rpc_preview_mfg_cost_absorption', {
     p_org_id: orgId,
     p_policy_version_id: input.versionId,
@@ -198,8 +211,8 @@ export interface CostPolicyWorkCenter {
 }
 
 /** مراكز العمل النشطة (204 ترفض قاعدة لمركز غير نشط أو من مؤسسة أخرى). */
-export async function listCostPolicyWorkCenters(): Promise<CostPolicyWorkCenter[]> {
-  const orgId = await requireOrgId()
+export async function listCostPolicyWorkCenters(orgId: string): Promise<CostPolicyWorkCenter[]> {
+  requireGivenOrgId(orgId)
   const { data, error } = await supabase
     .from('work_centers')
     .select('id, code, name, name_ar')
@@ -214,6 +227,7 @@ export async function listCostPolicyWorkCenters(): Promise<CostPolicyWorkCenter[
 const COST_POLICY_ERRORS = [
   'COST_POLICY_NOT_DEPLOYED',
   'COST_POLICY_FUNCTION_NOT_PERMITTED',
+  'COST_POLICY_ORG_MISMATCH',
   'MANUFACTURING_SETTINGS_READ_DENIED',
   'MANUFACTURING_SETTINGS_UPDATE_DENIED',
   'COST_POLICY_VERSION_CONFLICT',

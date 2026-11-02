@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import type { CostPolicyState, CostPolicyVersion } from '@/services/mfg-cost-policy-service'
-import { CostPolicy204Panel } from '../CostPolicy204Panel'
+import { CostPolicy204Panel, useCostPolicy204Scope } from '../CostPolicy204Panel'
 
 const toastError = vi.fn()
 vi.mock('sonner', () => ({ toast: { error: (m: string) => toastError(m), success: vi.fn() } }))
@@ -20,6 +20,14 @@ vi.mock('@/services/mfg-cost-policy-service', async (importOriginal) => ({
   ...service,
 }))
 
+const ORG = '44444444-4444-4444-4444-444444444444'
+
+/** The panel as the tab gives it: its organization, and the unsent inputs kept for that organization. */
+function Panel() {
+  const { scope } = useCostPolicy204Scope(ORG)
+  return scope ? <CostPolicy204Panel scope={scope} /> : null
+}
+
 const V1: CostPolicyVersion = {
   id: 'v1', version_no: 1, effective_from: '2026-10-22', status: 'current',
   labor_cost_source: 'work_center_rate', default_labor_rate_per_hour: 30, stage_costing_method: 'weighted_average',
@@ -34,7 +42,7 @@ const V2: CostPolicyVersion = { ...V1, id: 'v2', version_no: 2, effective_from: 
 
 function state(overrides: Partial<CostPolicyState> = {}): CostPolicyState {
   return {
-    today: '2026-10-22', currentVersionId: 'v1', latestVersionNo: 2, versions: [V2, V1],
+    orgId: ORG, today: '2026-10-22', currentVersionId: 'v1', latestVersionNo: 2, versions: [V2, V1],
     supported: { labor_cost_sources: ['work_center_rate', 'recorded_entry_rate'], overhead_bases: ['labor_hours', 'machine_hours'], stage_costing_methods: ['weighted_average'], pin_events: ['mo_created', 'production_started'] },
     canManage: true,
     ...overrides,
@@ -54,7 +62,7 @@ beforeEach(async () => {
 describe('CostPolicy204Panel (205 absent)', () => {
   it('says the feature is not available where Migration 204 is not applied, and offers nothing to save', async () => {
     service.getCostPolicy.mockRejectedValue(new Error('COST_POLICY_NOT_DEPLOYED'))
-    render(<CostPolicy204Panel />)
+    render(<Panel />)
 
     expect(await screen.findByText(/Migration 204 has not been applied/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'New version' })).not.toBeInTheDocument()
@@ -63,7 +71,7 @@ describe('CostPolicy204Panel (205 absent)', () => {
 
   it('is read-only without the database capability', async () => {
     service.getCostPolicy.mockResolvedValue(state({ canManage: false }))
-    render(<CostPolicy204Panel />)
+    render(<Panel />)
 
     expect(await screen.findByTestId('cp-version-1')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'New version' })).not.toBeInTheDocument()
@@ -73,7 +81,7 @@ describe('CostPolicy204Panel (205 absent)', () => {
   it('keeps the old creation disabled with a notice during the freeze (owner decision Q-3), so no version is created', async () => {
     service.getCostPolicy.mockResolvedValue(state())
     const user = userEvent.setup({ delay: null })
-    render(<CostPolicy204Panel />)
+    render(<Panel />)
 
     const create = await screen.findByRole('button', { name: 'New version' })
     expect(create).toBeDisabled()
@@ -87,7 +95,7 @@ describe('CostPolicy204Panel (205 absent)', () => {
     service.getCostPolicy.mockResolvedValue(state())
     service.withdrawCostPolicyVersion.mockResolvedValue(state())
     const user = userEvent.setup({ delay: null })
-    render(<CostPolicy204Panel />)
+    render(<Panel />)
 
     const scheduled = await screen.findByTestId('cp-version-2')
     expect(within(screen.getByTestId('cp-version-1')).queryByRole('button', { name: 'Withdraw' })).not.toBeInTheDocument()
@@ -95,14 +103,14 @@ describe('CostPolicy204Panel (205 absent)', () => {
     await user.type(screen.getByLabelText('Reason for withdrawal'), 'Rates not approved')
     await user.click(screen.getByRole('button', { name: 'Confirm withdrawal' }))
 
-    await waitFor(() => expect(service.withdrawCostPolicyVersion).toHaveBeenCalledWith('v2', 'Rates not approved'))
+    await waitFor(() => expect(service.withdrawCostPolicyVersion).toHaveBeenCalledWith(ORG, 'v2', 'Rates not approved'))
   })
 
   it('shows a closed function as a translated refusal, not the raw database text', async () => {
     service.getCostPolicy.mockResolvedValue(state())
     service.withdrawCostPolicyVersion.mockRejectedValue(new Error('COST_POLICY_FUNCTION_NOT_PERMITTED'))
     const user = userEvent.setup({ delay: null })
-    render(<CostPolicy204Panel />)
+    render(<Panel />)
 
     await user.click(within(await screen.findByTestId('cp-version-2')).getByRole('button', { name: 'Withdraw' }))
     await user.type(screen.getByLabelText('Reason for withdrawal'), 'x')
@@ -114,7 +122,7 @@ describe('CostPolicy204Panel (205 absent)', () => {
   it('shows the pin timing of each version and the orders awaiting start, and offers no withdrawal while any wait', async () => {
     const waiting: CostPolicyVersion = { ...V2, pin_event: 'production_started', awaiting_start_order_count: 3 }
     service.getCostPolicy.mockResolvedValue(state({ versions: [waiting, V1] }))
-    render(<CostPolicy204Panel />)
+    render(<Panel />)
 
     const row2 = await screen.findByTestId('cp-version-2')
     expect(within(row2).getByText('When production first starts')).toBeInTheDocument()
@@ -131,7 +139,7 @@ describe('CostPolicy204Panel (205 absent)', () => {
       excluded_pools: ['LABOR_OH'], overhead_total: 330, total: 680,
     })
     const user = userEvent.setup({ delay: null })
-    render(<CostPolicy204Panel />)
+    render(<Panel />)
 
     await screen.findByTestId('cp-version-1')
     await user.selectOptions(screen.getByLabelText('Version'), 'v1')
@@ -141,9 +149,11 @@ describe('CostPolicy204Panel (205 absent)', () => {
     await user.type(screen.getByLabelText('Labor hours'), '10')
     await user.click(screen.getByRole('button', { name: 'Calculate' }))
 
-    await waitFor(() => expect(service.previewAbsorption).toHaveBeenCalledWith({
+    await waitFor(() => expect(service.previewAbsorption).toHaveBeenCalledWith(ORG, {
       versionId: 'v1', workCenterId: 'wc-a', laborHours: 10, machineHours: null, recordedLaborCost: null,
     }))
+    expect(service.getCostPolicy).toHaveBeenCalledWith(ORG)
+    expect(service.listCostPolicyWorkCenters).toHaveBeenCalledWith(ORG)
     const result = await screen.findByRole('table', { name: 'Absorption result' })
     expect(within(result).getByText('330.00')).toBeInTheDocument()
     expect(within(result).getByText('680.00')).toBeInTheDocument()
@@ -158,7 +168,7 @@ describe('CostPolicy204Panel (205 absent)', () => {
     })
     service.previewAbsorption.mockResolvedValueOnce(preview(540)).mockResolvedValueOnce(preview(777))
     const user = userEvent.setup({ delay: null })
-    render(<CostPolicy204Panel />)
+    render(<Panel />)
 
     await screen.findByTestId('cp-version-1')
     const workCenter = screen.getAllByLabelText('Work center').at(-1) as HTMLSelectElement
@@ -191,7 +201,7 @@ describe('CostPolicy204Panel (205 absent)', () => {
     const fresh = await screen.findByRole('table', { name: 'Absorption result' })
     expect(within(fresh).getByText('777.00')).toBeInTheDocument()
     expect(within(fresh).queryByText('540.00')).not.toBeInTheDocument()
-    expect(service.previewAbsorption).toHaveBeenLastCalledWith({
+    expect(service.previewAbsorption).toHaveBeenLastCalledWith(ORG, {
       versionId: 'v1', workCenterId: 'wc-b', laborHours: 10, machineHours: 6, recordedLaborCost: null,
     })
   }, 20_000)
