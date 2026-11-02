@@ -13,8 +13,8 @@ import { QUALITY_POLICY_QUERY_KEY } from './queryKeys'
 
 /**
  * بيت إعدادات التصنيع (قرار المالك D1). التبويبات الثلاثة الأولى تقرأ وتكتب بعقود
- * مطبّقة؛ تبويب سياسات التكلفة يعتمد على Migration 204 ويعرض «غير متاح» حيث لم
- * تُطبَّق، ويأخذ قدرة الحفظ من `capabilities.can_manage` في 204. لا يظهر هنا إعداد
+ * مطبّقة؛ تبويب سياسات التكلفة يكتشف Migration 205 من الخادم: يعرض لوحة 205 للقراءة
+ * إن وُجدت، ولوحة 204 إن غابت، ولا يعرض أيًا منهما عند الرفض أو الخطأ. لا يظهر هنا إعداد
  * بلا مسار حفظ مأذون (معدلات مراكز العمل، المراحل، BOM — انظر §0 في جرد إعدادات التصنيع).
  *
  * الحفظ يتبع `can_manage_policy` الذي تحسبه قاعدة البيانات بمحدِّد M201 نفسه
@@ -25,6 +25,25 @@ export function ManufacturingSettingsPage() {
   const isRTL = (i18n.resolvedLanguage ?? i18n.language).toLowerCase().startsWith('ar')
   const quality = useQuery({ queryKey: QUALITY_POLICY_QUERY_KEY, queryFn: getQualityPolicy })
   const canManage = quality.data?.canManage === true
+  // A holder of manufacturing.cost_policy.approve alone (Migration 205) reaches this page but is
+  // refused by the settings reads: only the cost-policy tab is shown, open (205 design §13).
+  const costPolicyOnly = quality.isError && quality.error.message === 'MANUFACTURING_SETTINGS_READ_DENIED'
+
+  if (costPolicyOnly) {
+    return (
+      <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
+        <PageHeader
+          title={t('manufacturingSettings.title')}
+          description={t('manufacturingSettings.description')}
+          hideOnPrint={false}
+        />
+        <Alert>
+          <AlertDescription>{t('manufacturingSettings.costPolicyOnlyNotice')}</AlertDescription>
+        </Alert>
+        <CostPolicyTab />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>

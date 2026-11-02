@@ -354,14 +354,17 @@ const SETTINGS_ORGANIZATION: RouteRequirement = { key: 'settings.organization.re
 const SETTINGS_OVERVIEW: RouteRequirement = {
   anyOf: [
     'settings.organization.read', 'settings.users.read', 'settings.roles.read',
-    'manufacturing.settings.read', 'manufacturing.settings.update',
+    'manufacturing.settings.read', 'manufacturing.settings.update', 'manufacturing.cost_policy.approve',
   ],
 };
 
 // إعدادات التصنيع (قرار المالك D1، مفاتيح M201). update وحده يكفي للدخول: من يُمنح
 // التعديل يجب أن يرى ما يعدّله، كما يفعل محدِّد M201 في قاعدة البيانات.
+// manufacturing.cost_policy.approve (Migration 205) يكفي أيضًا: rpc_get_mfg_cost_policy_205
+// يقرؤه حامله وحده، فيرى تبويب سياسة التكلفة دون بقية التبويبات (تصميم 205 §13). المفتاح لا
+// يوجد قبل تطبيق 205، فلا أثر لهذا قبلها.
 const SETTINGS_MANUFACTURING: RouteRequirement = {
-  anyOf: ['manufacturing.settings.read', 'manufacturing.settings.update'],
+  anyOf: ['manufacturing.settings.read', 'manufacturing.settings.update', 'manufacturing.cost_policy.approve'],
 };
 
 const SETTINGS_ROUTES: RoutePattern[] = [

@@ -5,3 +5,4 @@ export const POSTING_ACCOUNTS_QUERY_KEY = ['manufacturing-settings', 'posting-ac
 export const WORK_CENTERS_QUERY_KEY = ['manufacturing-settings', 'work-centers'] as const
 export const COST_POLICY_QUERY_KEY = ['manufacturing-settings', 'cost-policy'] as const
 export const COST_POLICY_WORK_CENTERS_QUERY_KEY = ['manufacturing-settings', 'cost-policy-work-centers'] as const
+export const COST_POLICY_205_QUERY_KEY = ['manufacturing-settings', 'cost-policy-205'] as const

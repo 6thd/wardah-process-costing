@@ -111,6 +111,11 @@ function throwRpcError(error: { message: string; code?: string }): never {
   if (error.code === 'PGRST202' || /Could not find the function/i.test(error.message)) {
     throw new Error('COST_POLICY_NOT_DEPLOYED')
   }
+  // EXECUTE taken from authenticated (the planned closure of the 204 create path): PostgreSQL
+  // refuses before any line runs and nothing is written.
+  if (error.code === '42501' && /permission denied for function/i.test(error.message)) {
+    throw new Error('COST_POLICY_FUNCTION_NOT_PERMITTED')
+  }
   throw new Error(error.message)
 }
 
@@ -208,6 +213,7 @@ export async function listCostPolicyWorkCenters(): Promise<CostPolicyWorkCenter[
 /** رموز 204 → مفاتيح ترجمة (البادئة قبل «:» إن وُجدت). */
 const COST_POLICY_ERRORS = [
   'COST_POLICY_NOT_DEPLOYED',
+  'COST_POLICY_FUNCTION_NOT_PERMITTED',
   'MANUFACTURING_SETTINGS_READ_DENIED',
   'MANUFACTURING_SETTINGS_UPDATE_DENIED',
   'COST_POLICY_VERSION_CONFLICT',

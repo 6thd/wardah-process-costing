@@ -96,4 +96,18 @@ describe('mfg-cost-policy-service', () => {
     expect(costPolicyErrorDetail('COST_POLICY_INVALID: pin_event')).toBe('pin_event')
     expect(costPolicyErrorKey('network down')).toBeNull()
   })
+
+  it('translates a revoked EXECUTE (42501 permission denied for function) instead of showing the raw text', async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied for function rpc_withdraw_mfg_cost_policy_version' } })
+
+    await expect(withdrawCostPolicyVersion('v1', 'reason')).rejects.toThrow('COST_POLICY_FUNCTION_NOT_PERMITTED')
+    expect(costPolicyErrorKey('COST_POLICY_FUNCTION_NOT_PERMITTED'))
+      .toBe('manufacturingSettings.costPolicy.errors.COST_POLICY_FUNCTION_NOT_PERMITTED')
+  })
+
+  it('keeps a 42501 raised by the function itself as its own code', async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'MANUFACTURING_SETTINGS_UPDATE_DENIED' } })
+
+    await expect(withdrawCostPolicyVersion('v1', 'reason')).rejects.toThrow('MANUFACTURING_SETTINGS_UPDATE_DENIED')
+  })
 })
