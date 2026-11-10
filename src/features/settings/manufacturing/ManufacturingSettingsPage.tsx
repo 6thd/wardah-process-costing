@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { PageHeader } from '@/components/ui/page-header'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { LoadingSpinner } from '@/components/ui/loading-state'
+import { usePermissions } from '@/hooks/usePermissions'
 import { getQualityPolicy } from '@/services/manufacturing-settings-service'
 import { MaterialIssueTab } from './MaterialIssueTab'
 import { QualityTab } from './QualityTab'
@@ -23,12 +25,26 @@ import { QUALITY_POLICY_QUERY_KEY } from './queryKeys'
 export function ManufacturingSettingsPage() {
   const { t, i18n } = useTranslation()
   const isRTL = (i18n.resolvedLanguage ?? i18n.language).toLowerCase().startsWith('ar')
-  const quality = useQuery({ queryKey: QUALITY_POLICY_QUERY_KEY, queryFn: getQualityPolicy })
+  // The view follows the permission keys the backend reports for the selected organization (the
+  // snapshot the route guard reads), not a settings-read error: rpc_get_quality_policy checks
+  // membership only (M201), so it never refuses a holder of manufacturing.cost_policy.approve alone.
+  const { hasPermissionKey, loading: permissionsLoading } = usePermissions()
+  const costPolicyOnly = !permissionsLoading
+    && hasPermissionKey('manufacturing.cost_policy.approve')
+    && !hasPermissionKey('manufacturing.settings.read')
+    && !hasPermissionKey('manufacturing.settings.update')
+  const quality = useQuery({
+    queryKey: QUALITY_POLICY_QUERY_KEY,
+    queryFn: getQualityPolicy,
+    enabled: !permissionsLoading && !costPolicyOnly,
+  })
   const canManage = quality.data?.canManage === true
-  // A holder of manufacturing.cost_policy.approve alone (Migration 205) reaches this page but is
-  // refused by the settings reads: only the cost-policy tab is shown, open (205 design §13).
-  const costPolicyOnly = quality.isError && quality.error.message === 'MANUFACTURING_SETTINGS_READ_DENIED'
 
+  // No tab mounts, and none reads, before the view is known.
+  if (permissionsLoading) return <LoadingSpinner />
+
+  // A holder of manufacturing.cost_policy.approve without the settings keys (Migration 205) sees
+  // the cost-policy tab alone, open (205 design §13).
   if (costPolicyOnly) {
     return (
       <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
