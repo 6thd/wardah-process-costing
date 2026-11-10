@@ -4,7 +4,7 @@ import { focusManager } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
 import i18n from '@/i18n'
-import { cp205Response, ORG, SESSION_USER } from '@/services/__tests__/fixtures/cost-policy-205'
+import { cp205Response, ORG, SESSION_USER } from '../../../../../tests/fixtures/cost-policy-205'
 import pg17 from '@/services/__tests__/fixtures/cost-policy-205-get.pg17.json'
 import { CostPolicyTab } from '../CostPolicyTab'
 
@@ -81,8 +81,10 @@ const called = () => rpc.mock.calls.map(c => c[0] as string)
 const orgsOf = (fn: string) => rpc.mock.calls.filter(c => c[0] === fn).map(c => (c[1] as { p_org_id: string }).p_org_id)
 
 function route(responses: Record<string, unknown>) {
+  // A Map answers only the RPC names given here, never an inherited object key.
+  const replies = new Map(Object.entries(responses))
   rpc.mockImplementation(async (fn: string, args: Record<string, unknown>) => {
-    const r = responses[fn]
+    const r = replies.get(fn)
     if (r === undefined) throw new Error(`unexpected RPC ${fn}`)
     return typeof r === 'function' ? (r as (a: Record<string, unknown>) => unknown)(args) : r
   })

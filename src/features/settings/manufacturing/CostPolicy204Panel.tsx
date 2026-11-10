@@ -251,6 +251,17 @@ export function CostPolicy204Panel({ scope }: { readonly scope: CostPolicy204Sco
   )
 }
 
+// The preview inputs live with the tab, so they outlast a new 205 check; a kept version no longer live falls back to the first.
+function previewDraftFor(draft: CostPolicy204PreviewDraft | null, versions: readonly CostPolicyVersion[]): CostPolicy204PreviewDraft {
+  return {
+    versionId: draft && versions.some(v => v.id === draft.versionId) ? draft.versionId : versions[0]?.id ?? '',
+    workCenterId: draft?.workCenterId ?? '',
+    laborHours: draft?.laborHours ?? '',
+    machineHours: draft?.machineHours ?? '',
+    recordedCost: draft?.recordedCost ?? '',
+  }
+}
+
 function AbsorptionPreviewCard({ orgId, versions, workCenters, draft, onDraft }: {
   readonly orgId: string
   readonly versions: readonly CostPolicyVersion[]
@@ -259,14 +270,7 @@ function AbsorptionPreviewCard({ orgId, versions, workCenters, draft, onDraft }:
   readonly onDraft: (draft: CostPolicy204PreviewDraft) => void
 }) {
   const { t } = useTranslation()
-  // The inputs live with the tab, so they outlast a new 205 check; a kept version no longer live falls back to the first.
-  const current: CostPolicy204PreviewDraft = {
-    versionId: draft && versions.some(v => v.id === draft.versionId) ? draft.versionId : versions[0]?.id ?? '',
-    workCenterId: draft?.workCenterId ?? '',
-    laborHours: draft?.laborHours ?? '',
-    machineHours: draft?.machineHours ?? '',
-    recordedCost: draft?.recordedCost ?? '',
-  }
+  const current = previewDraftFor(draft, versions)
   const { versionId, workCenterId, laborHours, machineHours, recordedCost } = current
   const set = (patch: Partial<CostPolicy204PreviewDraft>) => onDraft({ ...current, ...patch })
   const version = versions.find(v => v.id === versionId)

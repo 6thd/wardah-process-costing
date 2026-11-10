@@ -18,7 +18,7 @@ import {
   parseCostPolicy205State,
   unresolvedLegacyVersions,
 } from '../mfg-cost-policy-205-service'
-import { cp205Response, ORG, SESSION_USER } from './fixtures/cost-policy-205'
+import { cp205Response, ORG, SESSION_USER } from '../../../tests/fixtures/cost-policy-205'
 import pg17 from './fixtures/cost-policy-205-get.pg17.json'
 
 const OTHER_ORG = '52050205-0000-0000-0000-0000000000b1'
