@@ -11020,6 +11020,14 @@ export type Database = {
         Returns: Json
       }
       rpc_accept_invitation: { Args: { p_token: string }; Returns: Json }
+      rpc_approve_mfg_cost_policy_draft_205: {
+        Args: {
+          p_draft_id: string
+          p_expected_revision: number
+          p_org_id: string
+        }
+        Returns: Json
+      }
       rpc_approve_purchase_order: {
         Args: { p_org_id: string; p_purchase_order_id: string }
         Returns: Json
@@ -11051,6 +11059,17 @@ export type Database = {
           org_accepted_count: number
           user_accepted_count: number
         }[]
+      }
+      rpc_check_mfg_cost_policy_draft_205: {
+        Args: {
+          p_draft_id: string
+          p_expected_revision: number
+          p_hours?: Json
+          p_org_id: string
+          p_recorded_labor_cost?: number
+          p_work_center_id?: string
+        }
+        Returns: Json
       }
       rpc_close_stage_wip_194: { Args: { p_wip_id: string }; Returns: Json }
       rpc_complete_manufacturing_order: {
@@ -11089,6 +11108,16 @@ export type Database = {
       }
       rpc_create_customer_receipt: { Args: { p_payload: Json }; Returns: Json }
       rpc_create_journal_entry: { Args: { p_payload: Json }; Returns: Json }
+      rpc_create_legacy_resolution_draft_205: {
+        Args: {
+          p_idempotency_key: string
+          p_org_id: string
+          p_policy_version_id: string
+          p_reason: string
+          p_resolution: Json
+        }
+        Returns: Json
+      }
       rpc_create_manual_journal_entry: {
         Args: { p_payload: Json }
         Returns: Json
@@ -11099,6 +11128,24 @@ export type Database = {
       }
       rpc_create_matched_supplier_invoice_v149: {
         Args: { p_payload: Json }
+        Returns: Json
+      }
+      rpc_create_mfg_cost_policy_draft_205: {
+        Args: {
+          p_draft: Json
+          p_expected_latest_version_no: number
+          p_idempotency_key: string
+          p_org_id: string
+        }
+        Returns: Json
+      }
+      rpc_create_mfg_cost_policy_version: {
+        Args: {
+          p_expected_latest_version_no: number
+          p_idempotency_key: string
+          p_org_id: string
+          p_policy: Json
+        }
         Returns: Json
       }
       rpc_create_mo_with_reservation: {
@@ -11158,6 +11205,8 @@ export type Database = {
         Args: { p_item_id: string; p_org_id: string }
         Returns: Json
       }
+      rpc_get_mfg_cost_policy: { Args: { p_org_id: string }; Returns: Json }
+      rpc_get_mfg_cost_policy_205: { Args: { p_org_id: string }; Returns: Json }
       rpc_get_mo_quality_status: { Args: { p_mo_id: string }; Returns: Json }
       rpc_get_org_uom_engine_enabled: {
         Args: { p_org_id: string }
@@ -11313,6 +11362,27 @@ export type Database = {
         }
         Returns: string
       }
+      rpc_preview_mfg_cost_absorption: {
+        Args: {
+          p_labor_hours: number
+          p_machine_hours: number
+          p_org_id: string
+          p_policy_version_id: string
+          p_recorded_labor_cost?: number
+          p_work_center_id: string
+        }
+        Returns: Json
+      }
+      rpc_preview_mfg_cost_absorption_205: {
+        Args: {
+          p_hours: Json
+          p_org_id: string
+          p_policy_version_id: string
+          p_recorded_labor_cost?: number
+          p_work_center_id: string
+        }
+        Returns: Json
+      }
       rpc_reconcile_material_issue_setup: {
         Args: {
           p_actor_id: string
@@ -11324,6 +11394,10 @@ export type Database = {
       }
       rpc_record_quality_inspection: {
         Args: { p_mo_id: string; p_payload: Json; p_request_id: string }
+        Returns: Json
+      }
+      rpc_reject_mfg_cost_policy_draft_205: {
+        Args: { p_draft_id: string; p_org_id: string; p_reason: string }
         Returns: Json
       }
       rpc_remove_org_member: { Args: { p_payload: Json }; Returns: Json }
@@ -11351,6 +11425,14 @@ export type Database = {
           p_reversal_date?: string
           p_reversal_reason?: string
         }
+        Returns: Json
+      }
+      rpc_set_cost_policy_self_approval_205: {
+        Args: { p_enabled: boolean; p_org_id: string; p_reason: string }
+        Returns: Json
+      }
+      rpc_set_cost_policy_unallocated_policy_205: {
+        Args: { p_org_id: string; p_policy: string; p_reason: string }
         Returns: Json
       }
       rpc_set_gl_event_mapping: {
@@ -11458,6 +11540,15 @@ export type Database = {
         Args: { p_entry_id: string; p_payload: Json }
         Returns: Json
       }
+      rpc_update_mfg_cost_policy_draft_205: {
+        Args: {
+          p_draft: Json
+          p_draft_id: string
+          p_expected_latest_version_no: number
+          p_org_id: string
+        }
+        Returns: Json
+      }
       rpc_update_supplier_payment_draft: {
         Args: { p_payload: Json; p_payment_id: string }
         Returns: Json
@@ -11474,6 +11565,18 @@ export type Database = {
         Returns: string
       }
       rpc_upsert_org_role: { Args: { p_payload: Json }; Returns: Json }
+      rpc_withdraw_mfg_cost_policy_draft_205: {
+        Args: { p_draft_id: string; p_org_id: string; p_reason: string }
+        Returns: Json
+      }
+      rpc_withdraw_mfg_cost_policy_version: {
+        Args: {
+          p_org_id: string
+          p_policy_version_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       schedule_work_order: {
         Args: {
           p_schedule_id?: string
