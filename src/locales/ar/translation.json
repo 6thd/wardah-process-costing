@@ -87,7 +87,8 @@
     "invitations": "الدعوات",
     "roles": "الأدوار",
     "audit-log": "سجل التدقيق",
-    "organizations": "المنظمات"
+    "organizations": "المنظمات",
+    "manufacturingSettings": "إعدادات التصنيع"
   },
   "userMenu": {
     "accountManagement": "إدارة الحساب",
@@ -1761,5 +1762,282 @@
     "title": "مقارنة FIFO مقابل المتوسط المرجح",
     "note": "هذه المقارنة تعرض الفروقات بين طريقة FIFO والمتوسط المرجح في حساب تكلفة الوحدة.",
     "underDevelopment": "قيد التطوير - سيتم إضافة المقارنة التفصيلية قريباً"
+  },
+  "manufacturingSettings": {
+    "title": "إعدادات التصنيع",
+    "description": "سياسات تقرؤها عمليات التصنيع وترحيلاته. كل تبويب يحفظ عبر دالته المحروسة في قاعدة البيانات.",
+    "readOnlyNotice": "يمكنك عرض هذه الإعدادات. الحفظ يتطلب صلاحية manufacturing.settings.update أو مسؤول المؤسسة.",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "saved": "حُفظت الإعدادات",
+    "version": "الإصدار {{version}}",
+    "tabs": {
+      "materialIssue": "صرف المواد",
+      "quality": "الجودة",
+      "glMappings": "ربط القيود",
+      "costPolicies": "سياسات التكلفة"
+    },
+    "materialIssue": {
+      "title": "حالات أمر العمل التي يُسمح فيها بصرف المواد",
+      "description": "الصرف مسموح دائمًا لأمر عمل قيد التنفيذ. اختر هل يُسمح به قبل ذلك أيضًا.",
+      "required": "مسموح دائمًا",
+      "status": {
+        "IN_PROGRESS": "قيد التنفيذ",
+        "READY": "جاهز",
+        "IN_SETUP": "قيد الإعداد"
+      }
+    },
+    "quality": {
+      "title": "سياسة الجودة",
+      "description": "تضبط بوابة الإفراج ومن يسجل الفحوص ويعتمدها.",
+      "release_gate_mode": "بوابة الإفراج",
+      "inspection_scope": "نطاق الفحص",
+      "allow_conditional_release": "السماح بالإفراج المشروط",
+      "segregation_of_duties": "المفتش غير مشغّل الإنتاج",
+      "admins_subject_to_quality_controls": "مسؤولو المؤسسة يخضعون لضوابط الجودة",
+      "releaseGate": {
+        "off": "مطفأة",
+        "all_orders": "كل الأوامر",
+        "routing_flagged": "الأوامر التي يتطلب مسارها فحصًا"
+      },
+      "scope": {
+        "final_only": "الفحص النهائي فقط",
+        "stages_and_final": "المراحل والنهائي"
+      }
+    },
+    "gl": {
+      "title": "ربط قيود التصنيع",
+      "description": "الحساب المدين والدائن لكل حدث تصنيع. وحده OH_APPLIED يقبل تجاوزًا لمركز عمل.",
+      "event": "الحدث",
+      "workCenter": "مركز العمل",
+      "debit": "الحساب المدين",
+      "credit": "الحساب الدائن",
+      "status": "الحالة",
+      "usage": "يقرؤه",
+      "allWorkCenters": "كل المراكز",
+      "missing": "غير مربوط",
+      "inactive": "غير نشط",
+      "postedBy": "يرحّله {{fn}}",
+      "notPostedYet": "لا يقرأ هذا الحدث أي مسار ترحيل بعد",
+      "edit": "تعديل",
+      "editAria": "تعديل ربط {{event}} {{wc}}",
+      "addOverride": "إضافة تجاوز لمركز عمل (OH_APPLIED)",
+      "workCenterOverride": "تجاوز لمركز عمل",
+      "formAria": "نموذج ربط القيد",
+      "choose": "اختر…",
+      "descriptionField": "الوصف",
+      "active": "نشط"
+    },
+    "errors": {
+      "updateDenied": "لا تملك صلاحية تعديل إعدادات التصنيع.",
+      "notMember": "لست عضوًا نشطًا في هذه المؤسسة.",
+      "versionConflict": "حفظ مستخدم آخر هذه الإعدادات قبلك. أُعيد تحميل القيم الأحدث؛ راجعها واحفظ مجددًا.",
+      "sameAccount": "يجب أن يختلف الحساب المدين عن الدائن.",
+      "debitInvalid": "الحساب المدين ليس حساب ترحيل نشطًا في هذه المؤسسة.",
+      "creditInvalid": "الحساب الدائن ليس حساب ترحيل نشطًا في هذه المؤسسة.",
+      "accountRequired": "الحسابان مطلوبان.",
+      "workCenterOverrideNotSupported": "وحده OH_APPLIED يقبل تجاوزًا لمركز عمل.",
+      "workCenterNotFound": "مركز العمل غير موجود في هذه المؤسسة.",
+      "invalidStatuses": "هذه المجموعة من الحالات غير مسموحة."
+    },
+    "costPolicy": {
+      "title": "سياسة تكلفة التصنيع",
+      "description": "كيف تُحتسب العمالة وكيف يُحمَّل الأوفرهيد، لكل شركة. كل تغيير إصدار جديد مؤرخ؛ ولا يُعدَّل إصدار مستخدم.",
+      "scopeNotice": "كل أمر تصنيع جديد يحتفظ بتوقيت التثبيت المحدد في الإصدار الساري يوم إنشائه. ثم يُثبَّت إصدار سياسة التكلفة مرة واحدة بحسب ذلك التوقيت: عند الإنشاء، أو عند أول بدء للإنتاج (الإصدار الساري يومها). الأمر المنشأ دون إصدار سارٍ لا يُثبَّت أبدًا. تكلفة المراحل (#260) ستحسب بالإصدار المثبت؛ وحتى يكتمل ذلك الإصلاح لا تُحتسب أي تكلفة مرحلة من هذه السياسة.",
+      "stageMethod": "طريقة تكلفة المراحل",
+      "inventoryValuation": "تقييم المخزون",
+      "inventoryValuationNote": "يُضبط لكل صنف في المخزون (طريقة التقييم)، وهو إعداد منفصل عن تكلفة المراحل.",
+      "methods": {
+        "weighted_average": "المتوسط المرجح (FIFO للمراحل غير منفذ)"
+      },
+      "empty": "لم تُنشر سياسة تكلفة لهذه المؤسسة بعد.",
+      "effectiveFrom": "يسري من",
+      "laborSource": "مصدر تكلفة العمالة",
+      "laborSources": {
+        "work_center_rate": "ساعات العمالة × معدل المركز",
+        "recorded_entry_rate": "التكلفة المسجلة لقيود الوقت"
+      },
+      "defaultLaborRate": "معدل العمالة الافتراضي للساعة",
+      "pools": "مجمعات الأوفرهيد",
+      "bases": {
+        "labor_hours": "ساعات العمالة",
+        "machine_hours": "ساعات الماكينة"
+      },
+      "perHour": "{{rate}} / ساعة",
+      "workCenterRules": "قواعد مراكز العمل",
+      "pinnedOrders": "أوامر مثبتة",
+      "pinEvent": "توقيت التثبيت",
+      "pinEvents": {
+        "mo_created": "عند إنشاء الأمر",
+        "production_started": "عند أول بدء للإنتاج"
+      },
+      "awaitingStart": "{{count}} بانتظار البدء",
+      "status": {
+        "current": "سارٍ",
+        "scheduled": "مجدول",
+        "superseded": "منتهٍ",
+        "withdrawn": "مسحوب"
+      },
+      "withdraw": "سحب",
+      "withdrawReason": "سبب السحب",
+      "confirmWithdraw": "تأكيد السحب",
+      "withdrawn": "سُحب الإصدار",
+      "newVersion": "إصدار جديد",
+      "created": "نُشر الإصدار",
+      "form": {
+        "aria": "إصدار جديد لسياسة التكلفة",
+        "effectiveFrom": "يسري من",
+        "poolCode": "رمز المجمع",
+        "poolName": "اسم المجمع",
+        "poolNameAr": "اسم المجمع بالعربية",
+        "basis": "أساس التحميل",
+        "poolRate": "المعدل للساعة",
+        "remove": "حذف",
+        "addPool": "إضافة مجمع",
+        "rulesHelp": "مركز العمل بلا قاعدة يأخذ معدل العمالة الافتراضي وكل المجمعات بمعدلاتها. القاعدة قد تغيّر معدل العمالة، أو معدل مجمع، أو تستبعد مجمعًا. الأساس يبقى خاصية المجمع.",
+        "pinEventHelp": "كل أمر يحتفظ بتوقيت الإصدار الساري يوم إنشائه. تغييره في إصدار جديد لا يغيّر الأوامر القائمة.",
+        "workCenter": "مركز العمل",
+        "wcLaborRate": "معدل عمالة خاص",
+        "usesDefault": "يأخذ الافتراضي",
+        "poolMode": "قاعدة {{pool}}",
+        "overrideRate": "معدل {{pool}}",
+        "modes": {
+          "default": "معدل المجمع",
+          "override": "معدل خاص",
+          "exclude": "مستبعد هنا"
+        },
+        "addRule": "إضافة قاعدة مركز",
+        "note": "ملاحظة",
+        "submit": "نشر الإصدار"
+      },
+      "preview": {
+        "title": "معاينة التحميل",
+        "description": "ما يحمّله الإصدار في مركز عمل للساعات المدخلة، بالحساب نفسه الذي ستستخدمه تكلفة المراحل. لا يُحفظ شيء.",
+        "version": "الإصدار",
+        "laborHours": "ساعات العمالة",
+        "machineHours": "ساعات الماكينة",
+        "recordedCost": "تكلفة العمالة المسجلة",
+        "run": "احسب",
+        "result": "نتيجة التحميل",
+        "labor": "العمالة",
+        "line": "{{hours}} ساعة × {{rate}}",
+        "excluded": "مستبعد في هذا المركز",
+        "total": "الإجمالي",
+        "stale": "تغيّرت المدخلات بعد آخر حساب. احسب مجددًا لترى النتيجة."
+      },
+      "errors": {
+        "COST_POLICY_NOT_DEPLOYED": "سياسات التكلفة غير متاحة بعد: لم تُطبَّق Migration 204 على هذه البيئة.",
+        "MANUFACTURING_SETTINGS_READ_DENIED": "عرض سياسات التكلفة يتطلب manufacturing.settings.read أو صلاحية التعديل.",
+        "MANUFACTURING_SETTINGS_UPDATE_DENIED": "لا تملك صلاحية تعديل إعدادات التصنيع.",
+        "COST_POLICY_VERSION_CONFLICT": "أُنشئ إصدار آخر قبلك. أُعيد تحميل القائمة؛ راجعها وأرسل مجددًا.",
+        "COST_POLICY_IDEMPOTENCY_CONFLICT": "استُخدم هذا الإرسال لقيم مختلفة. افتح النموذج من جديد وأرسل.",
+        "COST_POLICY_EFFECTIVE_DATE_IN_PAST": "لا يجوز أن يسبق تاريخ السريان اليوم.",
+        "COST_POLICY_EFFECTIVE_DATE_NOT_AFTER_LATEST": "يجب أن يكون تاريخ السريان بعد بداية آخر إصدار.",
+        "COST_POLICY_LABOR_RATE_MISSING": "معدل العمالة الافتراضي مطلوب عند احتساب العمالة بمعدل المركز.",
+        "COST_POLICY_LABOR_RATE_NOT_APPLICABLE": "معدلات العمالة لا تنطبق حين تُحتسب العمالة بتكلفة القيود المسجلة.",
+        "COST_POLICY_RATE_INVALID": "المعدل يجب أن يكون موجبًا، ولا يتجاوز 999,999,999، وبست منازل عشرية على الأكثر.",
+        "COST_POLICY_WC_POOL_RATE_INVALID": "المجمع ذو المعدل الخاص يحتاج معدلًا موجبًا؛ والمستبعد لا يأخذ معدلًا.",
+        "COST_POLICY_POOLS_REQUIRED": "أضف مجمع أوفرهيد واحدًا على الأقل.",
+        "COST_POLICY_POOL_DUPLICATE": "رمز المجمع يرد مرة واحدة فقط.",
+        "COST_POLICY_POOL_BASIS_UNSUPPORTED": "أساس التحميل هذا غير مدعوم.",
+        "COST_POLICY_WORK_CENTER_UNKNOWN": "مركز العمل ليس مركزًا نشطًا في هذه المؤسسة.",
+        "COST_POLICY_WORK_CENTER_DUPLICATE": "لكل مركز عمل قاعدة واحدة.",
+        "COST_POLICY_WC_POOL_UNKNOWN": "قاعدة المركز تشير إلى مجمع ليس في هذا الإصدار.",
+        "COST_POLICY_WC_POOL_DUPLICATE": "قاعدة المركز تذكر المجمع نفسه مرتين.",
+        "COST_POLICY_WC_RULE_EMPTY": "قاعدة المركز يجب أن تحدد معدل عمالة أو مجمعًا واحدًا على الأقل.",
+        "COST_POLICY_VERSION_PINNED": "أوامر تصنيع تستخدم هذا الإصدار؛ لا يمكن سحبه.",
+        "COST_POLICY_VERSION_ALREADY_IN_FORCE": "هذا الإصدار سارٍ بالفعل؛ انشر إصدارًا جديدًا بدلًا منه.",
+        "COST_POLICY_VERSION_ALREADY_WITHDRAWN": "هذا الإصدار مسحوب بالفعل.",
+        "COST_POLICY_WITHDRAW_REASON_REQUIRED": "السبب مطلوب لسحب الإصدار.",
+        "COST_POLICY_DRIVER_MISSING": "لم يُدخل محرّك مطلوب. اترك الحقل فارغًا فقط إن لم يُستخدم، وأدخل 0 لصفر مقيس.",
+        "COST_POLICY_DRIVER_INVALID": "لا تكون الساعات أو التكاليف سالبة.",
+        "COST_POLICY_INPUT_NOT_APPLICABLE": "هذا المدخل لا يستخدمه الإصدار المختار.",
+        "COST_POLICY_ORG_TIMEZONE_INVALID": "توقيت المؤسسة غير صالح؛ أصلحه قبل نشر سياسة.",
+        "COST_POLICY_PIN_EVENT_UNSUPPORTED": "توقيت التثبيت هذا غير مدعوم.",
+        "COST_POLICY_INVALID": "السياسة غير صالحة.",
+        "COST_POLICY_FUNCTION_NOT_PERMITTED": "هذا الإجراء مغلق في قاعدة البيانات، ولم يُحفظ شيء.",
+        "COST_POLICY_ORG_MISMATCH": "الرد يخص مؤسسة أخرى، فلم يُعرض منه شيء. أعد تحميل الصفحة."
+      },
+      "createFrozen": "الإنشاء بهذا المسار متوقف بالإيقاف الإداري. يحل محله مسار الاعتماد الجديد بعد تطبيق Migration 205."
+    },
+    "costPolicy205": {
+      "denied": "لا تملك صلاحية عرض سياسة تكلفة التصنيع.",
+      "unknown": "تعذر تحميل سياسة التكلفة. لا يمكن تغيير شيء حتى تُحمَّل.",
+      "retry": "إعادة المحاولة",
+      "readOnlyNotice": "تعرض هذه الشاشة مسار الاعتماد للقراءة فقط. إنشاء المسودات والاعتماد والرفض وتغيير إعدادات الاعتماد غير متاحة في هذه النسخة.",
+      "freezeNotice": "إيقاف إداري: لا يُنشأ إصدار جديد لسياسة التكلفة حتى يُقبل مسار الاعتماد.",
+      "companyPolicy": "سياسة الاعتماد في الشركة",
+      "selfApproval": "الاعتماد الذاتي",
+      "on": "مفعّل",
+      "off": "معطّل",
+      "unallocatedPolicy": "الموازنات التي لا يحمّلها أي مجمع",
+      "unallocatedPolicies": {
+        "block": "تُرفض عند الاعتماد",
+        "controlled_exception": "مسموح بها استثناءً مضبوطًا"
+      },
+      "policyAppliesForward": "تغيير السياسة يسري على الاعتمادات التالية فقط، ولا يُعاد فتح إصدار معتمد.",
+      "settingsAudit": "سجل إعدادات الاعتماد",
+      "changedAt": "وقت التغيير",
+      "setting": "الإعداد",
+      "change": "التغيير",
+      "by": "بواسطة",
+      "reason": "السبب",
+      "settings": {
+        "self_approval_enabled": "الاعتماد الذاتي",
+        "unallocated_budget_policy": "الموازنات التي لا يحمّلها أي مجمع"
+      },
+      "pendingDrafts": "بانتظار القرار",
+      "noPendingDrafts": "لا توجد مسودة بانتظار القرار.",
+      "versions": "الإصدارات",
+      "budgetScope": "النطاق المتاح: الحساب العام.",
+      "path": "مسار الاعتماد",
+      "budgets": "الموازنات",
+      "approval": "الاعتماد",
+      "legacyTitle": "إصدارات بلا بيانات 205",
+      "legacyDescription": "أُنشئت قبل مسار الاعتماد. ترفضها المعاينة 205 وحساب التكلفة حتى تُعتمد معالجتها، وصفوفها لا تتغير.",
+      "linkedOrders": "أوامر مثبتة: {{pinned}} · بانتظار البدء: {{awaiting}}",
+      "legacyRefused": "ترفضه المعاينة 205 وحساب التكلفة حتى يُعالج.",
+      "legacyCurrent": "هذا هو الإصدار الساري: الأوامر الجديدة تُثبَّت عليه.",
+      "legacyResolutionPending": "توجد مسودة معالجة بانتظار القرار.",
+      "history": "القرارات",
+      "noHistory": "لم يُتخذ قرار في أي مسودة بعد.",
+      "kind": "النوع",
+      "decision": "القرار",
+      "revision": "المراجعة",
+      "decidedAt": "وقت القرار",
+      "kinds": {
+        "version": "إصدار جديد",
+        "legacy_resolution": "معالجة إصدار قديم"
+      },
+      "draftStatus": {
+        "draft": "بانتظار القرار",
+        "approved": "معتمدة",
+        "rejected": "مرفوضة",
+        "withdrawn": "مسحوبة"
+      },
+      "draftMeta": "المراجعة {{revision}} · بواسطة {{by}} · {{at}}",
+      "staleDraft": "حُفظت على الإصدار {{saved}}، وآخر إصدار الآن {{latest}}. سيرفضها الاعتماد.",
+      "unallocatedTitle": "موازنات غير محمّلة على المنتج",
+      "unallocatedAsEntered": "المبالغ كما أُدخلت في المسودة. هي خارج كل إجمالي، ومعالجتها المحاسبية خارج هذا الحساب.",
+      "unallocatedBlocked": "سياسة الشركة ترفض هذه المسودة عند الاعتماد.",
+      "paths": {
+        "approved_205": "معتمد (205)",
+        "legacy_resolved": "قديم معالج",
+        "legacy_unresolved": "قديم غير معالج"
+      },
+      "activities": {
+        "run": "تشغيل",
+        "setup": "إعداد",
+        "both": "تشغيل وإعداد"
+      },
+      "treatment": "المعالجة",
+      "approvedBy": "اعتمده {{by}} · {{at}}",
+      "approvedRevision": "اعتُمدت المراجعة {{revision}}",
+      "selfApproved": "اعتماد ذاتي",
+      "resolvedBy": "عالجه {{by}} · {{at}}",
+      "you": "أنت",
+      "riyal": "{{amount}} ر.س"
+    },
+    "costPolicyOnlyNotice": "تستطيع عرض سياسة التكلفة فقط. بقية إعدادات التصنيع تحتاج صلاحية قراءة الإعدادات."
   }
 }

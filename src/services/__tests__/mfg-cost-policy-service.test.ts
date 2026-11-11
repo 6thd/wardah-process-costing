@@ -1,0 +1,150 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const rpc = vi.fn()
+const tenant = vi.fn()
+const eqCalls: Array<[string, unknown]> = []
+vi.mock('@/lib/supabase', () => {
+  const chain = {
+    select: () => chain,
+    eq: (column: string, value: unknown) => { eqCalls.push([column, value]); return chain },
+    order: () => Promise.resolve({ data: [{ id: 'wc-1', code: 'WC-1', name: 'Mixing', name_ar: null }], error: null }),
+  }
+  return {
+    supabase: { rpc: (...args: unknown[]) => rpc(...args), from: () => chain },
+    getEffectiveTenantId: () => tenant(),
+  }
+})
+
+import {
+  costPolicyErrorDetail,
+  costPolicyErrorKey,
+  createCostPolicyVersion,
+  getCostPolicy,
+  listCostPolicyWorkCenters,
+  previewAbsorption,
+  withdrawCostPolicyVersion,
+  type CostPolicyDraft,
+} from '../mfg-cost-policy-service'
+
+const ORG = '22222222-2222-2222-2222-222222222222'
+const OTHER_ORG = '33333333-3333-3333-3333-333333333333'
+const STATE = {
+  org_id: ORG, today: '2026-10-22', current_version_id: null, latest_version_no: 0, versions: [],
+  supported: { labor_cost_sources: ['work_center_rate', 'recorded_entry_rate'], overhead_bases: ['labor_hours', 'machine_hours'], stage_costing_methods: ['weighted_average'], pin_events: ['mo_created', 'production_started'] },
+  capabilities: { can_manage: true },
+}
+
+describe('mfg-cost-policy-service', () => {
+  beforeEach(() => {
+    rpc.mockReset()
+    tenant.mockReset()
+    tenant.mockResolvedValue(ORG)
+    eqCalls.length = 0
+  })
+
+  it('reads the policy and the save capability from the database', async () => {
+    rpc.mockResolvedValue({ data: STATE, error: null })
+
+    const state = await getCostPolicy(ORG)
+
+    expect(rpc).toHaveBeenCalledWith('rpc_get_mfg_cost_policy', { p_org_id: ORG })
+    expect(state.canManage).toBe(true)
+    expect(state.latestVersionNo).toBe(0)
+    expect(state.supported.overhead_bases).toEqual(['labor_hours', 'machine_hours'])
+    expect(state.supported.pin_events).toEqual(['mo_created', 'production_started'])
+  })
+
+  it('reports an environment without Migration 204 as COST_POLICY_NOT_DEPLOYED, not as a generic error', async () => {
+    rpc.mockResolvedValue({
+      data: null,
+      error: { code: 'PGRST202', message: 'Could not find the function public.rpc_get_mfg_cost_policy(p_org_id) in the schema cache' },
+    })
+
+    await expect(getCostPolicy(ORG)).rejects.toThrow('COST_POLICY_NOT_DEPLOYED')
+  })
+
+  it('creates a version with the expected latest version and the caller idempotency key', async () => {
+    rpc.mockResolvedValue({ data: { ...STATE, latest_version_no: 1, policy_version_id: 'v1', replayed: false }, error: null })
+    const draft: CostPolicyDraft = {
+      effective_from: '2026-11-01', labor_cost_source: 'work_center_rate', default_labor_rate_per_hour: 30, pin_event: 'production_started',
+      overhead_pools: [{ pool_code: 'MACHINE_OH', name: 'Machine', basis: 'machine_hours', rate: 40 }],
+      work_center_rules: [{ work_center_id: 'wc-1', pools: [{ pool_code: 'MACHINE_OH', applies: false }] }],
+    }
+
+    const result = await createCostPolicyVersion(draft, 0, 'key-1')
+
+    expect(rpc).toHaveBeenCalledWith('rpc_create_mfg_cost_policy_version', {
+      p_org_id: ORG, p_policy: draft, p_expected_latest_version_no: 0, p_idempotency_key: 'key-1',
+    })
+    expect(result).toMatchObject({ versionId: 'v1', replayed: false })
+  })
+
+  it('withdraws with a reason and previews with NULL for an unmeasured driver', async () => {
+    rpc.mockResolvedValue({ data: STATE, error: null })
+    await withdrawCostPolicyVersion(ORG, 'v2', 'Rates not approved')
+    expect(rpc).toHaveBeenLastCalledWith('rpc_withdraw_mfg_cost_policy_version', {
+      p_org_id: ORG, p_policy_version_id: 'v2', p_reason: 'Rates not approved',
+    })
+
+    rpc.mockResolvedValue({ data: { total: 0 }, error: null })
+    await previewAbsorption(ORG, { versionId: 'v1', workCenterId: 'wc-1', laborHours: 0, machineHours: null, recordedLaborCost: null })
+    expect(rpc).toHaveBeenLastCalledWith('rpc_preview_mfg_cost_absorption', {
+      p_org_id: ORG, p_policy_version_id: 'v1', p_work_center_id: 'wc-1',
+      p_labor_hours: 0, p_machine_hours: null, p_recorded_labor_cost: null,
+    })
+  })
+
+  it('reads, withdraws, previews and lists work centers for the organization it is given, not the one the session resolves', async () => {
+    tenant.mockResolvedValue(OTHER_ORG)
+    rpc.mockResolvedValue({ data: STATE, error: null })
+    await getCostPolicy(ORG)
+    await withdrawCostPolicyVersion(ORG, 'v2', 'r')
+    rpc.mockResolvedValue({ data: { total: 0 }, error: null })
+    await previewAbsorption(ORG, { versionId: 'v1', workCenterId: 'wc-1', laborHours: 1, machineHours: null, recordedLaborCost: null })
+    await listCostPolicyWorkCenters(ORG)
+
+    expect(rpc.mock.calls.map(c => (c[1] as { p_org_id: string }).p_org_id)).toEqual([ORG, ORG, ORG])
+    expect(eqCalls).toContainEqual(['org_id', ORG])
+    expect(tenant).not.toHaveBeenCalled()
+  })
+
+  it('refuses a policy reply for another organization, on read and on withdrawal', async () => {
+    rpc.mockResolvedValue({ data: { ...STATE, org_id: OTHER_ORG }, error: null })
+    await expect(getCostPolicy(ORG)).rejects.toThrow('COST_POLICY_ORG_MISMATCH')
+    await expect(withdrawCostPolicyVersion(ORG, 'v2', 'r')).rejects.toThrow('COST_POLICY_ORG_MISMATCH')
+    expect(costPolicyErrorKey('COST_POLICY_ORG_MISMATCH')).toBe('manufacturingSettings.costPolicy.errors.COST_POLICY_ORG_MISMATCH')
+  })
+
+  it('reads nothing without an organization', async () => {
+    await expect(getCostPolicy('')).rejects.toThrow('ORG_UNRESOLVED')
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it('maps 204 codes to translation keys and keeps the detail after the colon', () => {
+    expect(costPolicyErrorKey('COST_POLICY_RATE_INVALID: overhead_pools[2].rate'))
+      .toBe('manufacturingSettings.costPolicy.errors.COST_POLICY_RATE_INVALID')
+    expect(costPolicyErrorDetail('COST_POLICY_RATE_INVALID: overhead_pools[2].rate')).toBe('overhead_pools[2].rate')
+    expect(costPolicyErrorKey('COST_POLICY_INVALID: effective_from'))
+      .toBe('manufacturingSettings.costPolicy.errors.COST_POLICY_INVALID')
+    expect(costPolicyErrorKey('MANUFACTURING_SETTINGS_UPDATE_DENIED'))
+      .toBe('manufacturingSettings.costPolicy.errors.MANUFACTURING_SETTINGS_UPDATE_DENIED')
+    expect(costPolicyErrorKey('COST_POLICY_PIN_EVENT_UNSUPPORTED'))
+      .toBe('manufacturingSettings.costPolicy.errors.COST_POLICY_PIN_EVENT_UNSUPPORTED')
+    expect(costPolicyErrorDetail('COST_POLICY_INVALID: pin_event')).toBe('pin_event')
+    expect(costPolicyErrorKey('network down')).toBeNull()
+  })
+
+  it('translates a revoked EXECUTE (42501 permission denied for function) instead of showing the raw text', async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied for function rpc_withdraw_mfg_cost_policy_version' } })
+
+    await expect(withdrawCostPolicyVersion(ORG, 'v1', 'reason')).rejects.toThrow('COST_POLICY_FUNCTION_NOT_PERMITTED')
+    expect(costPolicyErrorKey('COST_POLICY_FUNCTION_NOT_PERMITTED'))
+      .toBe('manufacturingSettings.costPolicy.errors.COST_POLICY_FUNCTION_NOT_PERMITTED')
+  })
+
+  it('keeps a 42501 raised by the function itself as its own code', async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'MANUFACTURING_SETTINGS_UPDATE_DENIED' } })
+
+    await expect(withdrawCostPolicyVersion(ORG, 'v1', 'reason')).rejects.toThrow('MANUFACTURING_SETTINGS_UPDATE_DENIED')
+  })
+})

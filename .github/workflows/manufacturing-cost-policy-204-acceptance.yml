@@ -1,0 +1,146 @@
+name: Manufacturing Cost Policies 204 Acceptance
+
+# Owner decision (2026-10-22): cost policies differ by company. 204 stores a
+# per-org, versioned, effective-dated policy (labor cost source; overhead pools
+# absorbed on labor or machine hours; company defaults with explicit
+# work-center rules), pins each new MO to the version in force, and provides
+# the single absorption computation the #260 engine and #230 completion call.
+# See sql/migrations/204_manufacturing_cost_policies.sql and
+# docs/db/MANUFACTURING_COST_POLICIES_204_RUNBOOK.md.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/204_manufacturing_cost_policies.sql'
+      - 'scripts/ci/fresh-db/acceptance_204_*'
+      - 'scripts/ci/fresh-db/run_chain.sh'
+      - '.github/workflows/manufacturing-cost-policy-204-acceptance.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Cost policies are versioned, guarded, pinned and computed once
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve Baseline pair and the chain before 204
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # Pin to the newest Baseline strictly before cutoff 204, so the red
+          # proof and the single-transaction apply below stay meaningful after a
+          # later Baseline folds 204 in.
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 204)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/chain_order_full.txt
+          grep -q '^204_manufacturing_cost_policies.sql$' /tmp/chain_order_full.txt
+          # Everything before 204, nothing at or after it.
+          sed '/^204_manufacturing_cost_policies.sql$/,$d' /tmp/chain_order_full.txt > /tmp/pre_order.txt
+
+      - name: Build fresh database through 203
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_pre204
+          psql -v ON_ERROR_STOP=1 -d wardah_pre204 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_pre204 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_pre204 -f "$REFERENCE" -q
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_pre204 \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/pre_order.txt
+
+      - name: Runner-owned transaction for 204 (fault injected through run_chain.sh)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PRE_DB=wardah_pre204 bash scripts/ci/fresh-db/acceptance_204_runner_atomicity.sh | tee /tmp/atomicity.out
+          grep -q 'CP204_RUNNER_ATOMICITY_PASS' /tmp/atomicity.out
+
+      - name: RED before 204
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_pre204 \
+            -f scripts/ci/fresh-db/acceptance_204_manufacturing_cost_policies_red.sql 2>&1 | tee /tmp/red.out
+          grep -q 'MFG_COST_POLICY_204_RED_PROOF_OK' /tmp/red.out
+
+      - name: Apply 204 in one runner-owned transaction; re-apply is refused
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb -T wardah_pre204 wardah_204
+          psql -v ON_ERROR_STOP=1 --single-transaction -d wardah_204 \
+            -f sql/migrations/204_manufacturing_cost_policies.sql
+          if psql -v ON_ERROR_STOP=1 --single-transaction -d wardah_204 \
+               -f sql/migrations/204_manufacturing_cost_policies.sql > /tmp/reapply.out 2>&1; then
+            echo "204 re-apply unexpectedly succeeded"; exit 1
+          fi
+          grep -q 'M204_ALREADY_APPLIED' /tmp/reapply.out
+
+      - name: Run Migration 204 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_204 \
+            -f scripts/ci/fresh-db/acceptance_204_manufacturing_cost_policies.sql 2>&1 | tee /tmp/cp204.out
+          grep -q 'MFG_COST_POLICY_204_ACCEPTANCE_PASS' /tmp/cp204.out
+
+      - name: Two-session checks
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb -T wardah_204 wardah_204_conc
+          DB=wardah_204_conc bash scripts/ci/fresh-db/acceptance_204_concurrency.sh | tee /tmp/conc.out
+          grep -q 'CP204_CONCURRENCY_PASS' /tmp/conc.out
+
+      - name: Negative controls (the acceptance must be able to fail)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PRE_DB=wardah_pre204 bash scripts/ci/fresh-db/acceptance_204_negative_controls.sh | tee /tmp/nc.out
+          grep -q 'CP204_NEGATIVE_CONTROLS_PASS' /tmp/nc.out
+
+      - name: Existing suites unchanged by 204
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for f in acceptance_195_legacy_mo_quarantine.sql \
+                   acceptance_200_gl_event_mapping_write_closure.sql \
+                   acceptance_201_manufacturing_settings_permissions.sql \
+                   acceptance_200_201_contract_claims.sql \
+                   acceptance_203_stage_wip_mo_lock.sql; do
+            createdb -T wardah_204 "reg_${f%.sql}"
+            psql -v ON_ERROR_STOP=1 -q -d "reg_${f%.sql}" -f "scripts/ci/fresh-db/$f" > "/tmp/$f.out" 2>&1 \
+              || { echo "REGRESSION: $f"; tail -5 "/tmp/$f.out"; exit 1; }
+            echo "PASS $f"
+          done
