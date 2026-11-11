@@ -6,6 +6,7 @@
 import uiEvents from '../../ui/events.js'
 import { toast } from 'sonner'
 import { processCostingService } from '@/services/process-costing-service'
+import { isStageCostingUnavailable } from '@/services/stage-costing-availability'
 import { hasLiveStageCostingPermission, hasLiveStageCostingPermissionAll, STAGE_COSTING_PERMISSIONS } from './stage-costing-permissions'
 
 // Import domain modules - DISABLED (not implemented)
@@ -33,6 +34,12 @@ const Manufacturing = {
   // least fails as a handled "no data" case instead of a raw exception.
   getManufacturingOrderById: async () => ({ success: true, data: null })
 }
+// #260 interim: applyLaborTime/applyOverhead/upsertStageCost refuse before any request (StageCostingUnavailableError).
+// The handlers show that refusal as it is, instead of a generic failure, so nobody retries an unavailable write.
+export function stageCostingErrorMessage(error, fallback) {
+  return isStageCostingUnavailable(error) ? error.message : fallback
+}
+
 const Audit = {
   logAction: async () => ({ success: true }),
   logProcessCostingOperation: async () => ({ success: true }) // Stub for process costing operations
@@ -232,7 +239,7 @@ export function registerStageCostingActions() {
       }
     } catch (error) {
       console.error('Error applying labor time:', error)
-      toast.error('خطأ في تسجيل وقت العمل')
+      toast.error(stageCostingErrorMessage(error, 'خطأ في تسجيل وقت العمل'))
     } finally {
       element.disabled = false
       element.textContent = originalText
@@ -296,7 +303,7 @@ export function registerStageCostingActions() {
       }
     } catch (error) {
       console.error('Error applying overhead:', error)
-      toast.error('خطأ في تطبيق التكاليف غير المباشرة')
+      toast.error(stageCostingErrorMessage(error, 'خطأ في تطبيق التكاليف غير المباشرة'))
     } finally {
       element.disabled = false
       element.textContent = originalText
@@ -389,7 +396,7 @@ export function registerStageCostingActions() {
       }
     } catch (error) {
       console.error('Stage costing error:', error)
-      toast.error(`خطأ في احتساب تكلفة المرحلة: ${error.message}`)
+      toast.error(stageCostingErrorMessage(error, `خطأ في احتساب تكلفة المرحلة: ${error.message}`))
     } finally {
       element.disabled = false
       element.textContent = originalText
