@@ -8,6 +8,15 @@ import { ManufacturingSettingsPage } from '../ManufacturingSettingsPage'
 vi.mock('@/components/ui/page-header', () => ({
   PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
 }))
+// The tab has its own tests (CostPolicyTab.test.tsx); here only where the page places it matters.
+vi.mock('../CostPolicyTab', () => ({ CostPolicyTab: () => <div data-testid="cost-policy-tab">cost policy tab</div> }))
+
+// The page reads the same permission snapshot as the route guard; here it is the keys the backend reports.
+const SETTINGS_KEYS = ['manufacturing.settings.read', 'manufacturing.settings.update']
+const perms = vi.hoisted(() => ({ keys: [] as string[], loading: false }))
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({ hasPermissionKey: (key: string) => perms.keys.includes(key), loading: perms.loading }),
+}))
 
 const toastError = vi.fn()
 const toastSuccess = vi.fn()
@@ -37,6 +46,8 @@ function quality(canManage: boolean, version = 3): QualityPolicy {
 
 beforeEach(async () => {
   for (const fn of Object.values(service)) fn.mockReset()
+  perms.keys = [...SETTINGS_KEYS]
+  perms.loading = false
   toastError.mockReset()
   toastSuccess.mockReset()
   service.getMaterialIssueStatuses.mockResolvedValue({ allowedStatuses: ['IN_PROGRESS'], version: 2 })
@@ -144,6 +155,57 @@ describe('ManufacturingSettingsPage', () => {
       eventCode: 'FG_RECEIPT', workCenterCode: null, debitAccountCode: '135100',
       creditAccountCode: '134100', description: null, isActive: true,
     }))
+  })
+
+  it('shows only the cost-policy tab, open, to a holder of the 205 approve key without the settings keys', async () => {
+    perms.keys = ['manufacturing.cost_policy.approve']
+    // As the server allows (M201): rpc_get_quality_policy checks membership only, so the read would succeed.
+    service.getQualityPolicy.mockResolvedValue(quality(false))
+    render(<ManufacturingSettingsPage />)
+
+    expect(await screen.findByTestId('cost-policy-tab')).toBeInTheDocument()
+    expect(screen.getByText(/You can see the cost policy only/)).toBeInTheDocument()
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'Ready' })).not.toBeInTheDocument()
+    // The view is decided before any tab mounts: no settings read, no tab read, no write.
+    expect(service.getQualityPolicy).not.toHaveBeenCalled()
+    expect(service.getMaterialIssueStatuses).not.toHaveBeenCalled()
+    expect(service.listGlEventMappings).not.toHaveBeenCalled()
+    expect(service.setMaterialIssueStatuses).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['settings read', ['manufacturing.settings.read']],
+    ['settings update', ['manufacturing.settings.update']],
+    ['settings read and the approve key', ['manufacturing.settings.read', 'manufacturing.cost_policy.approve']],
+    ['settings update and the approve key', ['manufacturing.settings.update', 'manufacturing.cost_policy.approve']],
+  ])('keeps the four tabs, opening on material issue, for a holder of %s', async (_label, keys) => {
+    perms.keys = keys
+    service.getQualityPolicy.mockResolvedValue(quality(false))
+    render(<ManufacturingSettingsPage />)
+
+    expect(await screen.findByRole('tab', { name: 'Material issue' })).toHaveAttribute('aria-selected', 'true')
+    for (const name of ['Quality', 'GL mappings', 'Cost policies']) expect(screen.getByRole('tab', { name })).toBeInTheDocument()
+    expect(screen.queryByText(/You can see the cost policy only/)).not.toBeInTheDocument()
+    await waitFor(() => expect(service.getQualityPolicy).toHaveBeenCalled())
+  })
+
+  it('mounts no tab and reads nothing while the permission snapshot is loading', () => {
+    perms.loading = true
+    render(<ManufacturingSettingsPage />)
+
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cost-policy-tab')).not.toBeInTheDocument()
+    expect(service.getQualityPolicy).not.toHaveBeenCalled()
+    expect(service.getMaterialIssueStatuses).not.toHaveBeenCalled()
+  })
+
+  it('keeps the error and the tabs for any other failure of the settings read', async () => {
+    service.getQualityPolicy.mockRejectedValue(new Error('Failed to fetch'))
+    render(<ManufacturingSettingsPage />)
+
+    expect(await screen.findByText('Failed to fetch')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Cost policies' })).toBeInTheDocument()
   })
 
   it('shows a translated refusal when the database denies the save', async () => {

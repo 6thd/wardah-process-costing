@@ -1949,8 +1949,90 @@
         "COST_POLICY_INPUT_NOT_APPLICABLE": "هذا المدخل لا يستخدمه الإصدار المختار.",
         "COST_POLICY_ORG_TIMEZONE_INVALID": "توقيت المؤسسة غير صالح؛ أصلحه قبل نشر سياسة.",
         "COST_POLICY_PIN_EVENT_UNSUPPORTED": "توقيت التثبيت هذا غير مدعوم.",
-        "COST_POLICY_INVALID": "السياسة غير صالحة."
-      }
-    }
+        "COST_POLICY_INVALID": "السياسة غير صالحة.",
+        "COST_POLICY_FUNCTION_NOT_PERMITTED": "هذا الإجراء مغلق في قاعدة البيانات، ولم يُحفظ شيء.",
+        "COST_POLICY_ORG_MISMATCH": "الرد يخص مؤسسة أخرى، فلم يُعرض منه شيء. أعد تحميل الصفحة."
+      },
+      "createFrozen": "الإنشاء بهذا المسار متوقف بالإيقاف الإداري. يحل محله مسار الاعتماد الجديد بعد تطبيق Migration 205."
+    },
+    "costPolicy205": {
+      "denied": "لا تملك صلاحية عرض سياسة تكلفة التصنيع.",
+      "unknown": "تعذر تحميل سياسة التكلفة. لا يمكن تغيير شيء حتى تُحمَّل.",
+      "retry": "إعادة المحاولة",
+      "readOnlyNotice": "تعرض هذه الشاشة مسار الاعتماد للقراءة فقط. إنشاء المسودات والاعتماد والرفض وتغيير إعدادات الاعتماد غير متاحة في هذه النسخة.",
+      "freezeNotice": "إيقاف إداري: لا يُنشأ إصدار جديد لسياسة التكلفة حتى يُقبل مسار الاعتماد.",
+      "companyPolicy": "سياسة الاعتماد في الشركة",
+      "selfApproval": "الاعتماد الذاتي",
+      "on": "مفعّل",
+      "off": "معطّل",
+      "unallocatedPolicy": "الموازنات التي لا يحمّلها أي مجمع",
+      "unallocatedPolicies": {
+        "block": "تُرفض عند الاعتماد",
+        "controlled_exception": "مسموح بها استثناءً مضبوطًا"
+      },
+      "policyAppliesForward": "تغيير السياسة يسري على الاعتمادات التالية فقط، ولا يُعاد فتح إصدار معتمد.",
+      "settingsAudit": "سجل إعدادات الاعتماد",
+      "changedAt": "وقت التغيير",
+      "setting": "الإعداد",
+      "change": "التغيير",
+      "by": "بواسطة",
+      "reason": "السبب",
+      "settings": {
+        "self_approval_enabled": "الاعتماد الذاتي",
+        "unallocated_budget_policy": "الموازنات التي لا يحمّلها أي مجمع"
+      },
+      "pendingDrafts": "بانتظار القرار",
+      "noPendingDrafts": "لا توجد مسودة بانتظار القرار.",
+      "versions": "الإصدارات",
+      "budgetScope": "النطاق المتاح: الحساب العام.",
+      "path": "مسار الاعتماد",
+      "budgets": "الموازنات",
+      "approval": "الاعتماد",
+      "legacyTitle": "إصدارات بلا بيانات 205",
+      "legacyDescription": "أُنشئت قبل مسار الاعتماد. ترفضها المعاينة 205 وحساب التكلفة حتى تُعتمد معالجتها، وصفوفها لا تتغير.",
+      "linkedOrders": "أوامر مثبتة: {{pinned}} · بانتظار البدء: {{awaiting}}",
+      "legacyRefused": "ترفضه المعاينة 205 وحساب التكلفة حتى يُعالج.",
+      "legacyCurrent": "هذا هو الإصدار الساري: الأوامر الجديدة تُثبَّت عليه.",
+      "legacyResolutionPending": "توجد مسودة معالجة بانتظار القرار.",
+      "history": "القرارات",
+      "noHistory": "لم يُتخذ قرار في أي مسودة بعد.",
+      "kind": "النوع",
+      "decision": "القرار",
+      "revision": "المراجعة",
+      "decidedAt": "وقت القرار",
+      "kinds": {
+        "version": "إصدار جديد",
+        "legacy_resolution": "معالجة إصدار قديم"
+      },
+      "draftStatus": {
+        "draft": "بانتظار القرار",
+        "approved": "معتمدة",
+        "rejected": "مرفوضة",
+        "withdrawn": "مسحوبة"
+      },
+      "draftMeta": "المراجعة {{revision}} · بواسطة {{by}} · {{at}}",
+      "staleDraft": "حُفظت على الإصدار {{saved}}، وآخر إصدار الآن {{latest}}. سيرفضها الاعتماد.",
+      "unallocatedTitle": "موازنات غير محمّلة على المنتج",
+      "unallocatedAsEntered": "المبالغ كما أُدخلت في المسودة. هي خارج كل إجمالي، ومعالجتها المحاسبية خارج هذا الحساب.",
+      "unallocatedBlocked": "سياسة الشركة ترفض هذه المسودة عند الاعتماد.",
+      "paths": {
+        "approved_205": "معتمد (205)",
+        "legacy_resolved": "قديم معالج",
+        "legacy_unresolved": "قديم غير معالج"
+      },
+      "activities": {
+        "run": "تشغيل",
+        "setup": "إعداد",
+        "both": "تشغيل وإعداد"
+      },
+      "treatment": "المعالجة",
+      "approvedBy": "اعتمده {{by}} · {{at}}",
+      "approvedRevision": "اعتُمدت المراجعة {{revision}}",
+      "selfApproved": "اعتماد ذاتي",
+      "resolvedBy": "عالجه {{by}} · {{at}}",
+      "you": "أنت",
+      "riyal": "{{amount}} ر.س"
+    },
+    "costPolicyOnlyNotice": "تستطيع عرض سياسة التكلفة فقط. بقية إعدادات التصنيع تحتاج صلاحية قراءة الإعدادات."
   }
 }
