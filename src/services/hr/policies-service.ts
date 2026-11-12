@@ -44,6 +44,33 @@ const DEFAULT_POLICIES: HrPolicies = {
   exclude_unpaid_from_accrual: true,
 };
 
+/**
+ * Read-only policy lookup for reports and previews. Unlike getHrPolicies(),
+ * this never creates a default row when an organization has not configured
+ * policies yet.
+ */
+export async function getHrPoliciesReadOnly(
+  suppliedOrgId?: string,
+): Promise<HrPolicies> {
+  const orgId = suppliedOrgId ?? await getEffectiveTenantId();
+  if (!orgId) throw new Error('Organization not found for current user.');
+
+  const { data, error } = await supabase
+    .from('hr_policies')
+    .select('*')
+    .eq('org_id', orgId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Failed to load HR policies:', error);
+    throw error;
+  }
+
+  return data
+    ? data as HrPolicies
+    : { ...DEFAULT_POLICIES, org_id: orgId };
+}
+
 export async function getHrPolicies(): Promise<HrPolicies> {
   const orgId = await getEffectiveTenantId();
   if (!orgId) throw new Error('Organization not found for current user.');
@@ -101,4 +128,3 @@ export async function updateHrPolicies(partial: Partial<HrPolicies>): Promise<Hr
 
   return data as HrPolicies;
 }
-
