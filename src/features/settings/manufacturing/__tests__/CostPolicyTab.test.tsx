@@ -133,22 +133,36 @@ describe('CostPolicyTab: discovery of 205 and the two panels', () => {
     act(() => { focusManager.setFocused(undefined) })
   })
 
-  it('present: shows the 205 panel read-only, whatever the capabilities say, and reaches no other RPC', async () => {
+  it('present: the write buttons follow the capabilities, opening the panel writes nothing, and the old paths are absent', async () => {
     route({ rpc_get_mfg_cost_policy_205: { data: cp205Response(), error: null } })
     render(<CostPolicyTab />)
 
     const panel = await screen.findByTestId('cp205-panel')
-    // Every capability is true in the fixture, and still no button and no form: writes come in UI-2.
-    expect(within(panel).queryAllByRole('button')).toHaveLength(0)
-    expect(within(panel).queryAllByRole('textbox')).toHaveLength(0)
+    // Every capability is true in the fixture: the UI-2 buttons show, and nothing is written by showing them.
+    for (const name of ['New version draft', 'Turn self-approval on', 'Calculate']) {
+      expect(within(panel).getByRole('button', { name })).toBeInTheDocument()
+    }
+    // Legacy version 1 already has a pending resolution draft, so no second resolution is offered (design §9).
+    expect(within(panel).queryByRole('button', { name: 'Start resolution' })).not.toBeInTheDocument()
     expect(within(panel).queryByRole('form')).not.toBeInTheDocument()
     // The old create path and the 204 preview are absent.
     expect(screen.queryByRole('button', { name: 'New version' })).not.toBeInTheDocument()
     expect(screen.queryByRole('table', { name: 'Absorption result' })).not.toBeInTheDocument()
-    expect(screen.getByText(/read-only/)).toBeInTheDocument()
+    expect(screen.getByText(/the server checks every action again/)).toBeInTheDocument()
     expect(screen.getByTestId('cp205-freeze')).toBeInTheDocument()
     expect(called()).toEqual(['rpc_get_mfg_cost_policy_205'])
     expect(called().some(fn => WRITES.includes(fn))).toBe(false)
+  })
+
+  it('present without any capability: only the creator withdrawal and the read-only preview remain', async () => {
+    const none = { can_create: false, can_approve: false, can_self_approve: false, can_manage_approval_settings: false, can_manage_unallocated_policy: false }
+    route({ rpc_get_mfg_cost_policy_205: { data: cp205Response({ capabilities: none }), error: null } })
+    render(<CostPolicyTab />)
+
+    const panel = await screen.findByTestId('cp205-panel')
+    // The creator withdraws their own draft with no other permission (design §4); everything else needs a capability.
+    expect(within(panel).getAllByRole('button').map(b => b.textContent)).toEqual(['Withdraw draft', 'Calculate'])
+    expect(called()).toEqual(['rpc_get_mfg_cost_policy_205'])
   })
 
   it('present: shows the paths, the stale draft, the unloaded budgets in riyal as sent, the legacy version and the decisions', async () => {
@@ -185,12 +199,15 @@ describe('CostPolicyTab: discovery of 205 and the two panels', () => {
     expect(screen.getByRole('table', { name: 'Approval settings history' })).toHaveTextContent('block → controlled_exception')
   })
 
-  it('present on the reply of the merged 205 on PostgreSQL 17: renders read-only with no button', async () => {
+  it('present on the reply of the merged 205 on PostgreSQL 17: renders, with the buttons of an approver who cannot create', async () => {
     route({ rpc_get_mfg_cost_policy_205: { data: pg17.reply, error: null } })
     render(<CostPolicyTab />)
 
     const panel = await screen.findByTestId('cp205-panel')
-    expect(within(panel).queryAllByRole('button')).toHaveLength(0)
+    // That approver holds approve only: no create, settings or resolution button.
+    for (const name of ['New version draft', 'Turn self-approval on', 'Start resolution']) {
+      expect(within(panel).queryByRole('button', { name })).not.toBeInTheDocument()
+    }
     for (const v of pg17.reply.versions) expect(screen.getByTestId(`cp205-version-${v.version_no}`)).toBeInTheDocument()
     expect(called()).toEqual(['rpc_get_mfg_cost_policy_205'])
   })

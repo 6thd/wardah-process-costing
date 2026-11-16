@@ -11,3 +11,5 @@ export const costPolicy205QueryKey = (orgId: string | null) => [...COST_POLICY_2
 /** مفاتيح 204 مربوطة بالمؤسسة المختارة كذلك: لا تُقرأ سياسة مؤسسة أو مراكز عملها من ذاكرة مؤسسة أخرى. */
 export const costPolicyQueryKey = (orgId: string) => [...COST_POLICY_QUERY_KEY, orgId] as const
 export const costPolicyWorkCentersQueryKey = (orgId: string) => [...COST_POLICY_WORK_CENTERS_QUERY_KEY, orgId] as const
+/** حسابات موازنات 205 للمؤسسة المختارة. */
+export const costPolicy205GlAccountsQueryKey = (orgId: string) => [...COST_POLICY_205_QUERY_KEY, 'gl-accounts', orgId] as const

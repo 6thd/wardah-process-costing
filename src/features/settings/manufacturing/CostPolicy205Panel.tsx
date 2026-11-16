@@ -1,6 +1,9 @@
+import { useRef, useState, type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   formatServerAmount,
@@ -11,8 +14,25 @@ import {
   type CostPolicyVersion205,
   type Policy205Status,
 } from '@/services/mfg-cost-policy-205-service'
-import type { CostPolicyVersion } from '@/services/mfg-cost-policy-service'
+import {
+  createLegacyResolutionDraft205,
+  createVersionDraft205,
+  listBudgetGlAccounts205,
+  updateVersionDraft205,
+  type DraftWriteResult,
+  type LegacyResolutionPayload205,
+  type VersionDraftPayload205,
+} from '@/services/mfg-cost-policy-205-write-service'
+import { listCostPolicyWorkCenters, type CostPolicyVersion, type CostPolicyWorkCenter } from '@/services/mfg-cost-policy-service'
+import { PendingDraftActions } from './CostPolicy205Decisions'
+import { CostPolicy205DraftForm } from './CostPolicy205DraftForm'
+import { CostPolicy205LegacyForm } from './CostPolicy205LegacyForm'
+import { CostPolicy205Preview } from './CostPolicy205Preview'
+import { CostPolicy205SettingsActions, VersionWithdraw } from './CostPolicy205Settings'
+import { formFromLatestVersion, formFromVersionPayload, keyForContent, type KeyedContent, type VersionDraftForm } from './costPolicy205Draft'
 import { COST_POLICY_ADMIN_FREEZE_ACTIVE } from './costPolicyFreeze'
+import { costPolicy205GlAccountsQueryKey, costPolicyWorkCentersQueryKey } from './queryKeys'
+import { useCostPolicy205Action } from './useCostPolicy205Action'
 
 const STATUS_VARIANT: Record<CostPolicyVersion['status'], 'default' | 'secondary' | 'outline' | 'destructive'> = {
   current: 'default',
@@ -30,14 +50,57 @@ const PATH_VARIANT: Record<Policy205Status, 'default' | 'secondary' | 'destructi
 const P = 'manufacturingSettings.costPolicy205'
 const C = 'manufacturingSettings.costPolicy'
 
+type Editor =
+  | { mode: 'create'; initial: VersionDraftForm }
+  | { mode: 'edit'; draftId: string; initial: VersionDraftForm }
+
 /**
- * لوحة 205 للقراءة فقط (UI-1): شريط الحالة، والمسودات المعلقة، والإصدارات بمسارها، والقديم
- * غير المعالج، وسجل القرارات، وإعدادات الاعتماد وسجلها (التصميم §3). لا زر كتابة فيها مهما
- * كانت `capabilities`: الإنشاء والاعتماد والرفض والإعدادات والمعالجة والسحب في UI-2. ولا
- * تستدعي معاينة 204 (§10)، ولا تعرض مسار الإنشاء القديم. كل مبلغ من رد الخادم كما هو (§11).
+ * لوحة 205 (UI-1 للقراءة، وUI-2 للكتابة): شريط الحالة وإعدادات الاعتماد، والمسودات المعلقة
+ * بقراراتها، والإصدارات بمسارها وسحبها، والقديم غير المعالج ومعالجته، وسجل القرارات، والمعاينة
+ * (التصميم §3). كل زر من `capabilities` للعرض فقط، والخادم هو الحكم. لا تستدعي معاينة 204 (§10)،
+ * ولا تعرض مسار الإنشاء القديم. كل مبلغ من رد الخادم كما هو (§11). كل كتابة لمؤسسة اللوحة.
  */
 export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205State }) {
   const { t } = useTranslation()
+  const [editor, setEditor] = useState<Editor | null>(null)
+  const [resolving, setResolving] = useState<CostPolicyVersion205 | null>(null)
+  const createKey = useRef<KeyedContent | null>(null)
+  const legacyKey = useRef<KeyedContent | null>(null)
+  const workCenters = useQuery({
+    queryKey: costPolicyWorkCentersQueryKey(state.orgId), queryFn: () => listCostPolicyWorkCenters(state.orgId),
+  })
+  const glAccounts = useQuery({
+    queryKey: costPolicy205GlAccountsQueryKey(state.orgId), queryFn: () => listBudgetGlAccounts205(state.orgId),
+    enabled: editor !== null || resolving !== null,
+  })
+  const centers: readonly CostPolicyWorkCenter[] = workCenters.data ?? []
+  const accounts = glAccounts.data ?? []
+  const save = useCostPolicy205Action(state.orgId, {
+    run: (org, vars: { payload: VersionDraftPayload205; draftId: string | null; latest: number }): Promise<DraftWriteResult | { revision: number; unchanged: boolean }> => {
+      if (vars.draftId) return updateVersionDraft205(org, vars.draftId, vars.payload, vars.latest)
+      // One key per content sent: the same content after a lost reply replays the same draft (design §6).
+      createKey.current = keyForContent(createKey.current, JSON.stringify([vars.payload, vars.latest]), () => globalThis.crypto.randomUUID())
+      return createVersionDraft205(org, vars.payload, vars.latest, createKey.current.key)
+    },
+    success: (r) => {
+      if (r && 'unchanged' in r) return t(r.unchanged ? `${P}.done.unchanged` : `${P}.done.draftSaved`)
+      return t(r && 'replayed' in r && r.replayed ? `${P}.done.draftReplayed` : `${P}.done.draftCreated`)
+    },
+    onDone: () => { setEditor(null); createKey.current = null },
+  })
+  const saveLegacy = useCostPolicy205Action(state.orgId, {
+    run: (org, vars: { versionId: string; payload: LegacyResolutionPayload205; reason: string }) => {
+      legacyKey.current = keyForContent(legacyKey.current, JSON.stringify([vars.versionId, vars.payload, vars.reason]), () => globalThis.crypto.randomUUID())
+      return createLegacyResolutionDraft205(org, vars.versionId, vars.payload, vars.reason, legacyKey.current.key)
+    },
+    success: (r) => t(r?.replayed ? `${P}.done.draftReplayed` : `${P}.done.draftCreated`),
+    onDone: () => { setResolving(null); legacyKey.current = null },
+  })
+  const openEdit = (d: CostPolicyDraft205) => setEditor({ mode: 'edit', draftId: d.id, initial: formFromVersionPayload(d.payload, state) })
+  const openCopy = (d: CostPolicyDraft205) => {
+    const initial = formFromVersionPayload(d.payload, state)
+    setEditor({ mode: 'create', initial: { ...initial, effective_from: initial.effective_from < state.today ? state.today : initial.effective_from } })
+  }
   const who = (id: string | null) => (id === null ? '—' : id === state.sessionUserId ? t(`${P}.you`) : id.slice(0, 8))
   const amount = (value: unknown) => {
     const text = formatServerAmount(value)
@@ -51,7 +114,7 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
   return (
     <div className="space-y-6" data-testid="cp205-panel">
       <Alert>
-        <AlertDescription>{t(`${P}.readOnlyNotice`)}</AlertDescription>
+        <AlertDescription>{t(`${P}.serverNotice`)}</AlertDescription>
       </Alert>
       {COST_POLICY_ADMIN_FREEZE_ACTIVE && (
         <Alert data-testid="cp205-freeze">
@@ -75,6 +138,7 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
             </div>
           </dl>
           <p className="text-xs text-muted-foreground">{t(`${P}.policyAppliesForward`)}</p>
+          <CostPolicy205SettingsActions state={state} />
           {state.settingsAudit.length > 0 && (
             <table className="w-full text-sm" aria-label={t(`${P}.settingsAudit`)}>
               <thead>
@@ -103,14 +167,27 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle>{t(`${P}.pendingDrafts`)}</CardTitle>
+          {state.capabilities.can_create && editor === null && (
+            <Button type="button" size="sm" onClick={() => setEditor({ mode: 'create', initial: formFromLatestVersion(state) })}>
+              {t(`${P}.actions.newDraft`)}
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="space-y-3">
+          {editor && (
+            <CostPolicy205DraftForm key={editor.mode === 'edit' ? editor.draftId : 'new'} state={state} initial={editor.initial}
+              mode={editor.mode} workCenters={centers} glAccounts={accounts} saving={save.isPending}
+              onSubmit={(payload) => save.mutate({ payload, draftId: editor.mode === 'edit' ? editor.draftId : null, latest: state.latestVersionNo })}
+              onCancel={() => { setEditor(null); createKey.current = null }} />
+          )}
           {pending.length === 0 ? (
             <p role="status">{t(`${P}.noPendingDrafts`)}</p>
           ) : pending.map(d => (
-            <DraftCard key={d.id} draft={d} state={state} who={who} amount={amount} versionNo={versionNo} />
+            <DraftCard key={d.id} draft={d} state={state} who={who} amount={amount} versionNo={versionNo}>
+              <PendingDraftActions draft={d} state={state} workCenters={centers} onEdit={openEdit} />
+            </DraftCard>
           ))}
         </CardContent>
       </Card>
@@ -141,7 +218,9 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
                 </thead>
                 <tbody>
                   {state.versions.map(v => (
-                    <VersionRow key={v.id} version={v} who={who} amount={amount} />
+                    <VersionRow key={v.id} version={v} who={who} amount={amount}>
+                      <VersionWithdraw state={state} version={v} />
+                    </VersionRow>
                   ))}
                 </tbody>
               </table>
@@ -157,8 +236,13 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
             <p className="text-sm text-muted-foreground">{t(`${P}.legacyDescription`)}</p>
           </CardHeader>
           <CardContent className="space-y-2">
+            {resolving && (
+              <CostPolicy205LegacyForm key={resolving.id} state={state} version={resolving} glAccounts={accounts} saving={saveLegacy.isPending}
+                onSubmit={(payload, reason) => saveLegacy.mutate({ versionId: resolving.id, payload, reason })}
+                onCancel={() => { setResolving(null); legacyKey.current = null }} />
+            )}
             {legacy.map(v => {
-              const resolving = state.drafts.some(d => d.kind === 'legacy_resolution' && d.status === 'draft' && d.legacy_version_id === v.id)
+              const pendingResolution = state.drafts.some(d => d.kind === 'legacy_resolution' && d.status === 'draft' && d.legacy_version_id === v.id)
               return (
                 <div key={v.id} className="rounded-md border p-3 text-sm" data-testid={`cp205-legacy-${v.version_no}`}>
                   <p className="font-medium">
@@ -167,7 +251,10 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
                   <p>{t(`${P}.linkedOrders`, { pinned: v.pinned_order_count, awaiting: v.awaiting_start_order_count })}</p>
                   <p className="text-destructive">{t(`${P}.legacyRefused`)}</p>
                   {v.id === state.currentVersionId && <p className="text-destructive">{t(`${P}.legacyCurrent`)}</p>}
-                  {resolving && <p className="text-muted-foreground">{t(`${P}.legacyResolutionPending`)}</p>}
+                  {pendingResolution && <p className="text-muted-foreground">{t(`${P}.legacyResolutionPending`)}</p>}
+                  {state.capabilities.can_create && !pendingResolution && resolving === null && (
+                    <Button type="button" size="sm" variant="outline" onClick={() => setResolving(v)}>{t(`${P}.actions.startResolution`)}</Button>
+                  )}
                 </div>
               )
             })}
@@ -192,6 +279,7 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
                   <th className="p-2 text-start">{t(`${P}.by`)}</th>
                   <th className="p-2 text-start">{t(`${P}.decidedAt`)}</th>
                   <th className="p-2 text-start">{t(`${P}.reason`)}</th>
+                  <th className="p-2 text-start"><span className="sr-only">{t(`${P}.actions.copy`)}</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -206,6 +294,11 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
                     <td className="p-2">{who(d.decided_by)}</td>
                     <td className="p-2">{d.decided_at ?? '—'}</td>
                     <td className="p-2">{d.decision_reason ?? '—'}</td>
+                    <td className="p-2">
+                      {state.capabilities.can_create && d.kind === 'version' && (d.status === 'rejected' || d.status === 'withdrawn') && editor === null && (
+                        <Button type="button" size="sm" variant="ghost" onClick={() => openCopy(d)}>{t(`${P}.actions.copy`)}</Button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -213,16 +306,19 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
           )}
         </CardContent>
       </Card>
+
+      <CostPolicy205Preview state={state} workCenters={centers} />
     </div>
   )
 }
 
-function DraftCard({ draft, state, who, amount, versionNo }: {
+function DraftCard({ draft, state, who, amount, versionNo, children }: {
   readonly draft: CostPolicyDraft205
   readonly state: CostPolicy205State
   readonly who: (id: string | null) => string
   readonly amount: (value: unknown) => string
   readonly versionNo: (id: string | null) => number | undefined
+  readonly children?: ReactNode
 }) {
   const { t } = useTranslation()
   const effective = typeof draft.payload.effective_from === 'string' ? draft.payload.effective_from : null
@@ -248,14 +344,16 @@ function DraftCard({ draft, state, who, amount, versionNo }: {
           {state.settings.unallocatedBudgetPolicy === 'block' && <p className="text-destructive">{t(`${P}.unallocatedBlocked`)}</p>}
         </div>
       )}
+      {children}
     </div>
   )
 }
 
-function VersionRow({ version: v, who, amount }: {
+function VersionRow({ version: v, who, amount, children }: {
   readonly version: CostPolicyVersion205
   readonly who: (id: string | null) => string
   readonly amount: (value: unknown) => string
+  readonly children?: ReactNode
 }) {
   const { t } = useTranslation()
   const activity = new Map((v.data_205?.pools ?? []).map(p => [p.code, p.activity]))
@@ -267,6 +365,7 @@ function VersionRow({ version: v, who, amount }: {
       <td className="p-2">
         <Badge variant={STATUS_VARIANT[v.status]}>{t(`${C}.status.${v.status}`)}</Badge>
         {v.withdraw_reason && <p className="text-xs text-muted-foreground">{v.withdraw_reason}</p>}
+        {children}
       </td>
       <td className="p-2"><Badge variant={PATH_VARIANT[v.policy_205]}>{t(`${P}.paths.${v.policy_205}`)}</Badge></td>
       <td className="p-2">
