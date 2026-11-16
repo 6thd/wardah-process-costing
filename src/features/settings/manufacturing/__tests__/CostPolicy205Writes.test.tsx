@@ -109,6 +109,26 @@ describe('new version draft (design §6 and §7)', () => {
     expect(screen.queryByRole('form', { name: 'New cost policy version draft' })).not.toBeInTheDocument()
   })
 
+  it('carries the planned hours of the approved version into the copy, and warns when they cannot be read (Codex P2 on #334)', async () => {
+    const approved = { effective_from: '2026-11-10', budgets: [{ budget_code: 'DEPRECIATION', planned_hours: 120 }, { budget_code: 'ELECTRICITY' }] }
+    route({
+      rpc_get_mfg_cost_policy_205: get205({ drafts: draftsWith('draft-approved', { payload: approved }) }),
+      rpc_create_mfg_cost_policy_draft_205: ok({ draft_id: 'd9', status: 'draft', revision: 1, replayed: false }),
+    })
+    await openPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'New version draft' }))
+    const form = await screen.findByRole('form', { name: 'New cost policy version draft' })
+    expect(within(form).getAllByLabelText('Planned hours').map(i => (i as HTMLInputElement).value)).toEqual(['120', '', ''])
+    // SUPERVISION is in the version but not in the approved draft's budgets: named, not dropped silently.
+    expect(within(form).getByTestId('cp205-planned-hours-unknown')).toHaveTextContent('SUPERVISION')
+    set(within(form).getByLabelText('Reason for the exception'), 'r')
+    set(within(form).getByLabelText('Accounting treatment'), 't')
+    fireEvent.submit(form)
+    await waitFor(() => expect(calls('rpc_create_mfg_cost_policy_draft_205')).toHaveLength(1))
+    const budgets = (calls('rpc_create_mfg_cost_policy_draft_205')[0].p_draft as { budgets: Array<{ budget_code: string; planned_hours?: number }> }).budgets
+    expect(budgets.find(b => b.budget_code === 'DEPRECIATION')?.planned_hours).toBe(120)
+  })
+
   it('refuses to send a number it cannot read, and sends nothing', async () => {
     route({ rpc_get_mfg_cost_policy_205: get205() })
     await openPanel()

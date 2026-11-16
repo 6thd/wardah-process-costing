@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { parseCostPolicy205State } from '@/services/mfg-cost-policy-205-service'
-import { cp205Response, SESSION_USER } from '../../../../../tests/fixtures/cost-policy-205'
+import pg17 from '@/services/__tests__/fixtures/cost-policy-205-get.pg17.json'
+import { cp205Response, ORG, SESSION_USER } from '../../../../../tests/fixtures/cost-policy-205'
 import {
   ackCandidates,
   allocationWarnings,
+  approvedPlannedHours,
   buildHours,
   buildResolutionPayload,
   buildVersionPayload,
@@ -36,6 +38,7 @@ function form(patch: Partial<VersionDraftForm> = {}): VersionDraftForm {
     ],
     acks: ['LABOR_OH/SETUP_CREW'],
     exception: { reason: ' period cost ', treatment: ' unabsorbed ' },
+    plannedHoursUnknown: [],
     ...patch,
   }
 }
@@ -96,6 +99,24 @@ describe('forms from the server', () => {
     expect(f.effective_from).toBe(state.today)
     expect(f.pools.map(p => [p.pool_code, p.activity, p.budgets])).toEqual([['LABOR_OH', 'both', ['ELECTRICITY']], ['MACHINE_OH', 'run', ['DEPRECIATION']]])
     expect(f.budgets.map(b => [b.budget_code, b.gl_account_id, b.amount])).toEqual([['DEPRECIATION', 'gl-2', '15000'], ['ELECTRICITY', 'gl-1', '9000'], ['SUPERVISION', 'gl-3', '4800.5']])
+  })
+
+  it('keeps the planned hours of the approved budgets: read from the approved draft that produced the version (Codex P2 on #334)', () => {
+    // The reply of the merged 205 on PostgreSQL 17: data_205 has no planned hours; the approved draft of the latest version has SETUP_CREW = 60.
+    const real = parseCostPolicy205State(pg17.reply, pg17.session_user)
+    const f = formFromLatestVersion(real)
+    expect(f.budgets.map(b => [b.budget_code, b.planned_hours])).toEqual([['DEPRECIATION', ''], ['ELECTRICITY', ''], ['SETUP_CREW', '60'], ['SUPERVISION', '']])
+    expect(f.plannedHoursUnknown).toEqual([])
+    expect(buildVersionPayload(f, real.settings.unallocatedBudgetPolicy).budgets.find(b => b.budget_code === 'SETUP_CREW')?.planned_hours).toBe(60)
+  })
+
+  it('names every budget whose planned hours cannot be read, instead of dropping them silently', () => {
+    // The fixture's approved draft of ver-2 holds no budgets, so nothing can be read for them.
+    expect(formFromLatestVersion(state).plannedHoursUnknown).toEqual(['DEPRECIATION', 'ELECTRICITY', 'SUPERVISION'])
+    expect(approvedPlannedHours(state, 'ver-1')).toBeNull()
+    const noDraft = parseCostPolicy205State(cp205Response({ drafts: [] }), SESSION_USER)
+    expect(formFromLatestVersion(noDraft).plannedHoursUnknown).toEqual(['DEPRECIATION', 'ELECTRICITY', 'SUPERVISION'])
+    expect(ORG).toBe(state.orgId)
   })
 
   it('starts with one empty pool when no version exists', () => {

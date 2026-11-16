@@ -57,6 +57,11 @@ export function CostPolicy205DraftForm(props: DraftFormProps) {
       onSubmit={(e) => { e.preventDefault(); submit() }}>
       <HeaderFields form={form} state={state} patch={patch} />
       <PoolDefinitions form={form} state={state} setPool={setPool} patch={patch} />
+      {form.plannedHoursUnknown.length > 0 && (
+        <p className="text-xs text-amber-700" role="note" data-testid="cp205-planned-hours-unknown">
+          {t(`${P}.form.plannedHoursUnknown`, { budgets: form.plannedHoursUnknown.join(', ') })}
+        </p>
+      )}
       <CostPolicy205Allocation pools={form.pools} onPool={setPool} form={allocation}
         onChange={(a) => patch(a)} activities={state.supported.poolActivities} glAccounts={props.glAccounts}
         policy={state.settings.unallocatedBudgetPolicy} />

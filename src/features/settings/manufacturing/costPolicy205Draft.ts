@@ -45,6 +45,8 @@ export interface VersionDraftForm extends AllocationForm {
   note: string
   pools: VersionPoolForm[]
   rules: RuleForm[]
+  /** موازنات لم تُقرأ ساعاتها المخططة من الإصدار المنسوخ عنه (لا تُرسل؛ تنبيه في النموذج فقط). */
+  plannedHoursUnknown: string[]
 }
 
 export interface LegacyResolutionForm extends AllocationForm { pools: AllocationPool[]; reason: string }
@@ -132,7 +134,19 @@ export function formFromVersionPayload(payload: Record<string, unknown>, state: 
     budgets: budgetsFromPayload(payload.budgets),
     acks: acksFromPayload(payload.setup_acks),
     exception: exceptionFromPayload(payload.unallocated_exception),
+    plannedHoursUnknown: [],
   }
+}
+
+/**
+ * الساعات المخططة لموازنات إصدار معتمد. `data_205` لا يحملها، والخادم أدخلها عند الاعتماد من حمولة المسودة
+ * المعتمدة نفسها (205: `mfg_cost_policy_budgets_205.planned_hours`)، فتُقرأ من تلك الحمولة: المسودة التي
+ * `result_version_id` لها هو الإصدار، إصدارًا كانت أو معالجة قديم. `null` إن لم توجد تلك المسودة.
+ */
+export function approvedPlannedHours(state: CostPolicy205State, versionId: string): Map<string, string> | null {
+  const source = state.drafts.find(d => d.status === 'approved' && d.result_version_id === versionId)
+  if (!source) return null
+  return new Map(budgetsFromPayload(source.payload.budgets).map(b => [code(b.budget_code), b.planned_hours]))
 }
 
 /** مسودة جديدة مملوءة من آخر إصدار حي (حقول 204، ونشاط المجمعات وموازناتها إن وُجدت). */
@@ -140,6 +154,8 @@ export function formFromLatestVersion(state: CostPolicy205State): VersionDraftFo
   const base = state.versions.find(v => v.status !== 'withdrawn')
   const data = base?.data_205
   const pool205 = new Map((data?.pools ?? []).map(p => [p.code, p]))
+  const planned = base ? approvedPlannedHours(state, base.id) : null
+  const budgets = data?.budgets ?? []
   return {
     effective_from: state.today,
     labor_cost_source: base?.labor_cost_source ?? state.supported.laborCostSources[0] ?? 'work_center_rate',
@@ -157,11 +173,13 @@ export function formFromLatestVersion(state: CostPolicy205State): VersionDraftFo
       labor_rate: text(r.labor_rate_per_hour),
       pools: Object.fromEntries(r.pools.map(p => [p.pool_code, { mode: (p.applies ? 'override' : 'exclude') as PoolMode, rate: text(p.rate) }])),
     })),
-    budgets: (data?.budgets ?? []).map(b => ({
-      budget_code: b.code, gl_account_id: b.gl_account ?? '', setup_related: b.setup, amount: text(b.amount), planned_hours: '',
+    budgets: budgets.map(b => ({
+      budget_code: b.code, gl_account_id: b.gl_account ?? '', setup_related: b.setup, amount: text(b.amount),
+      planned_hours: planned?.get(b.code) ?? '',
     })),
     acks: (data?.setup_acks ?? []).flatMap(a => a.budgets.map(b => ackKey(a.pool, b))),
     exception: emptyException(),
+    plannedHoursUnknown: planned ? budgets.filter(b => !planned.has(b.code)).map(b => b.code) : budgets.map(b => b.code),
   }
 }
 

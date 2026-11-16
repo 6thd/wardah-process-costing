@@ -2070,7 +2070,8 @@
         "exceptionReason": "Reason for the exception",
         "exceptionTreatment": "Accounting treatment",
         "invalidNumber": "A field holds a number that cannot be read: use numbers with at most six decimals.",
-        "saveIsNotApproval": "Saving creates or edits a draft and writes no version. Changing the content raises the revision."
+        "saveIsNotApproval": "Saving creates or edits a draft and writes no version. Changing the content raises the revision.",
+        "plannedHoursUnknown": "The planned hours of these budgets could not be read from the version copied: {{budgets}}. Enter them if they have planned hours."
       },
       "legacyForm": {
         "aria": "Resolution of legacy version {{version}}",
