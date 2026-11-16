@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import type { CostPolicy205State, CostPolicyVersion205 } from '@/services/mfg-cost-policy-205-service'
 import type { GlAccountOption205, LegacyResolutionPayload205 } from '@/services/mfg-cost-policy-205-write-service'
 import { CostPolicy205Allocation } from './CostPolicy205Allocation'
-import { buildResolutionPayload, hasInvalidNumber, legacyFormFor, type AllocationPool, type LegacyResolutionForm } from './costPolicy205Draft'
+import { buildResolutionPayload, hasInvalidNumber, legacyFormFor, remapPools, type AllocationPool, type LegacyResolutionForm } from './costPolicy205Draft'
 
 const P = 'manufacturingSettings.costPolicy205'
 
@@ -13,10 +13,11 @@ const P = 'manufacturingSettings.costPolicy205'
  * معالجة إصدار قديم (التصميم §9): خارج الإصدار نفسه، تغطي مجمعاته بالضبط، وسببها إلزامي. لا
  * تعديل لها بعد الحفظ: التصحيح بسحبها وإنشاء أخرى (F-UI-5). صفوف الإصدار لا تتغير.
  */
-export function CostPolicy205LegacyForm({ state, version, glAccounts, saving, onSubmit, onCancel }: {
+export function CostPolicy205LegacyForm({ state, version, glAccounts, glAccountsStatus, saving, onSubmit, onCancel }: {
   readonly state: CostPolicy205State
   readonly version: CostPolicyVersion205
   readonly glAccounts: readonly GlAccountOption205[]
+  readonly glAccountsStatus: 'pending' | 'error' | 'success'
   readonly saving: boolean
   readonly onSubmit: (payload: LegacyResolutionPayload205, reason: string) => void
   readonly onCancel: () => void
@@ -38,8 +39,9 @@ export function CostPolicy205LegacyForm({ state, version, glAccounts, saving, on
       onSubmit={(e) => { e.preventDefault(); submit() }}>
       <p className="text-sm">{t(`${P}.legacyForm.help`)}</p>
       <CostPolicy205Allocation pools={form.pools} onPool={setPool} form={form}
-        onChange={(a) => { setInvalid(false); setForm(f => ({ ...f, ...a })) }}
-        activities={state.supported.poolActivities} glAccounts={glAccounts} policy={state.settings.unallocatedBudgetPolicy} />
+        onChange={(a, remap) => { setInvalid(false); setForm(f => ({ ...f, ...a, ...(remap ? { pools: remapPools(f.pools, remap) } : {}) })) }}
+        activities={state.supported.poolActivities} glAccounts={glAccounts} glAccountsStatus={glAccountsStatus}
+        policy={state.settings.unallocatedBudgetPolicy} />
       <Input aria-label={t(`${P}.legacyForm.reason`)} maxLength={500} value={form.reason} required
         onChange={(e) => setForm(f => ({ ...f, reason: e.target.value }))} />
       {invalid && <p className="text-destructive" role="alert">{t(`${P}.form.invalidNumber`)}</p>}

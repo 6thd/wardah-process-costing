@@ -9,6 +9,8 @@ import {
   buildHours,
   buildResolutionPayload,
   buildVersionPayload,
+  budgetRemap,
+  editBudget,
   emptyBudget,
   emptyHours,
   formFromLatestVersion,
@@ -16,6 +18,9 @@ import {
   hasInvalidNumber,
   keyForContent,
   legacyFormFor,
+  remapAcks,
+  remapPools,
+  removeBudget,
   unallocatedCodes,
   type VersionDraftForm,
 } from '../costPolicy205Draft'
@@ -208,5 +213,42 @@ describe('preview hours (design §10)', () => {
     expect(buildHours({ laborRun: '10', laborSetup: '', machineRun: '', machineSetup: '0' })).toEqual({ labor: { run: 10 }, machine: { setup: 0 } })
     expect(buildHours({ laborRun: '', laborSetup: '2.5', machineRun: '3', machineSetup: '' })).toEqual({ labor: { setup: 2.5 }, machine: { run: 3 } })
     expect(buildHours({ ...emptyHours(), laborRun: '-1' })).toBeNull()
+  })
+})
+
+describe('a budget code removed or renamed leaves no stale reference (Codex P2 on #334)', () => {
+  const b = (budget_code: string) => ({ ...emptyBudget(), budget_code })
+  const pools = [
+    { pool_code: 'LABOR_OH', name: 'L', name_ar: '', basis: 'labor_hours' as const, rate: '1', activity: 'run' as const, budgets: ['ELEC', 'SETUP'] },
+    { pool_code: 'MACHINE_OH', name: 'M', name_ar: '', basis: 'machine_hours' as const, rate: '2', activity: 'both' as const, budgets: ['DEPR', 'ELEC'] },
+  ]
+  const alloc = { budgets: [b('ELEC'), b('setup'), b('DEPR')], acks: ['LABOR_OH/SETUP', 'LABOR_OH/ELEC'], exception: { reason: '', treatment: '' } }
+
+  it('removal takes the code out of every pool and acknowledgement, and keeps the other pool fields', () => {
+    const { form: next, remap } = removeBudget(alloc, 0)
+    expect(remap).toEqual({ from: 'ELEC', to: '' })
+    expect(next.budgets.map(x => x.budget_code)).toEqual(['setup', 'DEPR'])
+    expect(next.acks).toEqual(['LABOR_OH/SETUP'])
+    const moved = remapPools(pools, remap!)
+    expect(moved.map(p => p.budgets)).toEqual([['SETUP'], ['DEPR']])
+    expect(moved[1]).toMatchObject({ name: 'M', basis: 'machine_hours', rate: '2', activity: 'both' })
+    expect(allocationWarnings(moved, next, 'controlled_exception').filter(w => w.code === 'COST_POLICY_BUDGET_UNKNOWN')).toEqual([])
+  })
+
+  it('a rename moves the references to the new code, without duplicates', () => {
+    const { form: next, remap } = editBudget(alloc, 1, { budget_code: 'crew' })
+    expect(remap).toEqual({ from: 'SETUP', to: 'CREW' })
+    expect(next.acks).toEqual(['LABOR_OH/CREW', 'LABOR_OH/ELEC'])
+    expect(remapPools(pools, remap!)[0].budgets).toEqual(['ELEC', 'CREW'])
+    expect(remapPools(pools, { from: 'ELEC', to: 'DEPR' })[1].budgets).toEqual(['DEPR'])
+    expect(remapAcks(['A/X', 'B/Y'], { from: 'X', to: 'Y' })).toEqual(['A/Y', 'B/Y'])
+  })
+
+  it('leaves the references when the code stays, the row had none, or another row still has the old code', () => {
+    expect(budgetRemap(alloc.budgets, 0, ' elec ')).toBeNull()
+    expect(budgetRemap([b(''), b('ELEC')], 0, 'NEW')).toBeNull()
+    expect(budgetRemap([b('ELEC'), b('elec')], 0, 'POWER')).toBeNull()
+    expect(removeBudget({ ...alloc, budgets: [b('ELEC'), b('ELEC')] }, 0).remap).toBeNull()
+    expect(editBudget(alloc, 0, { amount: '5' }).remap).toBeNull()
   })
 })

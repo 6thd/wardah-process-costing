@@ -2054,6 +2054,8 @@
         "budgetCode": "Budget code",
         "glAccount": "General ledger account",
         "noAccount": "No account (required before approval)",
+        "accountsFailed": "The accounts of this organization could not be read, so no budget can be given an account now. Approval refuses a budget without an account. Open the form again to retry.",
+        "accountsEmpty": "No active accounts were read for this organization, so no budget can be given an account. Approval refuses a budget without an account. If you belong to more than one organization, the account read may follow your first organization rather than the selected one.",
         "amount": "Amount (SAR)",
         "plannedHours": "Planned hours",
         "setupRelated": "Setup related",

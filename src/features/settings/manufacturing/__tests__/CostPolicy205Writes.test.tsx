@@ -9,6 +9,8 @@ import { CostPolicyTab } from '../CostPolicyTab'
 // The real services run against this client, so every RPC the tab reaches is recorded with its arguments.
 const rpc = vi.fn()
 let authOrg: string | null = ORG
+const GL_ROWS = [{ id: 'gl-9', code: '5900', name: 'Audit fees', name_ar: null }]
+let glReply: { data: unknown; error: { message: string } | null } = { data: GL_ROWS, error: null }
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ currentOrgId: authOrg }) }))
 vi.mock('@/lib/supabase', () => ({
   supabase: {
@@ -17,12 +19,9 @@ vi.mock('@/lib/supabase', () => ({
       const chain = {
         select: () => chain,
         eq: () => chain,
-        order: () => Promise.resolve({
-          data: table === 'gl_accounts'
-            ? [{ id: 'gl-9', code: '5900', name: 'Audit fees', name_ar: null }]
-            : [{ id: 'wc-a', code: 'WC-A', name: 'Mixing', name_ar: null }],
-          error: null,
-        }),
+        order: () => Promise.resolve(table === 'gl_accounts'
+          ? glReply
+          : { data: [{ id: 'wc-a', code: 'WC-A', name: 'Mixing', name_ar: null }], error: null }),
       }
       return chain
     },
@@ -59,6 +58,7 @@ const set = (el: HTMLElement, value: string) => fireEvent.change(el, { target: {
 beforeEach(async () => {
   rpc.mockReset()
   authOrg = ORG
+  glReply = { data: GL_ROWS, error: null }
   vi.mocked(toast.success).mockReset()
   vi.mocked(toast.error).mockReset()
   await act(async () => { await i18n.changeLanguage('en') })
@@ -165,6 +165,46 @@ describe('new version draft (design §6 and §7)', () => {
     expect((payload.budgets as unknown[])[3]).toEqual({ budget_code: 'SETUP_CREW', gl_account_id: 'gl-9', setup_related: true, amount: 3600 })
   })
 
+  it('removing or renaming a budget takes its code out of the pools, or moves it (Codex P2 on #334)', { timeout: 15000 }, async () => {
+    route({ rpc_get_mfg_cost_policy_205: get205(), rpc_create_mfg_cost_policy_draft_205: ok({ draft_id: 'd9', status: 'draft', revision: 1, replayed: false }) })
+    await openPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'New version draft' }))
+    const form = await screen.findByRole('form', { name: 'New cost policy version draft' })
+    expect(within(form).getByLabelText('LABOR_OH loads ELECTRICITY')).toBeChecked()
+    const rows = within(form).getAllByTestId('cp205-budget-row')
+    fireEvent.click(within(rows[1]).getByRole('button', { name: 'Remove' }))
+    expect(within(form).queryByLabelText('LABOR_OH loads ELECTRICITY')).not.toBeInTheDocument()
+    set(within(form).getAllByLabelText('Budget code')[0], 'depr')
+    expect(within(form).getByLabelText('MACHINE_OH loads DEPR')).toBeChecked()
+    expect(within(form).getByTestId('cp205-warnings')).not.toHaveTextContent(/refers to a budget that is not in the draft/)
+    set(within(form).getByLabelText('Reason for the exception'), 'r')
+    set(within(form).getByLabelText('Accounting treatment'), 't')
+    fireEvent.submit(form)
+    await waitFor(() => expect(calls('rpc_create_mfg_cost_policy_draft_205')).toHaveLength(1))
+    const payload = calls('rpc_create_mfg_cost_policy_draft_205')[0].p_draft as { overhead_pools: Array<{ pool_code: string; budgets: string[] }> }
+    expect(payload.overhead_pools.map(p => [p.pool_code, p.budgets])).toEqual([['LABOR_OH', []], ['MACHINE_OH', ['DEPR']]])
+  })
+
+  it('says so when no account was read for the organization (Kimi P2 on #334)', async () => {
+    route({ rpc_get_mfg_cost_policy_205: get205() })
+    glReply = { data: [], error: null }
+    await openPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'New version draft' }))
+    const form = await screen.findByRole('form', { name: 'New cost policy version draft' })
+    expect(await within(form).findByTestId('cp205-accounts-empty')).toHaveTextContent(/No active accounts were read for this organization/)
+    expect(within(form).queryByTestId('cp205-accounts-failed')).not.toBeInTheDocument()
+  })
+
+  it('says so when the account read fails', async () => {
+    route({ rpc_get_mfg_cost_policy_205: get205() })
+    glReply = { data: null, error: { message: 'permission denied for table gl_accounts' } }
+    await openPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'New version draft' }))
+    const form = await screen.findByRole('form', { name: 'New cost policy version draft' })
+    expect(await within(form).findByTestId('cp205-accounts-failed')).toHaveTextContent(/could not be read/)
+    expect(within(form).queryByTestId('cp205-accounts-empty')).not.toBeInTheDocument()
+  })
+
   it('edits my own draft and reports unchanged content without a new revision', async () => {
     route({ rpc_get_mfg_cost_policy_205: get205(), rpc_update_mfg_cost_policy_draft_205: ok({ draft_id: 'draft-stale', status: 'draft', revision: 2, unchanged: true }) })
     await openPanel()
@@ -211,6 +251,8 @@ describe('decisions (design §5 and §6)', () => {
     expect(await within(review).findByRole('alert')).toHaveTextContent(/A newer revision/)
     expect(review).toHaveTextContent('Revision 1 as it was when this review opened')
     expect(within(review).getByRole('button', { name: 'Approve revision 1' })).toBeDisabled()
+    // No check is sent for a revision that is no longer the pending one (Kimi P3 on #334).
+    expect(within(review).getByRole('button', { name: 'Check this revision' })).toBeDisabled()
   })
 
   it('after a lost reply reads first, and shows success only for this draft approved at this revision by this session', async () => {
@@ -372,6 +414,9 @@ describe('legacy resolution (design §9)', () => {
     set(within(form).getByLabelText('Amount (SAR)'), '9000')
     set(within(form).getByLabelText('Activity of LABOR_OH'), 'both')
     fireEvent.click(within(form).getByLabelText('LABOR_OH loads ELEC'))
+    // A rename moves the pool reference with the budget (Codex P2 on #334).
+    set(within(form).getByLabelText('Budget code'), 'power')
+    expect(within(form).getByLabelText('LABOR_OH loads POWER')).toBeChecked()
     expect(within(form).getByRole('button', { name: 'Save resolution draft' })).toBeDisabled()
     set(within(form).getByLabelText('Reason for the resolution'), 'resolve v1')
     fireEvent.click(within(form).getByRole('button', { name: 'Save resolution draft' }))
@@ -379,8 +424,8 @@ describe('legacy resolution (design §9)', () => {
     const [args] = calls('rpc_create_legacy_resolution_draft_205')
     expect(args).toMatchObject({ p_org_id: ORG, p_policy_version_id: 'ver-1', p_reason: 'resolve v1' })
     expect(args.p_resolution).toEqual({
-      pools: [{ pool_code: 'LABOR_OH', activity: 'both', budgets: ['ELEC'] }, { pool_code: 'MACHINE_OH', budgets: [] }],
-      budgets: [{ budget_code: 'ELEC', setup_related: false, amount: 9000 }],
+      pools: [{ pool_code: 'LABOR_OH', activity: 'both', budgets: ['POWER'] }, { pool_code: 'MACHINE_OH', budgets: [] }],
+      budgets: [{ budget_code: 'POWER', setup_related: false, amount: 9000 }],
       setup_acks: [],
     })
   })

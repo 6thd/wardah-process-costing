@@ -178,7 +178,7 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
         <CardContent className="space-y-3">
           {editor && (
             <CostPolicy205DraftForm key={editor.mode === 'edit' ? editor.draftId : 'new'} state={state} initial={editor.initial}
-              mode={editor.mode} workCenters={centers} glAccounts={accounts} saving={save.isPending}
+              mode={editor.mode} workCenters={centers} glAccounts={accounts} glAccountsStatus={glAccounts.status} saving={save.isPending}
               onSubmit={(payload) => save.mutate({ payload, draftId: editor.mode === 'edit' ? editor.draftId : null, latest: state.latestVersionNo })}
               onCancel={() => { setEditor(null); createKey.current = null }} />
           )}
@@ -237,7 +237,7 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
           </CardHeader>
           <CardContent className="space-y-2">
             {resolving && (
-              <CostPolicy205LegacyForm key={resolving.id} state={state} version={resolving} glAccounts={accounts} saving={saveLegacy.isPending}
+              <CostPolicy205LegacyForm key={resolving.id} state={state} version={resolving} glAccounts={accounts} glAccountsStatus={glAccounts.status} saving={saveLegacy.isPending}
                 onSubmit={(payload, reason) => saveLegacy.mutate({ versionId: resolving.id, payload, reason })}
                 onCancel={() => { setResolving(null); legacyKey.current = null }} />
             )}

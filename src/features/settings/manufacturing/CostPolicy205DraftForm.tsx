@@ -12,6 +12,7 @@ import {
   code,
   hasInvalidNumber,
   MAX_POOLS,
+  remapPools,
   type AllocationForm,
   type PoolMode,
   type RuleForm,
@@ -27,6 +28,7 @@ interface DraftFormProps {
   readonly initial: VersionDraftForm
   readonly workCenters: readonly CostPolicyWorkCenter[]
   readonly glAccounts: readonly GlAccountOption205[]
+  readonly glAccountsStatus: 'pending' | 'error' | 'success'
   readonly saving: boolean
   readonly mode: 'create' | 'edit'
   readonly onSubmit: (payload: VersionDraftPayload205) => void
@@ -63,7 +65,8 @@ export function CostPolicy205DraftForm(props: DraftFormProps) {
         </p>
       )}
       <CostPolicy205Allocation pools={form.pools} onPool={setPool} form={allocation}
-        onChange={(a) => patch(a)} activities={state.supported.poolActivities} glAccounts={props.glAccounts}
+        onChange={(a, remap) => patch(remap ? { ...a, pools: remapPools(form.pools, remap) } : a)}
+        activities={state.supported.poolActivities} glAccounts={props.glAccounts} glAccountsStatus={props.glAccountsStatus}
         policy={state.settings.unallocatedBudgetPolicy} />
       <RuleRows form={form} workCenters={props.workCenters} patch={patch} />
       <div className="space-y-1">

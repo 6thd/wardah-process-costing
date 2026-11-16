@@ -8,12 +8,15 @@ import {
   ackKey,
   allocationWarnings,
   code,
+  editBudget,
   emptyBudget,
   MAX_BUDGETS,
+  removeBudget,
   unallocatedCodes,
   type AllocationForm,
   type AllocationPool,
   type BudgetForm,
+  type BudgetRemap,
 } from './costPolicy205Draft'
 
 export const SELECT_205 =
@@ -25,9 +28,12 @@ interface AllocationProps {
   readonly pools: readonly AllocationPool[]
   readonly onPool: (index: number, patch: Partial<AllocationPool>) => void
   readonly form: AllocationForm
-  readonly onChange: (form: AllocationForm) => void
+  /** `remap` غير فارغ حين تغيّر رمز موازنة أو حُذفت: صاحب المجمعات يطبقه على موازناتها (`remapPools`). */
+  readonly onChange: (form: AllocationForm, remap: BudgetRemap | null) => void
   readonly activities: readonly PoolActivity[]
   readonly glAccounts: readonly GlAccountOption205[]
+  /** حالة قراءة الحسابات: فشلها أو قائمة فارغة يُقال صراحة بدل خيار «بلا حساب» الصامت. */
+  readonly glAccountsStatus: 'pending' | 'error' | 'success'
   readonly policy: UnallocatedBudgetPolicy
 }
 
@@ -58,15 +64,27 @@ export function CostPolicy205Allocation(props: AllocationProps) {
   )
 }
 
-function BudgetRows({ form, onChange, glAccounts }: AllocationProps) {
+function BudgetRows({ form, onChange, glAccounts, glAccountsStatus }: AllocationProps) {
   const { t, i18n } = useTranslation()
   const ar = (i18n.resolvedLanguage ?? i18n.language).toLowerCase().startsWith('ar')
-  const set = (index: number, patch: Partial<BudgetForm>) =>
-    onChange({ ...form, budgets: form.budgets.map((b, i) => (i === index ? { ...b, ...patch } : b)) })
+  const set = (index: number, patch: Partial<BudgetForm>) => {
+    const next = editBudget(form, index, patch)
+    onChange(next.form, next.remap)
+  }
+  const remove = (index: number) => {
+    const next = removeBudget(form, index)
+    onChange(next.form, next.remap)
+  }
   return (
     <fieldset className="space-y-2">
       <legend className="font-medium">{t(`${P}.budgets`)}</legend>
       <p className="text-xs text-muted-foreground">{t(`${P}.budgetScope`)}</p>
+      {glAccountsStatus === 'error' && (
+        <p className="text-destructive text-sm" role="alert" data-testid="cp205-accounts-failed">{t(`${P}.form.accountsFailed`)}</p>
+      )}
+      {glAccountsStatus === 'success' && glAccounts.length === 0 && form.budgets.length > 0 && (
+        <p className="text-amber-700 text-sm" role="note" data-testid="cp205-accounts-empty">{t(`${P}.form.accountsEmpty`)}</p>
+      )}
       {form.budgets.map((b, index) => (
         <div key={index} className="grid gap-2 md:grid-cols-6" data-testid="cp205-budget-row">
           <Input aria-label={t(`${P}.form.budgetCode`)} value={b.budget_code} required
@@ -84,13 +102,13 @@ function BudgetRows({ form, onChange, glAccounts }: AllocationProps) {
             <input type="checkbox" checked={b.setup_related} onChange={(e) => set(index, { setup_related: e.target.checked })} />
             {t(`${P}.form.setupRelated`)}
           </label>
-          <Button type="button" variant="ghost" onClick={() => onChange({ ...form, budgets: form.budgets.filter((_, i) => i !== index) })}>
+          <Button type="button" variant="ghost" onClick={() => remove(index)}>
             {t('manufacturingSettings.costPolicy.form.remove')}
           </Button>
         </div>
       ))}
       <Button type="button" variant="outline" size="sm" disabled={form.budgets.length >= MAX_BUDGETS}
-        onClick={() => onChange({ ...form, budgets: [...form.budgets, emptyBudget()] })}>
+        onClick={() => onChange({ ...form, budgets: [...form.budgets, emptyBudget()] }, null)}>
         {t(`${P}.form.addBudget`)}
       </Button>
     </fieldset>
@@ -145,7 +163,7 @@ function AckRows({ pools, form, onChange }: AllocationProps) {
         return (
           <label key={key} className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={acked.has(key)}
-              onChange={(e) => onChange({ ...form, acks: e.target.checked ? [...form.acks, key] : form.acks.filter(x => x !== key) })} />
+              onChange={(e) => onChange({ ...form, acks: e.target.checked ? [...form.acks, key] : form.acks.filter(x => x !== key) }, null)} />
             {t(`${P}.form.ack`, { pool: c.pool, budget: c.budget })}
           </label>
         )
@@ -170,9 +188,9 @@ function UnallocatedSection({ pools, form, onChange, policy }: AllocationProps) 
         <div className="grid gap-2 md:grid-cols-2">
           <p className="md:col-span-2 text-xs">{t(`${P}.form.exceptionHelp`)}</p>
           <Input aria-label={t(`${P}.form.exceptionReason`)} maxLength={500} value={form.exception.reason} required
-            onChange={(e) => onChange({ ...form, exception: { ...form.exception, reason: e.target.value } })} />
+            onChange={(e) => onChange({ ...form, exception: { ...form.exception, reason: e.target.value } }, null)} />
           <Input aria-label={t(`${P}.form.exceptionTreatment`)} maxLength={500} value={form.exception.treatment} required
-            onChange={(e) => onChange({ ...form, exception: { ...form.exception, treatment: e.target.value } })} />
+            onChange={(e) => onChange({ ...form, exception: { ...form.exception, treatment: e.target.value } }, null)} />
         </div>
       )}
     </div>

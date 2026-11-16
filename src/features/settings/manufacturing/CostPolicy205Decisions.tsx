@@ -101,6 +101,12 @@ function recordedApplies(draft: CostPolicyDraft205, state: CostPolicy205State): 
   return labor === 'recorded_entry_rate'
 }
 
+/** المراجعة ما زالت هي المعلقة: لا فحص لمسودة حُسمت أو جاءتها مراجعة أحدث (Kimi P3 على #334). */
+function isPendingRevision(state: CostPolicy205State, draftId: string, revision: number): boolean {
+  const current = state.drafts.find(d => d.id === draftId)
+  return current?.revision === revision && current.status === 'draft'
+}
+
 function refusalText(t: TFunction, label: string, refusal: Refusal205): string {
   return `${t(label)}: ${t(`${P}.errors.${refusal.code}`)}${refusal.detail ? ` (${refusal.detail})` : ''}`
 }
@@ -142,7 +148,7 @@ export function DraftCheck({ draft, revision, state, workCenters }: {
   const recorded = recordedApplies(draft, state)
   const input = checkInputOf(draft.id, revision, inputs, recorded)
   const keyOf = (i: CheckInput205) => JSON.stringify([i, state.latestVersionNo, state.settings])
-  const live = state.drafts.find(d => d.id === draft.id)?.revision === revision
+  const live = isPendingRevision(state, draft.id, revision)
   const currentKey = input && live ? keyOf(input) : null
   const check = useMutation({
     mutationFn: async (vars: CheckVars): Promise<{ key: string; result: DraftCheck205 }> => ({ key: vars.key, result: await checkDraft205(state.orgId, vars) }),
@@ -154,7 +160,7 @@ export function DraftCheck({ draft, revision, state, workCenters }: {
     <div className="space-y-2 rounded-md border p-3" data-testid={`cp205-check-${draft.id}`}>
       <p className="font-medium">{t(`${P}.check.title`)}</p>
       <PreviewInputs value={inputs} onChange={setInputs} workCenters={workCenters} recordedApplies={recorded} idPrefix={`cp205-check-${draft.id}`} />
-      <Button type="button" size="sm" variant="outline" disabled={!input || check.isPending}
+      <Button type="button" size="sm" variant="outline" disabled={!input || !live || check.isPending}
         onClick={() => { if (input) check.mutate({ ...input, key: keyOf(input) }) }}>
         {t(`${P}.check.run`)}
       </Button>

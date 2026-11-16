@@ -209,37 +209,106 @@ export function ackCandidates(pools: readonly AllocationPool[], budgets: readonl
     .flatMap(p => p.budgets.filter(b => setup.has(b)).map(b => ({ pool: code(p.pool_code), budget: b })))
 }
 
+// ---------------------------------------------------------------------------
+// تعديل رمز موازنة أو حذفها: مراجعها في المجمعات والإقرارات تتبعها
+// ---------------------------------------------------------------------------
+
+/** رمز موازنة تغيّر: `to` فارغ يعني أن المراجع تُحذف. */
+export interface BudgetRemap { from: string; to: string }
+
+/**
+ * ما يلزم مراجع صف موازنة حين يصير رمزه `to` (أو يُحذف الصف بـ`to` فارغ). `null` إن بقيت المراجع كما هي:
+ * الصف بلا رمز، أو الرمز لم يتغير، أو صف آخر ما زال يحمل الرمز القديم فالمراجع له.
+ */
+export function budgetRemap(budgets: readonly BudgetForm[], index: number, to: string): BudgetRemap | null {
+  const from = code(budgets[index]?.budget_code ?? '')
+  const next = code(to)
+  if (from === '' || from === next) return null
+  if (budgets.some((b, i) => i !== index && code(b.budget_code) === from)) return null
+  return { from, to: next }
+}
+
+const remapCodes = (codes: readonly string[], r: BudgetRemap): string[] =>
+  [...new Set(codes.flatMap(c => (c === r.from ? (r.to === '' ? [] : [r.to]) : [c])))]
+
+/** موازنات كل مجمع بعد تغيير رمز: يُنقل المرجع إلى الرمز الجديد أو يُحذف، بلا تكرار. بقية حقول المجمع كما هي. */
+export function remapPools<T extends AllocationPool>(pools: readonly T[], r: BudgetRemap): T[] {
+  return pools.map(p => (p.budgets.includes(r.from) ? { ...p, budgets: remapCodes(p.budgets, r) } : p))
+}
+
+/** الإقرارات `POOL/BUDGET` بعد تغيير رمز الموازنة. */
+export function remapAcks(acks: readonly string[], r: BudgetRemap): string[] {
+  const moved = acks.flatMap(key => {
+    const cut = key.lastIndexOf('/')
+    const [pool, budget] = [key.slice(0, cut), key.slice(cut + 1)]
+    if (budget !== r.from) return [key]
+    return r.to === '' ? [] : [ackKey(pool, r.to)]
+  })
+  return [...new Set(moved)]
+}
+
+/** تعديل صف موازنة: النموذج الجديد مع إقراراته، وما يلزم المجمعات (يطبقه صاحب المجمعات). */
+export function editBudget(form: AllocationForm, index: number, patch: Partial<BudgetForm>): { form: AllocationForm; remap: BudgetRemap | null } {
+  const remap = patch.budget_code === undefined ? null : budgetRemap(form.budgets, index, patch.budget_code)
+  const budgets = form.budgets.map((b, i) => (i === index ? { ...b, ...patch } : b))
+  return { form: { ...form, budgets, acks: remap ? remapAcks(form.acks, remap) : form.acks }, remap }
+}
+
+/** حذف صف موازنة: لا يبقى رمزها في أي مجمع أو إقرار، إلا إن حمله صف آخر (Codex P2 على #334). */
+export function removeBudget(form: AllocationForm, index: number): { form: AllocationForm; remap: BudgetRemap | null } {
+  const remap = budgetRemap(form.budgets, index, '')
+  const budgets = form.budgets.filter((_, i) => i !== index)
+  return { form: { ...form, budgets, acks: remap ? remapAcks(form.acks, remap) : form.acks }, remap }
+}
+
 export interface InputWarning { code: string; detail: string }
 
-/** تنبيهات مبكرة بأسماء رموز الخادم؛ لا تمنع الحفظ، والخادم هو الحكم عند الاعتماد. */
-export function allocationWarnings(pools: readonly AllocationPool[], form: AllocationForm, policy: UnallocatedBudgetPolicy): InputWarning[] {
+function poolWarnings(pools: readonly AllocationPool[], known: ReadonlySet<string>): InputWarning[] {
   const warnings: InputWarning[] = []
-  const known = new Set(form.budgets.map(b => code(b.budget_code)))
-  const owners = new Map<string, number>()
   for (const p of pools) {
     const pc = code(p.pool_code)
     if (p.activity === '') warnings.push({ code: 'COST_POLICY_POOL_ACTIVITY_UNSET', detail: pc })
     if (p.budgets.length === 0) warnings.push({ code: 'COST_POLICY_POOL_WITHOUT_BUDGET', detail: pc })
-    for (const b of p.budgets) {
-      owners.set(b, (owners.get(b) ?? 0) + 1)
-      if (!known.has(b)) warnings.push({ code: 'COST_POLICY_BUDGET_UNKNOWN', detail: `${pc}/${b}` })
-    }
-  }
-  for (const [b, n] of owners) if (n > 1) warnings.push({ code: 'COST_POLICY_BUDGET_DOUBLE_ALLOCATION', detail: b })
-  for (const b of form.budgets) {
-    const bc = code(b.budget_code)
-    if (!BUDGET_CODE_PATTERN.test(bc)) warnings.push({ code: 'COST_POLICY_INVALID', detail: `budget_code ${bc}` })
-    if (b.gl_account_id === '') warnings.push({ code: 'COST_POLICY_BUDGET_ACCOUNT_REQUIRED', detail: bc })
-  }
-  const acked = new Set(form.acks)
-  for (const c of ackCandidates(pools, form.budgets)) {
-    if (!acked.has(ackKey(c.pool, c.budget))) warnings.push({ code: 'COST_POLICY_SETUP_TREATMENT_UNSET', detail: ackKey(c.pool, c.budget) })
-  }
-  const unallocated = unallocatedCodes(pools, form.budgets)
-  if (unallocated.length > 0 && policy === 'block') {
-    warnings.push({ code: 'COST_POLICY_BUDGET_UNALLOCATED', detail: unallocated.join(', ') })
+    for (const b of p.budgets.filter(x => !known.has(x))) warnings.push({ code: 'COST_POLICY_BUDGET_UNKNOWN', detail: `${pc}/${b}` })
   }
   return warnings
+}
+
+function doubleAllocationWarnings(pools: readonly AllocationPool[]): InputWarning[] {
+  const owners = new Map<string, number>()
+  for (const b of pools.flatMap(p => p.budgets)) owners.set(b, (owners.get(b) ?? 0) + 1)
+  return [...owners].filter(([, n]) => n > 1).map(([b]) => ({ code: 'COST_POLICY_BUDGET_DOUBLE_ALLOCATION', detail: b }))
+}
+
+function budgetWarnings(budgets: readonly BudgetForm[]): InputWarning[] {
+  return budgets.flatMap(b => {
+    const bc = code(b.budget_code)
+    const out: InputWarning[] = []
+    if (!BUDGET_CODE_PATTERN.test(bc)) out.push({ code: 'COST_POLICY_INVALID', detail: `budget_code ${bc}` })
+    if (b.gl_account_id === '') out.push({ code: 'COST_POLICY_BUDGET_ACCOUNT_REQUIRED', detail: bc })
+    return out
+  })
+}
+
+function ackWarnings(pools: readonly AllocationPool[], form: AllocationForm): InputWarning[] {
+  const acked = new Set(form.acks)
+  return ackCandidates(pools, form.budgets)
+    .map(c => ackKey(c.pool, c.budget))
+    .filter(key => !acked.has(key))
+    .map(key => ({ code: 'COST_POLICY_SETUP_TREATMENT_UNSET', detail: key }))
+}
+
+/** تنبيهات مبكرة بأسماء رموز الخادم؛ لا تمنع الحفظ، والخادم هو الحكم عند الاعتماد. */
+export function allocationWarnings(pools: readonly AllocationPool[], form: AllocationForm, policy: UnallocatedBudgetPolicy): InputWarning[] {
+  const known = new Set(form.budgets.map(b => code(b.budget_code)))
+  const unallocated = unallocatedCodes(pools, form.budgets)
+  return [
+    ...poolWarnings(pools, known),
+    ...doubleAllocationWarnings(pools),
+    ...budgetWarnings(form.budgets),
+    ...ackWarnings(pools, form),
+    ...(unallocated.length > 0 && policy === 'block' ? [{ code: 'COST_POLICY_BUDGET_UNALLOCATED', detail: unallocated.join(', ') }] : []),
+  ]
 }
 
 // ---------------------------------------------------------------------------
