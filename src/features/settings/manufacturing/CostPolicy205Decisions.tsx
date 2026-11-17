@@ -53,13 +53,23 @@ const rows = (v: unknown): Array<Record<string, unknown>> =>
   Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => x !== null && typeof x === 'object') : []
 
 const CP = 'manufacturingSettings.costPolicy'
+/** مفاتيح ترجمة تُستعمل داخل نصوص مركّبة: ثابتة، فلا قالب نصي داخل قالب آخر (Sonar S4624). */
+const K = {
+  perHour: 'manufacturingSettings.costPolicy.perHour',
+  wcLaborRate: 'manufacturingSettings.costPolicy.form.wcLaborRate',
+  override: 'manufacturingSettings.costPolicy.form.modes.override',
+  exclude: 'manufacturingSettings.costPolicy.form.modes.exclude',
+  pinEvent: 'manufacturingSettings.costPolicy.pinEvent',
+  loads: 'manufacturingSettings.costPolicy205.summary.loads',
+  plannedHours: 'manufacturingSettings.costPolicy205.form.plannedHours',
+} as const
 
 /** قاعدة مركز عمل في سطر: سعر العمالة الخاص، ثم كل مجمع بسعره الخاص أو مستبعدًا. */
 function ruleLine(t: TFunction, rule: Record<string, unknown>): string {
   const labor = str(rule.labor_rate_per_hour)
-  const parts = labor ? [`${t(`${CP}.form.wcLaborRate`)}: ${t(`${CP}.perHour`, { rate: labor })}`] : []
+  const parts = labor ? [`${t(K.wcLaborRate)}: ${t(K.perHour, { rate: labor })}`] : []
   for (const pool of rows(rule.pools)) {
-    const mode = pool.applies === false ? t(`${CP}.form.modes.exclude`) : `${t(`${CP}.form.modes.override`)} ${t(`${CP}.perHour`, { rate: str(pool.rate) })}`
+    const mode = pool.applies === false ? t(K.exclude) : `${t(K.override)} ${t(K.perHour, { rate: str(pool.rate) })}`
     parts.push(`${str(pool.pool_code)}: ${mode}`)
   }
   return parts.join(' · ')
@@ -73,9 +83,9 @@ function poolLine(t: TFunction, pool: Record<string, unknown>): string {
   const budgets = Array.isArray(pool.budgets) && pool.budgets.length > 0 ? pool.budgets.join(', ') : '—'
   return [
     str(pool.basis) && t(`${CP}.bases.${str(pool.basis)}`),
-    str(pool.rate) && t(`${CP}.perHour`, { rate: str(pool.rate) }),
+    str(pool.rate) && t(K.perHour, { rate: str(pool.rate) }),
     str(pool.activity) && t(`${P}.activities.${str(pool.activity)}`),
-    `${t(`${P}.summary.loads`)}: ${budgets}`,
+    `${t(K.loads)}: ${budgets}`,
   ].filter(Boolean).join(' · ')
 }
 
@@ -84,7 +94,7 @@ function budgetLine(t: TFunction, b: Record<string, unknown>): string {
   return [
     str(b.amount) || '—',
     b.setup_related === true && t(`${P}.form.setupRelated`),
-    str(b.planned_hours) && `${t(`${P}.form.plannedHours`)}: ${str(b.planned_hours)}`,
+    str(b.planned_hours) && `${t(K.plannedHours)}: ${str(b.planned_hours)}`,
   ].filter(Boolean).join(' · ')
 }
 
@@ -112,12 +122,13 @@ export function DraftSummary({ draft, workCenters }: { readonly draft: CostPolic
   const pools = rows(draft.kind === 'version' ? p.overhead_pools : p.pools)
   const acks = rows(p.setup_acks).map(a => `${str(a.pool_code)}/${str(a.budget_code)}`)
   const exception = p.unallocated_exception && typeof p.unallocated_exception === 'object' ? p.unallocated_exception as Record<string, unknown> : null
+  const pinEvent = str(p.pin_event) ? t(`${CP}.pinEvents.${str(p.pin_event)}`) : ''
   return (
     <div className="space-y-1 text-xs" data-testid={`cp205-summary-${draft.id}`}>
       {draft.kind === 'version' && (
         <p>{t(`${CP}.effectiveFrom`)}: {str(p.effective_from)} · {t(`${CP}.laborSources.${str(p.labor_cost_source) || 'work_center_rate'}`)}
-          {str(p.default_labor_rate_per_hour) && ` · ${t(`${CP}.perHour`, { rate: str(p.default_labor_rate_per_hour) })}`}
-          {str(p.pin_event) && ` · ${t(`${CP}.pinEvent`)}: ${t(`${CP}.pinEvents.${str(p.pin_event)}`)}`}</p>
+          {str(p.default_labor_rate_per_hour) && ` · ${t(K.perHour, { rate: str(p.default_labor_rate_per_hour) })}`}
+          {pinEvent && ` · ${t(K.pinEvent)}: ${pinEvent}`}</p>
       )}
       {pools.map(pool => (
         <p key={str(pool.pool_code)}>
