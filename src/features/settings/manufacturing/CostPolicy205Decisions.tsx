@@ -65,6 +65,29 @@ function ruleLine(t: TFunction, rule: Record<string, unknown>): string {
   return parts.join(' · ')
 }
 
+/**
+ * مجمع في سطر: أساسه وسعره ونشاطه وموازناته. الأساس يختار مورد الساعات (عمالة أو ماكينة) في الحساب
+ * (205: mfg_cost_policy_compute_205_v)، فيُعرض للمعتمد (Codex P2 على #334). مسودة المعالجة بلا أساس ولا سعر.
+ */
+function poolLine(t: TFunction, pool: Record<string, unknown>): string {
+  const budgets = Array.isArray(pool.budgets) && pool.budgets.length > 0 ? pool.budgets.join(', ') : '—'
+  return [
+    str(pool.basis) && t(`${CP}.bases.${str(pool.basis)}`),
+    str(pool.rate) && t(`${CP}.perHour`, { rate: str(pool.rate) }),
+    str(pool.activity) && t(`${P}.activities.${str(pool.activity)}`),
+    `${t(`${P}.summary.loads`)}: ${budgets}`,
+  ].filter(Boolean).join(' · ')
+}
+
+/** موازنة في سطر: المبلغ كما أُدخل، وكونها للإعداد، وساعاتها المخططة إن وُجدت. */
+function budgetLine(t: TFunction, b: Record<string, unknown>): string {
+  return [
+    str(b.amount) || '—',
+    b.setup_related === true && t(`${P}.form.setupRelated`),
+    str(b.planned_hours) && `${t(`${P}.form.plannedHours`)}: ${str(b.planned_hours)}`,
+  ].filter(Boolean).join(' · ')
+}
+
 /** قواعد مراكز العمل كما في الحمولة، فلا تتطابق في المراجعة مسودتان تختلفان فيها (Codex P2 على #334). */
 function RulesSummary({ rules, workCenters }: { readonly rules: Array<Record<string, unknown>>; readonly workCenters: readonly CostPolicyWorkCenter[] }) {
   const { t } = useTranslation()
@@ -98,16 +121,12 @@ export function DraftSummary({ draft, workCenters }: { readonly draft: CostPolic
       )}
       {pools.map(pool => (
         <p key={str(pool.pool_code)}>
-          <span className="font-mono">{str(pool.pool_code)}</span>
-          {str(pool.rate) && ` · ${t('manufacturingSettings.costPolicy.perHour', { rate: str(pool.rate) })}`}
-          {str(pool.activity) && ` · ${t(`${P}.activities.${str(pool.activity)}`)}`}
-          {' · '}{t(`${P}.summary.loads`)}: {Array.isArray(pool.budgets) && pool.budgets.length > 0 ? pool.budgets.join(', ') : '—'}
+          <span className="font-mono">{str(pool.pool_code)}</span> · {poolLine(t, pool)}
         </p>
       ))}
       {rows(p.budgets).map(b => (
         <p key={str(b.budget_code)}>
-          <span className="font-mono">{str(b.budget_code)}</span>: {str(b.amount) || '—'}
-          {b.setup_related === true && ` · ${t(`${P}.form.setupRelated`)}`}
+          <span className="font-mono">{str(b.budget_code)}</span>: {budgetLine(t, b)}
           {!str(b.gl_account_id) && <span className="text-destructive"> · {t(`${P}.errors.COST_POLICY_BUDGET_ACCOUNT_REQUIRED`)}</span>}
         </p>
       ))}

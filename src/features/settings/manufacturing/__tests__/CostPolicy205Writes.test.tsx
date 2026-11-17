@@ -301,11 +301,14 @@ describe('decisions (design §5 and §6)', () => {
     expect(calls('rpc_get_mfg_cost_policy_205').length).toBeGreaterThan(1)
   })
 
-  it('shows the work-center rules, the pin timing and the setup acknowledgements in the review (Codex P2 on #334)', async () => {
+  it('shows the work-center rules, pool bases, pin timing, planned hours and setup acknowledgements in the review (Codex P2 on #334)', async () => {
     const payload = {
       effective_from: '2026-11-20', labor_cost_source: 'work_center_rate', default_labor_rate_per_hour: 30, pin_event: 'production_started',
-      overhead_pools: [{ pool_code: 'LABOR_OH', rate: 12, activity: 'run', budgets: ['SETUP_CREW'] }],
-      budgets: [{ budget_code: 'SETUP_CREW', gl_account_id: 'gl-1', setup_related: true, amount: 3600 }],
+      overhead_pools: [
+        { pool_code: 'LABOR_OH', basis: 'labor_hours', rate: 12, activity: 'run', budgets: ['SETUP_CREW'] },
+        { pool_code: 'MACHINE_OH', basis: 'machine_hours', rate: 46, activity: 'both', budgets: [] },
+      ],
+      budgets: [{ budget_code: 'SETUP_CREW', gl_account_id: 'gl-1', setup_related: true, amount: 3600, planned_hours: 60 }],
       setup_acks: [{ pool_code: 'LABOR_OH', budget_code: 'SETUP_CREW' }],
       work_center_rules: [
         { work_center_id: 'wc-a', labor_rate_per_hour: 40, pools: [{ pool_code: 'LABOR_OH', applies: true, rate: 15 }] },
@@ -318,6 +321,10 @@ describe('decisions (design §5 and §6)', () => {
     const review = screen.getByRole('region', { name: 'Review the draft before approval' })
     const summary = within(review).getByTestId('cp205-summary-draft-legacy')
     expect(summary).toHaveTextContent('Pin timing: When production first starts')
+    // The basis picks the labor or machine hours in the server computation; a change of basis alone must show.
+    expect(summary).toHaveTextContent('LABOR_OH · Labor hours · 12 / hour · run · loads: SETUP_CREW')
+    expect(summary).toHaveTextContent('MACHINE_OH · Machine hours · 46 / hour')
+    expect(summary).toHaveTextContent('SETUP_CREW: 3600 · Setup related · Planned hours: 60')
     expect(summary).toHaveTextContent('Setup budgets acknowledged on run pools: LABOR_OH/SETUP_CREW')
     const rules = within(summary).getByTestId('cp205-summary-rules')
     // The work-center code once the list is read; the id when the work center is not in it.
