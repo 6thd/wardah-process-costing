@@ -2096,7 +2096,9 @@
         "unallocatedOutside": "Outside the total above; their accounting treatment is outside this calculation."
       },
       "summary": {
-        "loads": "loads"
+        "loads": "loads",
+        "acks": "Setup budgets acknowledged on run pools",
+        "noRules": "none; every work center uses the default labor rate and every pool at its rate"
       },
       "check": {
         "title": "Check and preview the draft",

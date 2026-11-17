@@ -301,6 +301,38 @@ describe('decisions (design §5 and §6)', () => {
     expect(calls('rpc_get_mfg_cost_policy_205').length).toBeGreaterThan(1)
   })
 
+  it('shows the work-center rules, the pin timing and the setup acknowledgements in the review (Codex P2 on #334)', async () => {
+    const payload = {
+      effective_from: '2026-11-20', labor_cost_source: 'work_center_rate', default_labor_rate_per_hour: 30, pin_event: 'production_started',
+      overhead_pools: [{ pool_code: 'LABOR_OH', rate: 12, activity: 'run', budgets: ['SETUP_CREW'] }],
+      budgets: [{ budget_code: 'SETUP_CREW', gl_account_id: 'gl-1', setup_related: true, amount: 3600 }],
+      setup_acks: [{ pool_code: 'LABOR_OH', budget_code: 'SETUP_CREW' }],
+      work_center_rules: [
+        { work_center_id: 'wc-a', labor_rate_per_hour: 40, pools: [{ pool_code: 'LABOR_OH', applies: true, rate: 15 }] },
+        { work_center_id: 'wc-gone', pools: [{ pool_code: 'LABOR_OH', applies: false }] },
+      ],
+    }
+    route({ rpc_get_mfg_cost_policy_205: get205({ drafts: draftsWith('draft-legacy', { kind: 'version', legacy_version_id: null, expected_latest_version_no: 2, payload }) }) })
+    await openPanel()
+    fireEvent.click(within(screen.getByTestId('cp205-actions-draft-legacy')).getByRole('button', { name: 'Review and approve' }))
+    const review = screen.getByRole('region', { name: 'Review the draft before approval' })
+    const summary = within(review).getByTestId('cp205-summary-draft-legacy')
+    expect(summary).toHaveTextContent('Pin timing: When production first starts')
+    expect(summary).toHaveTextContent('Setup budgets acknowledged on run pools: LABOR_OH/SETUP_CREW')
+    const rules = within(summary).getByTestId('cp205-summary-rules')
+    // The work-center code once the list is read; the id when the work center is not in it.
+    await waitFor(() => expect(rules).toHaveTextContent('WC-A: Labor rate override: 40 / hour · LABOR_OH: Own rate 15 / hour'))
+    expect(rules).toHaveTextContent('wc-gone: LABOR_OH: Excluded here')
+  })
+
+  it('says when a version draft has no work-center rule', async () => {
+    route({ rpc_get_mfg_cost_policy_205: get205({ drafts: draftsWith('draft-legacy', { kind: 'version', legacy_version_id: null, expected_latest_version_no: 2, payload: { effective_from: '2026-11-20' } }) }) })
+    await openPanel()
+    fireEvent.click(within(screen.getByTestId('cp205-actions-draft-legacy')).getByRole('button', { name: 'Review and approve' }))
+    const review = screen.getByRole('region', { name: 'Review the draft before approval' })
+    expect(within(review).getByTestId('cp205-summary-rules')).toHaveTextContent('Work-center rules: none; every work center uses the default labor rate')
+  })
+
   it('keeps the review frozen when a newer revision arrives, and disables the approval', async () => {
     route({ rpc_get_mfg_cost_policy_205: [get205(), get205({ drafts: draftsWith('draft-legacy', { revision: 2 }) })] })
     await openPanel()

@@ -52,17 +52,49 @@ const str = (v: unknown) => (typeof v === 'string' || typeof v === 'number' ? St
 const rows = (v: unknown): Array<Record<string, unknown>> =>
   Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => x !== null && typeof x === 'object') : []
 
+const CP = 'manufacturingSettings.costPolicy'
+
+/** قاعدة مركز عمل في سطر: سعر العمالة الخاص، ثم كل مجمع بسعره الخاص أو مستبعدًا. */
+function ruleLine(t: TFunction, rule: Record<string, unknown>): string {
+  const labor = str(rule.labor_rate_per_hour)
+  const parts = labor ? [`${t(`${CP}.form.wcLaborRate`)}: ${t(`${CP}.perHour`, { rate: labor })}`] : []
+  for (const pool of rows(rule.pools)) {
+    const mode = pool.applies === false ? t(`${CP}.form.modes.exclude`) : `${t(`${CP}.form.modes.override`)} ${t(`${CP}.perHour`, { rate: str(pool.rate) })}`
+    parts.push(`${str(pool.pool_code)}: ${mode}`)
+  }
+  return parts.join(' · ')
+}
+
+/** قواعد مراكز العمل كما في الحمولة، فلا تتطابق في المراجعة مسودتان تختلفان فيها (Codex P2 على #334). */
+function RulesSummary({ rules, workCenters }: { readonly rules: Array<Record<string, unknown>>; readonly workCenters: readonly CostPolicyWorkCenter[] }) {
+  const { t } = useTranslation()
+  const label = (id: string) => workCenters.find(wc => wc.id === id)?.code ?? id
+  if (rules.length === 0) return <p data-testid="cp205-summary-rules">{t(`${CP}.workCenterRules`)}: {t(`${P}.summary.noRules`)}</p>
+  return (
+    <div data-testid="cp205-summary-rules">
+      <p>{t(`${CP}.workCenterRules`)}:</p>
+      {rules.map(rule => (
+        <p key={str(rule.work_center_id)} className="ps-3">
+          <span className="font-mono">{label(str(rule.work_center_id))}</span>: {ruleLine(t, rule)}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 /** محتوى المسودة كما ورد في القراءة، للمراجعة قبل القرار. المبالغ كما أُدخلت. */
-export function DraftSummary({ draft }: { readonly draft: CostPolicyDraft205 }) {
+export function DraftSummary({ draft, workCenters }: { readonly draft: CostPolicyDraft205; readonly workCenters: readonly CostPolicyWorkCenter[] }) {
   const { t } = useTranslation()
   const p = draft.payload
   const pools = rows(draft.kind === 'version' ? p.overhead_pools : p.pools)
+  const acks = rows(p.setup_acks).map(a => `${str(a.pool_code)}/${str(a.budget_code)}`)
   const exception = p.unallocated_exception && typeof p.unallocated_exception === 'object' ? p.unallocated_exception as Record<string, unknown> : null
   return (
     <div className="space-y-1 text-xs" data-testid={`cp205-summary-${draft.id}`}>
       {draft.kind === 'version' && (
-        <p>{t('manufacturingSettings.costPolicy.effectiveFrom')}: {str(p.effective_from)} · {t(`manufacturingSettings.costPolicy.laborSources.${str(p.labor_cost_source) || 'work_center_rate'}`)}
-          {str(p.default_labor_rate_per_hour) && ` · ${t('manufacturingSettings.costPolicy.perHour', { rate: str(p.default_labor_rate_per_hour) })}`}</p>
+        <p>{t(`${CP}.effectiveFrom`)}: {str(p.effective_from)} · {t(`${CP}.laborSources.${str(p.labor_cost_source) || 'work_center_rate'}`)}
+          {str(p.default_labor_rate_per_hour) && ` · ${t(`${CP}.perHour`, { rate: str(p.default_labor_rate_per_hour) })}`}
+          {str(p.pin_event) && ` · ${t(`${CP}.pinEvent`)}: ${t(`${CP}.pinEvents.${str(p.pin_event)}`)}`}</p>
       )}
       {pools.map(pool => (
         <p key={str(pool.pool_code)}>
@@ -79,7 +111,9 @@ export function DraftSummary({ draft }: { readonly draft: CostPolicyDraft205 }) 
           {!str(b.gl_account_id) && <span className="text-destructive"> · {t(`${P}.errors.COST_POLICY_BUDGET_ACCOUNT_REQUIRED`)}</span>}
         </p>
       ))}
-      {exception && <p>{t(`${P}.reason`)}: {str(exception.reason)} · {t(`${P}.treatment`)}: {str(exception.treatment)}</p>}
+      {acks.length > 0 && <p>{t(`${P}.summary.acks`)}: {acks.join(', ')}</p>}
+      {draft.kind === 'version' && <RulesSummary rules={rows(p.work_center_rules)} workCenters={workCenters} />}
+      {exception && <p>{t(`${P}.reason`)}:{str(exception.reason)} · {t(`${P}.treatment`)}: {str(exception.treatment)}</p>}
     </div>
   )
 }
@@ -255,7 +289,7 @@ function ApproveReview({ snapshot, state, workCenters, busy, onApprove, onClose 
   return (
     <div className="space-y-2 rounded-md border-2 p-3" role="region" aria-label={t(`${P}.approve.aria`)} data-testid={`cp205-approve-${snapshot.id}`}>
       <p className="font-medium">{t(`${P}.approve.title`, { revision: snapshot.revision })}</p>
-      <DraftSummary draft={snapshot} />
+      <DraftSummary draft={snapshot} workCenters={workCenters} />
       {snapshot.unallocated_budgets.length > 0 && (
         <p className="text-xs">{t(`${P}.approve.unallocated.${state.settings.unallocatedBudgetPolicy}`)}</p>
       )}
