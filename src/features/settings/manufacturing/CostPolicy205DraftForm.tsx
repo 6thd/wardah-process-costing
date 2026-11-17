@@ -10,9 +10,12 @@ import { CostPolicy205Allocation, SELECT_205 } from './CostPolicy205Allocation'
 import {
   buildVersionPayload,
   code,
+  earliestEffectiveFrom,
+  emptyRuleCenters,
   hasInvalidNumber,
   MAX_POOLS,
   remapPools,
+  renamePool,
   type AllocationForm,
   type PoolMode,
   type RuleForm,
@@ -96,7 +99,7 @@ function HeaderFields({ form, state, patch }: PartProps) {
     <div className="grid gap-4 md:grid-cols-4">
       <div className="space-y-1">
         <Label htmlFor="cp205-effective">{t(`${C}.form.effectiveFrom`)}</Label>
-        <Input id="cp205-effective" type="date" min={state.today} value={form.effective_from} required
+        <Input id="cp205-effective" type="date" min={earliestEffectiveFrom(state)} value={form.effective_from} required
           onChange={(e) => patch({ effective_from: e.target.value })} />
       </div>
       <div className="space-y-1">
@@ -132,7 +135,7 @@ function PoolDefinitions({ form, state, setPool, patch }: PartProps & { readonly
       <legend className="font-medium">{t(`${C}.pools`)}</legend>
       {form.pools.map((pool, index) => (
         <div key={index} className="grid gap-2 md:grid-cols-6" data-testid="cp205-pool-row">
-          <Input aria-label={t(`${C}.form.poolCode`)} value={pool.pool_code} required onChange={(e) => setPool(index, { pool_code: e.target.value })} />
+          <Input aria-label={t(`${C}.form.poolCode`)} value={pool.pool_code} required onChange={(e) => patch(renamePool(form, index, e.target.value))} />
           <Input aria-label={t(`${C}.form.poolName`)} value={pool.name} required onChange={(e) => setPool(index, { name: e.target.value })} />
           <Input aria-label={t(`${C}.form.poolNameAr`)} value={pool.name_ar} onChange={(e) => setPool(index, { name_ar: e.target.value })} />
           <select aria-label={t(`${C}.form.basis`)} className={SELECT_205} value={pool.basis}
@@ -161,10 +164,16 @@ function RuleRows({ form, workCenters, patch }: Omit<PartProps, 'state'> & { rea
   const usesRates = form.labor_cost_source === 'work_center_rate'
   const poolCodes = form.pools.map(p => code(p.pool_code)).filter(Boolean)
   const setRule = (index: number, r: Partial<RuleForm>) => patch({ rules: form.rules.map((x, i) => (i === index ? { ...x, ...r } : x)) })
+  const empty = emptyRuleCenters(form).map(id => workCenters.find(wc => wc.id === id)?.code ?? id)
   return (
     <fieldset className="space-y-3">
       <legend className="font-medium">{t(`${C}.workCenterRules`)}</legend>
       <p className="text-xs text-muted-foreground">{t(`${C}.form.rulesHelp`)}</p>
+      {empty.length > 0 && (
+        <p className="text-xs text-amber-700" role="note" data-testid="cp205-rules-empty">
+          {t(`${P}.form.rulesEmpty`, { centers: empty.join(', ') })}
+        </p>
+      )}
       {form.rules.map((rule, index) => (
         <div key={index} className="space-y-2 rounded border p-3" data-testid="cp205-rule-row">
           <div className="grid gap-2 md:grid-cols-3">

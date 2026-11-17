@@ -185,6 +185,55 @@ describe('new version draft (design §6 and §7)', () => {
     expect(payload.overhead_pools.map(p => [p.pool_code, p.budgets])).toEqual([['LABOR_OH', []], ['MACHINE_OH', ['DEPR']]])
   })
 
+  it('a pool code change moves the work-center rule with it, and the date starts after the latest version (Codex P2 on #334)', { timeout: 15000 }, async () => {
+    route({ rpc_get_mfg_cost_policy_205: get205(), rpc_create_mfg_cost_policy_draft_205: ok({ draft_id: 'd9', status: 'draft', revision: 1, replayed: false }) })
+    await openPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'New version draft' }))
+    const form = await screen.findByRole('form', { name: 'New cost policy version draft' })
+    // ver-2 starts on 2026-11-10, after today (2026-11-02): the server refuses any date up to it.
+    const date = within(form).getByLabelText('Effective from') as HTMLInputElement
+    expect(date.value).toBe('2026-11-11')
+    expect(date.min).toBe('2026-11-11')
+    fireEvent.click(within(form).getByRole('button', { name: 'Add work-center rule' }))
+    await within(form).findByRole('option', { name: /WC-A/ })
+    set(within(form).getByLabelText('Work center'), 'wc-a')
+    set(within(form).getByLabelText('Rule for LABOR_OH'), 'exclude')
+    // Typing a new code key by key, through an empty field, keeps the rule.
+    const [poolCode] = within(form).getAllByLabelText('Pool code')
+    for (const value of ['LABOR_O', '', 'labor']) set(poolCode, value)
+    expect(within(form).getByLabelText('Rule for LABOR')).toHaveValue('exclude')
+    set(within(form).getByLabelText('Reason for the exception'), 'r')
+    set(within(form).getByLabelText('Accounting treatment'), 't')
+    fireEvent.submit(form)
+    await waitFor(() => expect(calls('rpc_create_mfg_cost_policy_draft_205')).toHaveLength(1))
+    const payload = calls('rpc_create_mfg_cost_policy_draft_205')[0].p_draft as Record<string, unknown>
+    expect(payload.effective_from).toBe('2026-11-11')
+    expect(payload.work_center_rules).toEqual([{ work_center_id: 'wc-a', pools: [{ pool_code: 'LABOR', applies: false }] }])
+  })
+
+  it('a work-center rule left with nothing to send is not sent, and the form says so (Codex P2 on #334)', { timeout: 15000 }, async () => {
+    route({ rpc_get_mfg_cost_policy_205: get205(), rpc_create_mfg_cost_policy_draft_205: ok({ draft_id: 'd9', status: 'draft', revision: 1, replayed: false }) })
+    await openPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'New version draft' }))
+    const form = await screen.findByRole('form', { name: 'New cost policy version draft' })
+    fireEvent.click(within(form).getByRole('button', { name: 'Add work-center rule' }))
+    await within(form).findByRole('option', { name: /WC-A/ })
+    set(within(form).getByLabelText('Work center'), 'wc-a')
+    expect(within(form).getByTestId('cp205-rules-empty')).toHaveTextContent('WC-A')
+    set(within(form).getByLabelText('Labor rate override'), '40')
+    expect(within(form).queryByTestId('cp205-rules-empty')).not.toBeInTheDocument()
+    // Recorded entry rates take no labor rate, so the rule has nothing left that the server accepts.
+    set(within(form).getByLabelText('Labor cost source'), 'recorded_entry_rate')
+    expect(within(form).getByTestId('cp205-rules-empty')).toHaveTextContent(/not sent.*WC-A/)
+    set(within(form).getByLabelText('Reason for the exception'), 'r')
+    set(within(form).getByLabelText('Accounting treatment'), 't')
+    fireEvent.submit(form)
+    await waitFor(() => expect(calls('rpc_create_mfg_cost_policy_draft_205')).toHaveLength(1))
+    const payload = calls('rpc_create_mfg_cost_policy_draft_205')[0].p_draft as Record<string, unknown>
+    expect(payload.labor_cost_source).toBe('recorded_entry_rate')
+    expect(payload.work_center_rules).toEqual([])
+  })
+
   it('says so when no account was read for the organization (Kimi P2 on #334)', async () => {
     route({ rpc_get_mfg_cost_policy_205: get205() })
     glReply = { data: [], error: null }
@@ -217,12 +266,22 @@ describe('new version draft (design §6 and §7)', () => {
     expect(calls('rpc_update_mfg_cost_policy_draft_205')[0]).toMatchObject({ p_org_id: ORG, p_draft_id: 'draft-stale', p_expected_latest_version_no: 2 })
   })
 
-  it('copies a rejected draft into a new one, keeping a date that has not passed', async () => {
+  it('copies a rejected draft into a new one, moving a date the server would refuse to the day after the latest version (Codex P2 on #334)', async () => {
     route({ rpc_get_mfg_cost_policy_205: get205() })
     await openPanel()
     fireEvent.click(within(screen.getByTestId('cp205-history-draft-rejected')).getByRole('button', { name: 'Copy to a new draft' }))
     const form = await screen.findByRole('form', { name: 'New cost policy version draft' })
-    expect((within(form).getByLabelText('Effective from') as HTMLInputElement).value).toBe('2026-11-05')
+    // 2026-11-05 is not after ver-2 (2026-11-10).
+    expect((within(form).getByLabelText('Effective from') as HTMLInputElement).value).toBe('2026-11-11')
+  })
+
+  it('copies a rejected draft keeping a date the server accepts', async () => {
+    const rejected = drafts().find(d => d.id === 'draft-rejected') as Record<string, unknown>
+    route({ rpc_get_mfg_cost_policy_205: get205({ drafts: draftsWith('draft-rejected', { payload: { ...(rejected.payload as object), effective_from: '2026-11-25' } }) }) })
+    await openPanel()
+    fireEvent.click(within(screen.getByTestId('cp205-history-draft-rejected')).getByRole('button', { name: 'Copy to a new draft' }))
+    const form = await screen.findByRole('form', { name: 'New cost policy version draft' })
+    expect((within(form).getByLabelText('Effective from') as HTMLInputElement).value).toBe('2026-11-25')
   })
 })
 

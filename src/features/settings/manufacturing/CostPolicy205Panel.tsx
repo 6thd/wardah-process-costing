@@ -29,7 +29,7 @@ import { CostPolicy205DraftForm } from './CostPolicy205DraftForm'
 import { CostPolicy205LegacyForm } from './CostPolicy205LegacyForm'
 import { CostPolicy205Preview } from './CostPolicy205Preview'
 import { CostPolicy205SettingsActions, VersionWithdraw } from './CostPolicy205Settings'
-import { formFromLatestVersion, formFromVersionPayload, keyForContent, type KeyedContent, type VersionDraftForm } from './costPolicy205Draft'
+import { earliestEffectiveFrom, formFromLatestVersion, formFromVersionPayload, keyForContent, type KeyedContent, type VersionDraftForm } from './costPolicy205Draft'
 import { COST_POLICY_ADMIN_FREEZE_ACTIVE } from './costPolicyFreeze'
 import { costPolicy205GlAccountsQueryKey, costPolicyWorkCentersQueryKey } from './queryKeys'
 import { useCostPolicy205Action } from './useCostPolicy205Action'
@@ -99,7 +99,8 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
   const openEdit = (d: CostPolicyDraft205) => setEditor({ mode: 'edit', draftId: d.id, initial: formFromVersionPayload(d.payload, state) })
   const openCopy = (d: CostPolicyDraft205) => {
     const initial = formFromVersionPayload(d.payload, state)
-    setEditor({ mode: 'create', initial: { ...initial, effective_from: initial.effective_from < state.today ? state.today : initial.effective_from } })
+    const earliest = earliestEffectiveFrom(state)
+    setEditor({ mode: 'create', initial: { ...initial, effective_from: initial.effective_from < earliest ? earliest : initial.effective_from } })
   }
   const who = (id: string | null) => (id === null ? '—' : id === state.sessionUserId ? t(`${P}.you`) : id.slice(0, 8))
   const amount = (value: unknown) => {

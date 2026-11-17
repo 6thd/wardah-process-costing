@@ -2073,7 +2073,8 @@
         "exceptionTreatment": "Accounting treatment",
         "invalidNumber": "A field holds a number that cannot be read: use numbers with at most six decimals.",
         "saveIsNotApproval": "Saving creates or edits a draft and writes no version. Changing the content raises the revision.",
-        "plannedHoursUnknown": "The planned hours of these budgets could not be read from the version copied: {{budgets}}. Enter them if they have planned hours."
+        "plannedHoursUnknown": "The planned hours of these budgets could not be read from the version copied: {{budgets}}. Enter them if they have planned hours.",
+        "rulesEmpty": "Rules for these work centers carry no labor rate and no pool setting, so they are not sent and the centers use the defaults: {{centers}}."
       },
       "legacyForm": {
         "aria": "Resolution of legacy version {{version}}",

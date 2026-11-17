@@ -149,6 +149,23 @@ export function approvedPlannedHours(state: CostPolicy205State, versionId: strin
   return new Map(budgetsFromPayload(source.payload.budgets).map(b => [code(b.budget_code), b.planned_hours]))
 }
 
+const nextDay = (iso: string): string => {
+  const d = new Date(`${iso}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * أقرب تاريخ سريان يقبله الخادم لمسودة جديدة: اليوم، أو اليوم التالي لآخر بدء بين الإصدارات غير المسحوبة
+ * إن كان ذلك البدء اليوم أو بعده (205: COST_POLICY_EFFECTIVE_DATE_IN_PAST و_NOT_AFTER_LATEST؛ Codex P2 على #334).
+ */
+export function earliestEffectiveFrom(state: CostPolicy205State): string {
+  const latest = state.versions
+    .filter(v => v.status !== 'withdrawn')
+    .reduce<string | null>((max, v) => (max === null || v.effective_from > max ? v.effective_from : max), null)
+  return latest !== null && latest >= state.today ? nextDay(latest) : state.today
+}
+
 /** مسودة جديدة مملوءة من آخر إصدار حي (حقول 204، ونشاط المجمعات وموازناتها إن وُجدت). */
 export function formFromLatestVersion(state: CostPolicy205State): VersionDraftForm {
   const base = state.versions.find(v => v.status !== 'withdrawn')
@@ -157,7 +174,7 @@ export function formFromLatestVersion(state: CostPolicy205State): VersionDraftFo
   const planned = base ? approvedPlannedHours(state, base.id) : null
   const budgets = data?.budgets ?? []
   return {
-    effective_from: state.today,
+    effective_from: earliestEffectiveFrom(state),
     labor_cost_source: base?.labor_cost_source ?? state.supported.laborCostSources[0] ?? 'work_center_rate',
     default_labor_rate: text(base?.default_labor_rate_per_hour),
     pin_event: base?.pin_event ?? state.supported.pinEvents[0] ?? 'mo_created',
@@ -261,6 +278,46 @@ export function removeBudget(form: AllocationForm, index: number): { form: Alloc
   return { form: { ...form, budgets, acks: remap ? remapAcks(form.acks, remap) : form.acks }, remap }
 }
 
+// ---------------------------------------------------------------------------
+// تعديل رمز مجمع: قواعد مراكز العمل والإقرارات تتبعه (Codex P2 على #334)
+// ---------------------------------------------------------------------------
+
+/** رمز مجمع تغيّر في مسودة الإصدار. */
+export interface PoolRemap { from: string; to: string }
+
+/**
+ * ما يلزم مراجع المجمع حين يصير رمزه `to`. `null` إن بقيت كما هي: الرمز لم يتغير، أو مجمع آخر يحمل الرمز القديم
+ * (فالمراجع له) أو الجديد (فلا تُدمج فيه). الرمز الفارغ طرف مقبول، فمسح الحقل ثم إعادة كتابته لا يُضيع المراجع.
+ */
+export function poolRemap(pools: readonly AllocationPool[], index: number, to: string): PoolRemap | null {
+  const from = code(pools[index]?.pool_code ?? '')
+  const next = code(to)
+  if (from === next) return null
+  if (pools.some((p, i) => i !== index && [from, next].includes(code(p.pool_code)))) return null
+  return { from, to: next }
+}
+
+function remapRulePools(rule: RuleForm, r: PoolRemap): RuleForm {
+  if (!Object.prototype.hasOwnProperty.call(rule.pools, r.from)) return rule
+  const { [r.from]: moved, ...rest } = rule.pools
+  return { ...rule, pools: { ...rest, [r.to]: moved } }
+}
+
+function remapAckPools(acks: readonly string[], r: PoolRemap): string[] {
+  return [...new Set(acks.map(key => {
+    const cut = key.lastIndexOf('/')
+    return key.slice(0, cut) === r.from ? ackKey(r.to, key.slice(cut + 1)) : key
+  }))]
+}
+
+/** تغيير رمز مجمع: المجمعات بعد التغيير، وقواعد مراكز العمل والإقرارات منقولة إلى الرمز الجديد. */
+export function renamePool(form: VersionDraftForm, index: number, poolCode: string): Pick<VersionDraftForm, 'pools' | 'rules' | 'acks'> {
+  const r = poolRemap(form.pools, index, poolCode)
+  const pools = form.pools.map((p, i) => (i === index ? { ...p, pool_code: poolCode } : p))
+  if (!r) return { pools, rules: form.rules, acks: form.acks }
+  return { pools, rules: form.rules.map(rule => remapRulePools(rule, r)), acks: remapAckPools(form.acks, r) }
+}
+
 export interface InputWarning { code: string; detail: string }
 
 function poolWarnings(pools: readonly AllocationPool[], known: ReadonlySet<string>): InputWarning[] {
@@ -348,10 +405,36 @@ function poolAllocation(p: AllocationPool): { activity?: PoolActivity; budgets: 
   return { ...(p.activity === '' ? {} : { activity: p.activity }), budgets: p.budgets }
 }
 
+type RulePayload = VersionDraftPayload205['work_center_rules'][number]
+
+/** قاعدة مركز عمل كما تُرسل، أو `null` إن لم تحمل سعر عمالة ولا إعداد مجمع (205: COST_POLICY_WC_RULE_EMPTY). */
+function rulePayload(form: VersionDraftForm, r: RuleForm): RulePayload | null {
+  const poolCodes = new Set(form.pools.map(p => code(p.pool_code)))
+  const poolRules = Object.entries(r.pools)
+    .filter(([c, rule]) => rule.mode !== 'default' && poolCodes.has(c))
+    .map(([c, rule]) => (rule.mode === 'exclude'
+      ? { pool_code: c, applies: false }
+      : { pool_code: c, applies: true, rate: decimalOrUndefined(rule.rate) }))
+  const laborRate = form.labor_cost_source === 'work_center_rate' ? decimalOrUndefined(r.labor_rate) : undefined
+  if (laborRate === undefined && poolRules.length === 0) return null
+  return {
+    work_center_id: r.work_center_id,
+    ...(laborRate === undefined ? {} : { labor_rate_per_hour: laborRate }),
+    ...(poolRules.length > 0 ? { pools: poolRules } : {}),
+  }
+}
+
+/**
+ * مراكز عمل اختيرت ولا تحمل قاعدتها شيئًا يُرسل، فلا تُرسل ويعمل المركز بالافتراضي (Codex P2 على #334):
+ * مثلًا بعد التحويل إلى `recorded_entry_rate` وقاعدةٌ لم تكن تحمل إلا سعر عمالة.
+ */
+export function emptyRuleCenters(form: VersionDraftForm): string[] {
+  return form.rules.filter(r => r.work_center_id && rulePayload(form, r) === null).map(r => r.work_center_id)
+}
+
 export function buildVersionPayload(form: VersionDraftForm, policy: UnallocatedBudgetPolicy): VersionDraftPayload205 {
   const usesRates = form.labor_cost_source === 'work_center_rate'
   const pools = form.pools.map(p => ({ ...p, pool_code: code(p.pool_code) }))
-  const poolCodes = new Set(pools.map(p => p.pool_code))
   const exception = exceptionPayload(pools, form, policy)
   const note = form.note.trim()
   return {
@@ -368,19 +451,10 @@ export function buildVersionPayload(form: VersionDraftForm, policy: UnallocatedB
       rate: decimalOrUndefined(p.rate) ?? Number.NaN,
       ...poolAllocation(p),
     })),
-    work_center_rules: form.rules.filter(r => r.work_center_id).map(r => {
-      const poolRules = Object.entries(r.pools)
-        .filter(([c, rule]) => rule.mode !== 'default' && poolCodes.has(c))
-        .map(([c, rule]) => (rule.mode === 'exclude'
-          ? { pool_code: c, applies: false }
-          : { pool_code: c, applies: true, rate: decimalOrUndefined(rule.rate) }))
-      const laborRate = usesRates ? decimalOrUndefined(r.labor_rate) : undefined
-      return {
-        work_center_id: r.work_center_id,
-        ...(laborRate === undefined ? {} : { labor_rate_per_hour: laborRate }),
-        ...(poolRules.length > 0 ? { pools: poolRules } : {}),
-      }
-    }),
+    work_center_rules: form.rules
+      .filter(r => r.work_center_id)
+      .map(r => rulePayload(form, r))
+      .filter((r): r is RulePayload => r !== null),
     budgets: budgetsPayload(form.budgets),
     setup_acks: acksPayload(pools, form),
     ...(exception ? { unallocated_exception: exception } : {}),

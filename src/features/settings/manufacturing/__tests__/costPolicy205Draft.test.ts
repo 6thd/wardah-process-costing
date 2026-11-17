@@ -10,8 +10,10 @@ import {
   buildResolutionPayload,
   buildVersionPayload,
   budgetRemap,
+  earliestEffectiveFrom,
   editBudget,
   emptyBudget,
+  emptyRuleCenters,
   emptyHours,
   formFromLatestVersion,
   formFromVersionPayload,
@@ -21,6 +23,7 @@ import {
   remapAcks,
   remapPools,
   removeBudget,
+  renamePool,
   unallocatedCodes,
   type VersionDraftForm,
 } from '../costPolicy205Draft'
@@ -85,9 +88,9 @@ describe('the version payload (design §7, §11 and §12)', () => {
     }), 'block')
     expect(payload.default_labor_rate_per_hour).toBeUndefined()
     expect(payload.note).toBe('first 205 version')
+    // wc-b carries nothing the server accepts (COST_POLICY_WC_RULE_EMPTY), so it is not sent (Codex P2 on #334).
     expect(payload.work_center_rules).toEqual([
       { work_center_id: 'wc-a', pools: [{ pool_code: 'LABOR_OH', applies: false }, { pool_code: 'MACHINE_OH', applies: true, rate: 50 }] },
-      { work_center_id: 'wc-b' },
     ])
   })
 
@@ -101,7 +104,8 @@ describe('the version payload (design §7, §11 and §12)', () => {
 describe('forms from the server', () => {
   it('prefills a new draft from the latest live version, with its 205 activities and budgets', () => {
     const f = formFromLatestVersion(state)
-    expect(f.effective_from).toBe(state.today)
+    // ver-2 starts on 2026-11-10, after today (2026-11-02): the first date the server accepts is the day after.
+    expect(f.effective_from).toBe('2026-11-11')
     expect(f.pools.map(p => [p.pool_code, p.activity, p.budgets])).toEqual([['LABOR_OH', 'both', ['ELECTRICITY']], ['MACHINE_OH', 'run', ['DEPRECIATION']]])
     expect(f.budgets.map(b => [b.budget_code, b.gl_account_id, b.amount])).toEqual([['DEPRECIATION', 'gl-2', '15000'], ['ELECTRICITY', 'gl-1', '9000'], ['SUPERVISION', 'gl-3', '4800.5']])
   })
@@ -250,5 +254,61 @@ describe('a budget code removed or renamed leaves no stale reference (Codex P2 o
     expect(budgetRemap([b('ELEC'), b('elec')], 0, 'POWER')).toBeNull()
     expect(removeBudget({ ...alloc, budgets: [b('ELEC'), b('ELEC')] }, 0).remap).toBeNull()
     expect(editBudget(alloc, 0, { amount: '5' }).remap).toBeNull()
+  })
+})
+
+describe('drafts the server would refuse as typed (Codex P2 on #334)', () => {
+  type V = { id: string; effective_from: string; status: string }
+  const withVersions = (list: V[]) => {
+    const [template] = cp205Response().versions as Array<Record<string, unknown>>
+    return parseCostPolicy205State(cp205Response({ versions: list.map(x => ({ ...template, ...x })), drafts: [] }), SESSION_USER)
+  }
+
+  it('the earliest effective date is after the latest version not withdrawn, when that version starts today or later', () => {
+    expect(earliestEffectiveFrom(state)).toBe('2026-11-11')
+    expect(earliestEffectiveFrom(withVersions([{ id: 'a', effective_from: '2026-11-02', status: 'current' }]))).toBe('2026-11-03')
+    expect(earliestEffectiveFrom(withVersions([{ id: 'a', effective_from: '2026-11-30', status: 'scheduled' }]))).toBe('2026-12-01')
+    expect(earliestEffectiveFrom(withVersions([{ id: 'a', effective_from: '2026-10-01', status: 'current' }]))).toBe('2026-11-02')
+    expect(earliestEffectiveFrom(withVersions([
+      { id: 'a', effective_from: '2026-10-01', status: 'current' }, { id: 'b', effective_from: '2026-12-31', status: 'withdrawn' },
+    ]))).toBe('2026-11-02')
+    expect(earliestEffectiveFrom(withVersions([]))).toBe('2026-11-02')
+  })
+
+  it('a pool code change moves the rule keys and acknowledgements, and an empty field on the way keeps them', () => {
+    const f = form({ rules: [{ work_center_id: 'wc-a', labor_rate: '', pools: { LABOR_OH: { mode: 'override', rate: '20' }, MACHINE_OH: { mode: 'exclude', rate: '' } } }] })
+    const cleared = { ...f, ...renamePool(f, 0, '') }
+    expect(cleared.acks).toEqual(['/SETUP_CREW'])
+    const next = { ...cleared, ...renamePool(cleared, 0, 'crew_oh') }
+    expect(next.pools[0].pool_code).toBe('crew_oh')
+    expect(next.rules[0].pools).toEqual({ MACHINE_OH: { mode: 'exclude', rate: '' }, CREW_OH: { mode: 'override', rate: '20' } })
+    expect(next.acks).toEqual(['CREW_OH/SETUP_CREW'])
+    expect(buildVersionPayload(next, 'block').work_center_rules[0].pools).toEqual([
+      { pool_code: 'MACHINE_OH', applies: false }, { pool_code: 'CREW_OH', applies: true, rate: 20 },
+    ])
+    expect(buildVersionPayload(next, 'block').setup_acks).toEqual([{ pool_code: 'CREW_OH', budget_code: 'SETUP_CREW' }])
+  })
+
+  it('a pool code change leaves the references when the code stays, or another pool has the old or the new code', () => {
+    const f = form({ rules: [{ work_center_id: 'wc-a', labor_rate: '', pools: { LABOR_OH: { mode: 'exclude', rate: '' } } }] })
+    expect(renamePool(f, 0, ' labor_oh ').rules).toBe(f.rules)
+    const onto = renamePool(f, 0, 'machine_oh')
+    expect([onto.rules, onto.acks]).toEqual([f.rules, f.acks])
+    const twins = form({ ...f, pools: [f.pools[0], { ...f.pools[0], name: 'twin' }] })
+    expect(renamePool(twins, 0, 'NEW').rules).toBe(twins.rules)
+  })
+
+  it('names the work centers whose rule carries nothing, and leaves them out of the payload', () => {
+    const f = form({
+      rules: [
+        { work_center_id: 'wc-a', labor_rate: '40', pools: {} },
+        { work_center_id: 'wc-b', labor_rate: '', pools: { GONE: { mode: 'exclude', rate: '' } } },
+        { work_center_id: '', labor_rate: '', pools: {} },
+      ],
+    })
+    expect(emptyRuleCenters(f)).toEqual(['wc-b'])
+    const recorded = { ...f, labor_cost_source: 'recorded_entry_rate' as const }
+    expect(emptyRuleCenters(recorded)).toEqual(['wc-a', 'wc-b'])
+    expect(buildVersionPayload(recorded, 'block').work_center_rules).toEqual([])
   })
 })
