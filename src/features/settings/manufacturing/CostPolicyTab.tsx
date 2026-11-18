@@ -44,7 +44,7 @@ export function CostPolicyTab() {
     case 'absent':
       return scope ? <CostPolicy204Panel key={scope.orgId} scope={scope} /> : <LoadingSpinner />
     case 'present':
-      return <CostPolicy205Panel state={result.state} />
+      return <CostPolicy205Panel key={result.state.orgId} state={result.state} />
     case 'denied':
       return (
         <Alert variant="destructive" data-testid="cp205-denied">

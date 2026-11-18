@@ -1,10 +1,10 @@
 /**
- * اكتشاف Migration 205 وقراءتها (UI-1). العقد: `rpc_get_mfg_cost_policy_205` في
+ * اكتشاف Migration 205 وقراءتها (UI-1، ووُسّعت في UI-2 بقوائم `supported` للنموذج). العقد: `rpc_get_mfg_cost_policy_205` في
  * sql/migrations/205_manufacturing_cost_policy_approval_and_overhead.sql، والتصميم في
  * docs/features/manufacturing/COST_POLICY_205_UI_DESIGN.md §2 و§3 و§11.
  *
  * قراءة فقط: لا يستدعي هذا الملف أي دالة كتابة من 205. الكتابة (المسودات والقرارات
- * والإعدادات) في UI-2.
+ * والإعدادات) في `mfg-cost-policy-205-write-service.ts`.
  *
  * الاكتشاف هو الاستدعاء نفسه، لا حالة ثابتة في البناء، وينتج أربع حالات:
  * - `absent`: الخطأ `code === 'PGRST202'` على هذا الاستدعاء وحده. نص الرسالة لا يكفي.
@@ -122,6 +122,13 @@ export interface CostPolicy205State {
   settings: { selfApprovalEnabled: boolean; unallocatedBudgetPolicy: UnallocatedBudgetPolicy }
   settingsAudit: ApprovalSettingsAuditRow[]
   costCentersAccepted: false
+  /** القيم المنفذة التي يعرضها النموذج، كما يرسلها الخادم. */
+  supported: {
+    laborCostSources: LaborCostSource[]
+    overheadBases: OverheadBasis[]
+    pinEvents: PinEvent[]
+    poolActivities: PoolActivity[]
+  }
   capabilities: CostPolicy205Capabilities
   /** معرف جلسة Supabase، للمقارنة بالمنشئ عند العرض فقط؛ لا يُرسل إلى الخادم. */
   sessionUserId: string | null
@@ -315,6 +322,8 @@ export function parseCostPolicy205State(data: unknown, sessionUserId: string | n
   const settings = obj(row.settings, 'settings')
   const supported = obj(row.supported, 'supported')
   if (supported.cost_centers_accepted !== false) fail('supported.cost_centers_accepted')
+  const list = <T extends string>(key: string, allowed: readonly T[]): T[] =>
+    arr(supported[key], `supported.${key}`).map((v, j) => oneOf(v, allowed, `supported.${key}[${j}]`))
   const capabilities = obj(row.capabilities, 'capabilities')
   const caps = Object.fromEntries(CAPABILITIES.map(k => [k, bool(capabilities[k], `capabilities.${k}`)])) as unknown as CostPolicy205Capabilities
   return {
@@ -330,6 +339,12 @@ export function parseCostPolicy205State(data: unknown, sessionUserId: string | n
     },
     settingsAudit: arr(row.settings_audit, 'settings_audit').map((value, index) => parseAudit(value, index)),
     costCentersAccepted: false,
+    supported: {
+      laborCostSources: list('labor_cost_sources', LABOR_SOURCES),
+      overheadBases: list('overhead_bases', OVERHEAD_BASES),
+      pinEvents: list('pin_events', PIN_EVENTS),
+      poolActivities: list('pool_activities', POOL_ACTIVITIES),
+    },
     capabilities: caps,
     sessionUserId,
   }
