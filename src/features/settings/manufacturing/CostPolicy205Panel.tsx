@@ -50,9 +50,12 @@ const PATH_VARIANT: Record<Policy205Status, 'default' | 'secondary' | 'destructi
 const P = 'manufacturingSettings.costPolicy205'
 const C = 'manufacturingSettings.costPolicy'
 
+/** محرر مفتوح. `session` يميّزه عن أي محرر يُفتح بعده، فلا يغلقه إلا حفظٌ أرسله هو (Codex P2 على #334). */
 type Editor =
-  | { mode: 'create'; initial: VersionDraftForm }
-  | { mode: 'edit'; draftId: string; initial: VersionDraftForm }
+  | { mode: 'create'; session: number; initial: VersionDraftForm }
+  | { mode: 'edit'; session: number; draftId: string; initial: VersionDraftForm }
+
+interface Resolving { session: number; version: CostPolicyVersion205 }
 
 /**
  * لوحة 205 (UI-1 للقراءة، وUI-2 للكتابة): شريط الحالة وإعدادات الاعتماد، والمسودات المعلقة
@@ -63,7 +66,9 @@ type Editor =
 export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205State }) {
   const { t } = useTranslation()
   const [editor, setEditor] = useState<Editor | null>(null)
-  const [resolving, setResolving] = useState<CostPolicyVersion205 | null>(null)
+  const [resolving, setResolving] = useState<Resolving | null>(null)
+  const sessions = useRef(0)
+  const nextSession = () => ++sessions.current
   const createKey = useRef<KeyedContent | null>(null)
   const legacyKey = useRef<KeyedContent | null>(null)
   const workCenters = useQuery({
@@ -76,7 +81,7 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
   const centers: readonly CostPolicyWorkCenter[] = workCenters.data ?? []
   const accounts = glAccounts.data ?? []
   const save = useCostPolicy205Action(state.orgId, {
-    run: (org, vars: { payload: VersionDraftPayload205; draftId: string | null; latest: number }): Promise<DraftWriteResult | { revision: number; unchanged: boolean }> => {
+    run: (org, vars: { payload: VersionDraftPayload205; draftId: string | null; latest: number; session: number }): Promise<DraftWriteResult | { revision: number; unchanged: boolean }> => {
       if (vars.draftId) return updateVersionDraft205(org, vars.draftId, vars.payload, vars.latest)
       // One key per content sent: the same content after a lost reply replays the same draft (design §6).
       createKey.current = keyForContent(createKey.current, JSON.stringify([vars.payload, vars.latest]), () => globalThis.crypto.randomUUID())
@@ -86,21 +91,22 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
       if (r && 'unchanged' in r) return t(r.unchanged ? `${P}.done.unchanged` : `${P}.done.draftSaved`)
       return t(r && 'replayed' in r && r.replayed ? `${P}.done.draftReplayed` : `${P}.done.draftCreated`)
     },
-    onDone: () => { setEditor(null); createKey.current = null },
+    // Only the editor that sent this save closes; one opened while it ran keeps its unsaved input.
+    onDone: (_result, vars) => { setEditor(e => (e?.session === vars.session ? null : e)); createKey.current = null },
   })
   const saveLegacy = useCostPolicy205Action(state.orgId, {
-    run: (org, vars: { versionId: string; payload: LegacyResolutionPayload205; reason: string }) => {
+    run: (org, vars: { versionId: string; payload: LegacyResolutionPayload205; reason: string; session: number }) => {
       legacyKey.current = keyForContent(legacyKey.current, JSON.stringify([vars.versionId, vars.payload, vars.reason]), () => globalThis.crypto.randomUUID())
       return createLegacyResolutionDraft205(org, vars.versionId, vars.payload, vars.reason, legacyKey.current.key)
     },
     success: (r) => t(r?.replayed ? `${P}.done.draftReplayed` : `${P}.done.draftCreated`),
-    onDone: () => { setResolving(null); legacyKey.current = null },
+    onDone: (_result, vars) => { setResolving(r => (r?.session === vars.session ? null : r)); legacyKey.current = null },
   })
-  const openEdit = (d: CostPolicyDraft205) => setEditor({ mode: 'edit', draftId: d.id, initial: formFromVersionPayload(d.payload, state) })
+  const openEdit = (d: CostPolicyDraft205) => setEditor({ mode: 'edit', session: nextSession(), draftId: d.id, initial: formFromVersionPayload(d.payload, state) })
   const openCopy = (d: CostPolicyDraft205) => {
     const initial = formFromVersionPayload(d.payload, state)
     const earliest = earliestEffectiveFrom(state)
-    setEditor({ mode: 'create', initial: { ...initial, effective_from: initial.effective_from < earliest ? earliest : initial.effective_from } })
+    setEditor({ mode: 'create', session: nextSession(), initial: { ...initial, effective_from: initial.effective_from < earliest ? earliest : initial.effective_from } })
   }
   const who = (id: string | null) => (id === null ? '—' : id === state.sessionUserId ? t(`${P}.you`) : id.slice(0, 8))
   const amount = (value: unknown) => {
@@ -171,16 +177,16 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
         <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle>{t(`${P}.pendingDrafts`)}</CardTitle>
           {state.capabilities.can_create && editor === null && (
-            <Button type="button" size="sm" onClick={() => setEditor({ mode: 'create', initial: formFromLatestVersion(state) })}>
+            <Button type="button" size="sm" onClick={() => setEditor({ mode: 'create', session: nextSession(), initial: formFromLatestVersion(state) })}>
               {t(`${P}.actions.newDraft`)}
             </Button>
           )}
         </CardHeader>
         <CardContent className="space-y-3">
           {editor && (
-            <CostPolicy205DraftForm key={editor.mode === 'edit' ? editor.draftId : 'new'} state={state} initial={editor.initial}
+            <CostPolicy205DraftForm key={editor.session} state={state} initial={editor.initial}
               mode={editor.mode} workCenters={centers} glAccounts={accounts} glAccountsStatus={glAccounts.status} saving={save.isPending}
-              onSubmit={(payload) => save.mutate({ payload, draftId: editor.mode === 'edit' ? editor.draftId : null, latest: state.latestVersionNo })}
+              onSubmit={(payload) => save.mutate({ payload, draftId: editor.mode === 'edit' ? editor.draftId : null, latest: state.latestVersionNo, session: editor.session })}
               onCancel={() => { setEditor(null); createKey.current = null }} />
           )}
           {pending.length === 0 ? (
@@ -238,8 +244,8 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
           </CardHeader>
           <CardContent className="space-y-2">
             {resolving && (
-              <CostPolicy205LegacyForm key={resolving.id} state={state} version={resolving} glAccounts={accounts} glAccountsStatus={glAccounts.status} saving={saveLegacy.isPending}
-                onSubmit={(payload, reason) => saveLegacy.mutate({ versionId: resolving.id, payload, reason })}
+              <CostPolicy205LegacyForm key={resolving.session} state={state} version={resolving.version} glAccounts={accounts} glAccountsStatus={glAccounts.status} saving={saveLegacy.isPending}
+                onSubmit={(payload, reason) => saveLegacy.mutate({ versionId: resolving.version.id, payload, reason, session: resolving.session })}
                 onCancel={() => { setResolving(null); legacyKey.current = null }} />
             )}
             {legacy.map(v => {
@@ -254,7 +260,7 @@ export function CostPolicy205Panel({ state }: { readonly state: CostPolicy205Sta
                   {v.id === state.currentVersionId && <p className="text-destructive">{t(`${P}.legacyCurrent`)}</p>}
                   {pendingResolution && <p className="text-muted-foreground">{t(`${P}.legacyResolutionPending`)}</p>}
                   {state.capabilities.can_create && !pendingResolution && resolving === null && (
-                    <Button type="button" size="sm" variant="outline" onClick={() => setResolving(v)}>{t(`${P}.actions.startResolution`)}</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setResolving({ session: nextSession(), version: v })}>{t(`${P}.actions.startResolution`)}</Button>
                   )}
                 </div>
               )

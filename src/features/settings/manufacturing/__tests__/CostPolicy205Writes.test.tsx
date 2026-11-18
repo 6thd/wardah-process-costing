@@ -254,6 +254,28 @@ describe('new version draft (design §6 and §7)', () => {
     expect(within(form).queryByTestId('cp205-accounts-empty')).not.toBeInTheDocument()
   })
 
+  it('a save that completes after its editor was closed leaves the editor opened since then as it is (Codex P2 on #334)', { timeout: 15000 }, async () => {
+    let release: (r: Reply) => void = () => {}
+    const slow = new Promise<Reply>(resolve => { release = resolve })
+    route({ rpc_get_mfg_cost_policy_205: get205(), rpc_create_mfg_cost_policy_draft_205: () => slow })
+    await openPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'New version draft' }))
+    const first = await screen.findByRole('form', { name: 'New cost policy version draft' })
+    set(within(first).getByLabelText('Reason for the exception'), 'r')
+    set(within(first).getByLabelText('Accounting treatment'), 't')
+    fireEvent.submit(first)
+    await waitFor(() => expect(calls('rpc_create_mfg_cost_policy_draft_205')).toHaveLength(1))
+    // While the save runs, the user leaves this form and opens another draft with input not yet saved.
+    fireEvent.click(within(first).getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(within(screen.getByTestId('cp205-actions-draft-stale')).getByRole('button', { name: 'Edit' }))
+    const second = await screen.findByRole('form', { name: 'Edit version draft' })
+    set(within(second).getByLabelText('Note'), 'not saved yet')
+    await act(async () => { release(ok({ draft_id: 'd9', status: 'draft', revision: 1, replayed: false })) })
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('The draft was saved and awaits a decision.'))
+    expect(screen.getByRole('form', { name: 'Edit version draft' })).toBeInTheDocument()
+    expect(within(screen.getByRole('form', { name: 'Edit version draft' })).getByLabelText('Note')).toHaveValue('not saved yet')
+  })
+
   it('edits my own draft and reports unchanged content without a new revision', async () => {
     route({ rpc_get_mfg_cost_policy_205: get205(), rpc_update_mfg_cost_policy_draft_205: ok({ draft_id: 'draft-stale', status: 'draft', revision: 2, unchanged: true }) })
     await openPanel()
@@ -501,6 +523,27 @@ describe('approval settings (design §8)', () => {
 })
 
 describe('legacy resolution (design §9)', () => {
+  it('a resolution save that completes after its form was closed leaves a resolution opened since then as it is (Codex P2 on #334)', async () => {
+    const noResolution = drafts().filter(d => d.id !== 'draft-legacy')
+    let release: (r: Reply) => void = () => {}
+    const slow = new Promise<Reply>(resolve => { release = resolve })
+    route({ rpc_get_mfg_cost_policy_205: get205({ drafts: noResolution }), rpc_create_legacy_resolution_draft_205: () => slow })
+    await openPanel()
+    fireEvent.click(within(screen.getByTestId('cp205-legacy-1')).getByRole('button', { name: 'Start resolution' }))
+    const first = await screen.findByRole('form', { name: 'Resolution of legacy version 1' })
+    set(within(first).getByLabelText('Reason for the resolution'), 'first')
+    fireEvent.submit(first)
+    await waitFor(() => expect(calls('rpc_create_legacy_resolution_draft_205')).toHaveLength(1))
+    // Same version, a new form: only the form that sent the save may close.
+    fireEvent.click(within(first).getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(within(screen.getByTestId('cp205-legacy-1')).getByRole('button', { name: 'Start resolution' }))
+    const second = await screen.findByRole('form', { name: 'Resolution of legacy version 1' })
+    set(within(second).getByLabelText('Reason for the resolution'), 'second, not saved yet')
+    await act(async () => { release(ok({ draft_id: 'd7', status: 'draft', revision: 1, replayed: false })) })
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('The draft was saved and awaits a decision.'))
+    expect(within(screen.getByRole('form', { name: 'Resolution of legacy version 1' })).getByLabelText('Reason for the resolution')).toHaveValue('second, not saved yet')
+  })
+
   it('starts a resolution for an unresolved version with its pools, budgets and a reason', async () => {
     const noResolution = drafts().filter(d => d.id !== 'draft-legacy')
     route({ rpc_get_mfg_cost_policy_205: get205({ drafts: noResolution }), rpc_create_legacy_resolution_draft_205: ok({ draft_id: 'd7', status: 'draft', revision: 1, replayed: false }) })
@@ -519,6 +562,8 @@ describe('legacy resolution (design §9)', () => {
     set(within(form).getByLabelText('Reason for the resolution'), 'resolve v1')
     fireEvent.click(within(form).getByRole('button', { name: 'Save resolution draft' }))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('The draft was saved and awaits a decision.'))
+    // The resolution that sent the save is the one open, so it closes.
+    expect(screen.queryByRole('form', { name: 'Resolution of legacy version 1' })).not.toBeInTheDocument()
     const [args] = calls('rpc_create_legacy_resolution_draft_205')
     expect(args).toMatchObject({ p_org_id: ORG, p_policy_version_id: 'ver-1', p_reason: 'resolve v1' })
     expect(args.p_resolution).toEqual({
