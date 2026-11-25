@@ -15,7 +15,7 @@ permissions:
 jobs:
   native:
     name: Frozen QC/material client on canonical PG17 M199
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
