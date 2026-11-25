@@ -250,6 +250,7 @@ CREATE TABLE wardah_internal.mfg_production_records_206 (
   late_by_days integer NOT NULL,
   late_window_days integer,
   is_late boolean NOT NULL,
+  after_close boolean NOT NULL DEFAULT false,
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','submitted','approved','rejected','withdrawn')),
   notes text,
   recorded_by uuid NOT NULL,
@@ -265,7 +266,8 @@ CREATE TABLE wardah_internal.mfg_production_records_206 (
   CHECK (executed_from <= executed_to),
   CHECK (status NOT IN ('approved','rejected') OR (decided_by IS NOT NULL AND decided_at IS NOT NULL)),
   CHECK (status <> 'approved' OR decided_by <> recorded_by),
-  CHECK (status <> 'approved' OR NOT is_late OR late_approval)
+  CHECK (status <> 'approved' OR NOT is_late OR late_approval),
+  CHECK (NOT after_close OR is_late)
 );
 CREATE INDEX mfg_production_records_206_mo ON wardah_internal.mfg_production_records_206 (mo_id, executed_from);
 CREATE INDEX mfg_production_records_206_period ON wardah_internal.mfg_production_records_206 (org_id, execution_period_start);
@@ -292,6 +294,7 @@ CREATE TABLE wardah_internal.mfg_production_inputs_206 (
   late_by_days integer NOT NULL,
   late_window_days integer,
   is_late boolean NOT NULL,
+  after_close boolean NOT NULL DEFAULT false,
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','submitted','approved','rejected','withdrawn')),
   notes text,
   recorded_by uuid NOT NULL,
@@ -308,7 +311,8 @@ CREATE TABLE wardah_internal.mfg_production_inputs_206 (
   CHECK ((input_kind = 'count') = (activity IS NULL)),
   CHECK (status NOT IN ('approved','rejected') OR (decided_by IS NOT NULL AND decided_at IS NOT NULL)),
   CHECK (status <> 'approved' OR decided_by <> recorded_by),
-  CHECK (status <> 'approved' OR NOT is_late OR late_approval)
+  CHECK (status <> 'approved' OR NOT is_late OR late_approval),
+  CHECK (NOT after_close OR is_late)
 );
 CREATE INDEX mfg_production_inputs_206_mo ON wardah_internal.mfg_production_inputs_206 (mo_id, executed_from);
 CREATE INDEX mfg_production_inputs_206_period ON wardah_internal.mfg_production_inputs_206 (org_id, execution_period_start);
@@ -453,11 +457,20 @@ AS $fn$
   SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('wardah.mfg_production_206:' || p_mo::text, 206));
 $fn$;
 
--- One per org for calendar and settings writes.
+-- One per org for calendar and settings writes (exclusive). Every path that attributes an entry
+-- to a calendar version and a late window takes the same key shared, before the order lock, so a
+-- calendar version or window cannot be committed between an entry's read of the old one and its
+-- commit (review item 5).
 CREATE FUNCTION wardah_internal.mfg_production_lock_org_206(p_org uuid)
 RETURNS void LANGUAGE sql VOLATILE SET search_path = ''
 AS $fn$
   SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('wardah.mfg_production_org_206:' || p_org::text, 206));
+$fn$;
+
+CREATE FUNCTION wardah_internal.mfg_production_lock_org_shared_206(p_org uuid)
+RETURNS void LANGUAGE sql VOLATILE SET search_path = ''
+AS $fn$
+  SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended('wardah.mfg_production_org_206:' || p_org::text, 206));
 $fn$;
 
 -- The order, in the caller's org, locked for this transaction's 206 writes.
@@ -470,6 +483,7 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_MO_NOT_FOUND';
   END IF;
+  PERFORM wardah_internal.mfg_production_lock_org_shared_206(p_org);
   PERFORM wardah_internal.mfg_production_lock_mo_206(p_mo);
   RETURN v_mo;
 END
@@ -516,8 +530,11 @@ DECLARE
   v_entered_local date;
   v_window integer;
   v_late_by integer;
+  v_pinned_on date;
 BEGIN
-  IF v_status IS NULL OR v_status NOT IN ('in_progress','on_hold','quality_check') THEN
+  -- Review item 2 (X6, pending owner decision): a closed (done) order still accepts a late entry;
+  -- it is marked after_close and always needs the late approval.
+  IF v_status IS NULL OR v_status NOT IN ('in_progress','on_hold','quality_check','done') THEN
     RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'MFG_PRODUCTION_MO_STATUS_INVALID: ' || COALESCE(v_status, 'null');
   END IF;
   IF p_from IS NULL OR p_to IS NULL OR p_from > p_to
@@ -548,8 +565,21 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'MFG_PERIOD_CALENDAR_NOT_IN_FORCE';
   END IF;
   v_local := (p_from AT TIME ZONE v_cal.timezone)::date;
+  -- Review item 4: nothing is executed on an order before its 204 pin date (creation or start).
+  SELECT p.pinned_on INTO v_pinned_on FROM wardah_internal.mo_cost_policy_pins p WHERE p.mo_id = p_mo.id;
+  IF v_pinned_on IS NULL OR v_local < v_pinned_on THEN
+    RAISE EXCEPTION USING ERRCODE = '22023',
+      MESSAGE = 'MFG_PRODUCTION_EXECUTION_BEFORE_ORDER: pinned on ' || COALESCE(v_pinned_on::text, 'null');
+  END IF;
   v_cal_to := wardah_internal.mfg_period_calendar_at_206(p_org, p_to);
   v_local_to := (p_to AT TIME ZONE v_cal_to.timezone)::date;
+  -- Review item 3 (B6, pending owner decision): like a snapshot change, a local month boundary
+  -- must not fall inside the interval (an end exactly at local midnight is inside the month).
+  IF date_trunc('month', ((CASE WHEN p_to > p_from THEN p_to - interval '1 microsecond' ELSE p_to END)
+                           AT TIME ZONE v_cal_to.timezone))::date <> date_trunc('month', v_local)::date THEN
+    RAISE EXCEPTION USING ERRCODE = '22023',
+      MESSAGE = 'MFG_PRODUCTION_SPANS_PERIOD: split at local ' || (date_trunc('month', v_local) + interval '1 month')::date::text;
+  END IF;
   v_entered_local := (now() AT TIME ZONE v_cal_to.timezone)::date;
   v_late_by := v_entered_local - v_local_to;
   SELECT s.late_window_days INTO v_window FROM wardah_internal.mfg_recording_settings_206 s WHERE s.org_id = p_org;
@@ -563,7 +593,8 @@ BEGIN
     'late_by_days', v_late_by,
     'late_window_days', v_window,
     -- B5: unset window = only the same local day is on time (no assumed number of days).
-    'is_late', v_late_by > COALESCE(v_window, 0));
+    'after_close', v_status = 'done',
+    'is_late', v_late_by > COALESCE(v_window, 0) OR v_status = 'done');
 END
 $fn$;
 
@@ -666,6 +697,9 @@ $fn$;
 -- B3 (owner, 2026-11-25): a record linked to an actual work order must be on the same order and
 -- operation, at the work center the snapshot maps that operation to. Checked at entry and at
 -- approval (the work order may have been edited in between).
+-- Review item 1 (B3 x B4, pending owner decision): work_orders keeps no history, so the work
+-- center is compared only while the record's snapshot is the one in force now. A late record on
+-- an earlier snapshot is checked on the operation sequence; its work center is its snapshot's.
 CREATE FUNCTION wardah_internal.mfg_production_check_work_order_206(
   p_org uuid, p_mo uuid, p_work_order uuid, p_snapshot uuid, p_operation_sequence integer
 ) RETURNS void LANGUAGE plpgsql STABLE SET search_path = ''
@@ -673,6 +707,7 @@ AS $fn$
 DECLARE
   v_wo public.work_orders;
   v_wc uuid;
+  v_current boolean;
 BEGIN
   IF p_work_order IS NULL THEN
     RETURN;
@@ -681,9 +716,14 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_WORK_ORDER_NOT_ON_ORDER';
   END IF;
+  IF upper(v_wo.status::text) = 'CANCELLED' THEN
+    RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'MFG_PRODUCTION_WORK_ORDER_CANCELLED: ' || v_wo.work_order_number;
+  END IF;
   SELECT o.work_center_id INTO v_wc FROM wardah_internal.mo_bom_snapshot_operations_206 o
   WHERE o.snapshot_id = p_snapshot AND o.operation_sequence = p_operation_sequence;
-  IF v_wo.operation_sequence IS DISTINCT FROM p_operation_sequence OR v_wo.work_center_id IS DISTINCT FROM v_wc THEN
+  v_current := (wardah_internal.mo_bom_snapshot_at_206(p_mo, now())).id IS NOT DISTINCT FROM p_snapshot;
+  IF v_wo.operation_sequence IS DISTINCT FROM p_operation_sequence
+     OR (v_current AND v_wo.work_center_id IS DISTINCT FROM v_wc) THEN
     RAISE EXCEPTION USING ERRCODE = '22023',
       MESSAGE = format('MFG_PRODUCTION_WORK_ORDER_STAGE_MISMATCH: work order %s (operation %s) vs snapshot operation %s',
                        v_wo.work_order_number, v_wo.operation_sequence, p_operation_sequence);
@@ -825,6 +865,7 @@ DECLARE
   v_det date;
   v_eff timestamptz;
   v_latest_eff timestamptz;
+  v_tz text;
   v_n integer;
   v_id uuid;
 BEGIN
@@ -837,6 +878,7 @@ BEGIN
   IF FOUND THEN
     IF v_existing.mo_id <> p_mo_id OR v_existing.created_by <> auth.uid()
        OR v_existing.reason IS DISTINCT FROM p_reason
+       OR v_existing.effective_from_at IS DISTINCT FROM COALESCE(p_effective_from, '-infinity'::timestamptz)
        OR (p_bom_id IS NOT NULL AND v_existing.source_bom_id <> p_bom_id) THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_IDEMPOTENCY_CONFLICT';
     END IF;
@@ -872,8 +914,11 @@ BEGIN
     IF p_effective_from IN ('-infinity','infinity') OR p_effective_from <= v_latest_eff THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_BOM_SNAPSHOT_EFFECTIVE_NOT_AFTER_LATEST';
     END IF;
-    v_det := (p_effective_from AT TIME ZONE COALESCE(
-               (wardah_internal.mfg_period_calendar_at_206(p_org_id, p_effective_from)).timezone, 'UTC'))::date;
+    v_tz := (wardah_internal.mfg_period_calendar_at_206(p_org_id, p_effective_from)).timezone;
+    IF v_tz IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'MFG_PERIOD_CALENDAR_NOT_IN_FORCE';
+    END IF;
+    v_det := (p_effective_from AT TIME ZONE v_tz)::date;
     v_eff := p_effective_from;
   END IF;
   -- The BOM: approved, active, of the order's item, in force on the determination date.
@@ -1059,12 +1104,13 @@ BEGIN
   INSERT INTO wardah_internal.mfg_production_records_206
     (org_id, mo_id, snapshot_id, operation_sequence, stage_id, work_center_id, work_order_id, good_quantity, spoiled_quantity,
      executed_from, executed_to, calendar_id, execution_local_date, execution_period_start, late_by_days,
-     late_window_days, is_late, notes, recorded_by, idempotency_key)
+     late_window_days, is_late, after_close, notes, recorded_by, idempotency_key)
   VALUES (p_org_id, p_mo_id, (v_a->>'snapshot_id')::uuid, p_operation_sequence, (v_a->>'stage_id')::uuid,
           (v_a->>'work_center_id')::uuid, p_work_order_id, p_good_quantity, COALESCE(p_spoiled_quantity, 0),
           p_executed_from, p_executed_to, (v_a->>'calendar_id')::uuid, (v_a->>'execution_local_date')::date,
           (v_a->>'execution_period_start')::date, (v_a->>'late_by_days')::integer,
-          (v_a->>'late_window_days')::integer, (v_a->>'is_late')::boolean, p_notes, auth.uid(), p_idempotency_key)
+          (v_a->>'late_window_days')::integer, (v_a->>'is_late')::boolean, (v_a->>'after_close')::boolean,
+          p_notes, auth.uid(), p_idempotency_key)
   RETURNING id INTO v_id;
   INSERT INTO public.audit_logs(org_id, user_id, action, entity_type, entity_id, old_data, new_data, metadata)
   VALUES (p_org_id, auth.uid(), 'manufacturing.production_record.create', 'mfg_production_record', v_id::text, NULL,
@@ -1126,12 +1172,13 @@ BEGIN
   INSERT INTO wardah_internal.mfg_production_inputs_206
     (org_id, mo_id, snapshot_id, operation_sequence, stage_id, work_center_id, input_kind, activity, quantity, count_unit,
      executed_from, executed_to, calendar_id, execution_local_date, execution_period_start, late_by_days,
-     late_window_days, is_late, notes, recorded_by, idempotency_key)
+     late_window_days, is_late, after_close, notes, recorded_by, idempotency_key)
   VALUES (p_org_id, p_mo_id, (v_a->>'snapshot_id')::uuid, p_operation_sequence, (v_a->>'stage_id')::uuid,
           (v_a->>'work_center_id')::uuid, p_input_kind, p_activity, p_quantity, NULLIF(btrim(COALESCE(p_count_unit, '')), ''),
           p_executed_from, p_executed_to, (v_a->>'calendar_id')::uuid, (v_a->>'execution_local_date')::date,
           (v_a->>'execution_period_start')::date, (v_a->>'late_by_days')::integer,
-          (v_a->>'late_window_days')::integer, (v_a->>'is_late')::boolean, p_notes, auth.uid(), p_idempotency_key)
+          (v_a->>'late_window_days')::integer, (v_a->>'is_late')::boolean, (v_a->>'after_close')::boolean,
+          p_notes, auth.uid(), p_idempotency_key)
   RETURNING id INTO v_id;
   INSERT INTO public.audit_logs(org_id, user_id, action, entity_type, entity_id, old_data, new_data, metadata)
   VALUES (p_org_id, auth.uid(), 'manufacturing.production_input.create', 'mfg_production_input', v_id::text, NULL,

@@ -4,6 +4,7 @@
 #   1. record first (uncommitted, holds the lock) -> the change approval waits, then refuses
 #      (MFG_BOM_SNAPSHOT_CHANGE_CONFLICTS_RECORDS) instead of re-attributing the record;
 #   2. change approval first (uncommitted) -> the record waits, then lands on the new snapshot.
+# And a record against a calendar version (order 0): the version waits, then refuses (review item 5).
 # Usage: PGDATABASE=<db through 206> bash acceptance_206_concurrency.sh   (the database is changed:
 # use a disposable copy).
 set -Eeuo pipefail
@@ -49,6 +50,11 @@ FROM unnest(ARRAY['52060206-0000-0000-0000-0000000c0103', '52060206-0000-0000-00
 ALTER TABLE public.bom_lines ENABLE TRIGGER USER;
 INSERT INTO public.manufacturing_orders (id, org_id, order_number, item_id, quantity, status)
 VALUES ('$MO', '$ORG', 'PR206C-MO', '52060206-0000-0000-0000-0000000c01aa', 100, 'in_progress');
+-- Backdate the 204 pin (created today) to the calendar start, so earlier execution is allowed.
+ALTER TABLE wardah_internal.mo_cost_policy_pins DISABLE TRIGGER USER;
+UPDATE wardah_internal.mo_cost_policy_pins
+SET pinned_on = (date_trunc('month', now() AT TIME ZONE 'Asia/Riyadh') - interval '2 months')::date WHERE mo_id = '$MO';
+ALTER TABLE wardah_internal.mo_cost_policy_pins ENABLE TRIGGER USER;
 BEGIN; $(as_user "$PLANNER")
 SELECT public.rpc_add_mfg_period_calendar_206('$ORG', (date_trunc('month', now() AT TIME ZONE 'Asia/Riyadh') - interval '2 months')::date, 'conc');
 SELECT public.rpc_create_mo_bom_snapshot_206('$ORG', '$MO', NULL, NULL, NULL, '52060206-0000-0000-0000-0000000c0aa1');
@@ -63,6 +69,39 @@ SELECT public.rpc_create_mo_bom_snapshot_206('$ORG', '$MO', '52060206-0000-0000-
 COMMIT;
 SQL
 SNAP2=$(psql -X -At -c "SELECT id FROM wardah_internal.mo_bom_snapshots_206 WHERE idempotency_key = '52060206-0000-0000-0000-0000000c0aa2'")
+
+# ---- Order 0 (review item 5), run first so no earlier record sits in the new version's months: record first (holds the org lock shared), calendar version second ->
+# the calendar waits, then sees the record and refuses instead of re-dating its period.
+NEWCAL=$(psql -X -At -c "SELECT date_trunc('month', (now() - interval '2 hours') AT TIME ZONE 'Asia/Riyadh')::date")
+( psql -X -q -v ON_ERROR_STOP=1 > "$OUT/a0.out" 2>&1 <<SQL
+BEGIN; $(as_user "$RECORDER")
+SELECT public.rpc_record_production_206('$ORG', '$MO', 10, NULL, 3, 0, now() - interval '2 hours', now() - interval '1 hour', 'conc0', gen_random_uuid());
+SELECT pg_sleep(3);
+COMMIT;
+SQL
+) &
+A=$!
+sleep 1
+set +e
+psql -X -q -v ON_ERROR_STOP=1 > "$OUT/c0.out" 2>&1 <<SQL
+BEGIN; $(as_user "$PLANNER")
+SELECT public.rpc_add_mfg_period_calendar_206('$ORG', '$NEWCAL', 'conc0');
+COMMIT;
+SQL
+C_RC=$?
+set -e
+wait $A
+grep -q 'MFG_PERIOD_CALENDAR_RECORDS_EXIST' "$OUT/c0.out" || { cat "$OUT/a0.out" "$OUT/c0.out"; echo 'PR206_CONC_ORDER0_FAILED'; exit 1; }
+[ "$C_RC" -ne 0 ] || { echo 'PR206_CONC_ORDER0_CALENDAR_ADDED'; exit 1; }
+echo 'PR206_CONC_ORDER0_OK (calendar version waited for the record and refused)'
+
+# Withdraw the order-0 record so it does not block the snapshot change below.
+REC0=$(psql -X -At -c "SELECT id FROM wardah_internal.mfg_production_records_206 WHERE notes = 'conc0'")
+psql -X -q -v ON_ERROR_STOP=1 <<SQL
+BEGIN; $(as_user "$RECORDER")
+SELECT public.rpc_transition_production_entry_206('$ORG', 'record', '$REC0', 'withdraw', 'conc');
+COMMIT;
+SQL
 
 # ---- Order 1: record first, approval second -> approval refuses.
 ( psql -X -q -v ON_ERROR_STOP=1 > "$OUT/a1.out" 2>&1 <<SQL
@@ -114,4 +153,5 @@ wait $B
 GOT=$(psql -X -At -c "SELECT s.snapshot_no FROM wardah_internal.mfg_production_records_206 r JOIN wardah_internal.mo_bom_snapshots_206 s ON s.id = r.snapshot_id WHERE r.notes = 'conc2'")
 [ "$GOT" = "2" ] || { cat "$OUT/a2.out" "$OUT/b2.out"; echo "PR206_CONC_ORDER2_FAILED: snapshot $GOT"; exit 1; }
 echo 'PR206_CONC_ORDER2_OK (record waited for the approval and landed on snapshot 2)'
+
 echo 'PRODUCTION_RECORDING_206_CONCURRENCY_OK'
