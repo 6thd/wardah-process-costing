@@ -697,7 +697,7 @@ $fn$;
 -- B3 (owner, 2026-11-25): a record linked to an actual work order must be on the same order and
 -- operation, at the work center the snapshot maps that operation to. Checked at entry and at
 -- approval (the work order may have been edited in between).
--- Review item 1 (B3 x B4, pending owner decision): work_orders keeps no history, so the work
+-- Review item 1 (B3 x B4, owner decision 2026-11-25, option A): work_orders keeps no history, so the work
 -- center is compared only while the record's snapshot is the one in force now. A late record on
 -- an earlier snapshot is checked on the operation sequence; its work center is its snapshot's.
 CREATE FUNCTION wardah_internal.mfg_production_check_work_order_206(
