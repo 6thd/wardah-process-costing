@@ -11020,12 +11020,20 @@ export type Database = {
         Returns: Json
       }
       rpc_accept_invitation: { Args: { p_token: string }; Returns: Json }
+      rpc_add_mfg_period_calendar_206: {
+        Args: { p_effective_from: string; p_org_id: string; p_reason: string }
+        Returns: Json
+      }
       rpc_approve_mfg_cost_policy_draft_205: {
         Args: {
           p_draft_id: string
           p_expected_revision: number
           p_org_id: string
         }
+        Returns: Json
+      }
+      rpc_approve_mo_bom_snapshot_206: {
+        Args: { p_org_id: string; p_snapshot_id: string }
         Returns: Json
       }
       rpc_approve_purchase_order: {
@@ -11148,6 +11156,17 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_create_mo_bom_snapshot_206: {
+        Args: {
+          p_bom_id: string
+          p_effective_from: string
+          p_idempotency_key: string
+          p_mo_id: string
+          p_org_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       rpc_create_mo_with_reservation: {
         Args: { p_materials?: Json; p_order: Json; p_tenant?: string }
         Returns: Json
@@ -11207,6 +11226,10 @@ export type Database = {
       }
       rpc_get_mfg_cost_policy: { Args: { p_org_id: string }; Returns: Json }
       rpc_get_mfg_cost_policy_205: { Args: { p_org_id: string }; Returns: Json }
+      rpc_get_mo_production_206: {
+        Args: { p_mo_id: string; p_org_id: string }
+        Returns: Json
+      }
       rpc_get_mo_quality_status: { Args: { p_mo_id: string }; Returns: Json }
       rpc_get_org_uom_engine_enabled: {
         Args: { p_org_id: string }
@@ -11392,6 +11415,37 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_record_production_206: {
+        Args: {
+          p_executed_from: string
+          p_executed_to: string
+          p_good_quantity: number
+          p_idempotency_key: string
+          p_mo_id: string
+          p_notes: string
+          p_operation_sequence: number
+          p_org_id: string
+          p_spoiled_quantity: number
+          p_work_order_id: string
+        }
+        Returns: Json
+      }
+      rpc_record_production_input_206: {
+        Args: {
+          p_activity: string
+          p_count_unit: string
+          p_executed_from: string
+          p_executed_to: string
+          p_idempotency_key: string
+          p_input_kind: string
+          p_mo_id: string
+          p_notes: string
+          p_operation_sequence: number
+          p_org_id: string
+          p_quantity: number
+        }
+        Returns: Json
+      }
       rpc_record_quality_inspection: {
         Args: { p_mo_id: string; p_payload: Json; p_request_id: string }
         Returns: Json
@@ -11449,6 +11503,10 @@ export type Database = {
       }
       rpc_set_material_issue_wo_statuses: {
         Args: { p_allowed_statuses: string[]; p_org_id: string }
+        Returns: Json
+      }
+      rpc_set_mfg_late_entry_window_206: {
+        Args: { p_days: number; p_org_id: string; p_reason: string }
         Returns: Json
       }
       rpc_set_mo_quality_hold: {
@@ -11532,6 +11590,16 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_transition_production_entry_206: {
+        Args: {
+          p_action: string
+          p_entry_id: string
+          p_kind: string
+          p_org_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       rpc_update_customer_receipt_draft: {
         Args: { p_payload: Json; p_receipt_id: string }
         Returns: Json
@@ -11575,6 +11643,10 @@ export type Database = {
           p_policy_version_id: string
           p_reason: string
         }
+        Returns: Json
+      }
+      rpc_withdraw_mo_bom_snapshot_206: {
+        Args: { p_org_id: string; p_reason: string; p_snapshot_id: string }
         Returns: Json
       }
       schedule_work_order: {
