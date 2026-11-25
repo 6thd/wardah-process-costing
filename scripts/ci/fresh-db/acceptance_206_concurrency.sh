@@ -179,8 +179,9 @@ SQL
   local rc=$?
   set -e
   wait $first
-  [ "$rc" -eq 0 ] && grep -q '"replayed": true' "$OUT/k2-$1.out" \
-    || { cat "$OUT/k1-$1.out" "$OUT/k2-$1.out"; echo "PR206_CONC_ORDER3_FAILED: $1"; exit 1; }
+  if [ "$rc" -ne 0 ] || ! grep -q '"replayed": true' "$OUT/k2-$1.out"; then
+    cat "$OUT/k1-$1.out" "$OUT/k2-$1.out"; echo "PR206_CONC_ORDER3_FAILED: $1"; exit 1
+  fi
   grep -q '"replayed": false' "$OUT/k1-$1.out" || { cat "$OUT/k1-$1.out"; echo "PR206_CONC_ORDER3_FIRST_FAILED: $1"; exit 1; }
 }
 FROM3=$(psql -X -At -c "SELECT date_trunc('second', now()) - interval '5 hours'")
