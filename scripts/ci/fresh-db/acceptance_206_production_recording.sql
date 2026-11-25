@@ -426,6 +426,10 @@ SELECT pg_temp.eq('record B on snapshot 2', pg_temp.last('snapshot_id'), (SELECT
 SELECT pg_temp.rec('record C late, processed before T', 't', '-6 hours', 't', '-2 hours', 100);
 SELECT pg_temp.keep('recC', 'id');
 SELECT pg_temp.eq('record C stays on snapshot 1', pg_temp.last('snapshot_id'), (SELECT id::text FROM pr_ids WHERE k = 'snap1'));
+SELECT pg_temp.eq('record C period = local month of its execution start (B6)',
+  pg_temp.last('execution_local_date') || '/' || pg_temp.last('execution_period_start'),
+  ((current_setting('pr.t')::timestamptz - interval '6 hours') AT TIME ZONE 'Asia/Riyadh')::date::text || '/'
+  || date_trunc('month', (current_setting('pr.t')::timestamptz - interval '6 hours') AT TIME ZONE 'Asia/Riyadh')::date::text);
 -- Ends exactly at T: still snapshot 1 (half-open interval).
 SELECT pg_temp.rec('record ending at T', 't', '-1 hour', 't', '0', 5);
 SELECT pg_temp.eq('ending at T on snapshot 1', pg_temp.last('snapshot_id'), (SELECT id::text FROM pr_ids WHERE k = 'snap1'));
