@@ -1,0 +1,132 @@
+name: Production Recording 206 Acceptance
+
+# Owner decision group B (2026-11-25), with B3's source confirmed as bom_operations and the work-order
+# check on production records. 206 adds BOM snapshots per manufacturing order, production records and
+# labor/machine/count inputs with separate approval, a monthly period calendar in the company timezone
+# and a per-company late-entry window. Nothing moves stock, WIP, stage costs or GL.
+# See sql/migrations/206_production_recording_foundation.sql and
+# docs/db/PRODUCTION_RECORDING_206_RUNBOOK.md.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/206_production_recording_foundation.sql'
+      - 'scripts/ci/fresh-db/acceptance_206_*'
+      - 'scripts/ci/fresh-db/run_chain.sh'
+      - '.github/workflows/production-recording-206-acceptance.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: BOM snapshots, production records, inputs, periods and late window (206)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve Baseline pair and the chain before 206
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 206)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/chain_order_full.txt
+          grep -q '^206_production_recording_foundation.sql$' /tmp/chain_order_full.txt
+          sed '/^206_production_recording_foundation.sql$/,$d' /tmp/chain_order_full.txt > /tmp/pre_order.txt
+
+      - name: Build fresh database through 205
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_pre206
+          psql -v ON_ERROR_STOP=1 -d wardah_pre206 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_pre206 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_pre206 -f "$REFERENCE" -q
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_pre206 \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/pre_order.txt
+
+      - name: RED before 206 (the acceptance fails without the migration)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if psql -v ON_ERROR_STOP=1 -d wardah_pre206 \
+               -f scripts/ci/fresh-db/acceptance_206_production_recording.sql > /tmp/red.out 2>&1; then
+            echo "206 acceptance unexpectedly passed before 206"; exit 1
+          fi
+          grep -q 'mfg_period_calendars_206' /tmp/red.out
+
+      - name: Apply 206 in one runner-owned transaction; re-apply is refused
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb -T wardah_pre206 wardah_206
+          psql -v ON_ERROR_STOP=1 --single-transaction -d wardah_206 \
+            -f sql/migrations/206_production_recording_foundation.sql
+          if psql -v ON_ERROR_STOP=1 --single-transaction -d wardah_206 \
+               -f sql/migrations/206_production_recording_foundation.sql > /tmp/reapply.out 2>&1; then
+            echo "206 re-apply unexpectedly succeeded"; exit 1
+          fi
+          grep -q 'M206_ALREADY_APPLIED' /tmp/reapply.out
+
+      - name: Run Migration 206 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_206 \
+            -f scripts/ci/fresh-db/acceptance_206_production_recording.sql 2>&1 | tee /tmp/pr206.out
+          grep -q 'PRODUCTION_RECORDING_206_ACCEPTANCE_OK' /tmp/pr206.out
+
+      - name: Two sessions (snapshot change vs production record, both orders)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb -T wardah_206 wardah_206_conc
+          PGDATABASE=wardah_206_conc bash scripts/ci/fresh-db/acceptance_206_concurrency.sh | tee /tmp/conc.out
+          grep -q 'PRODUCTION_RECORDING_206_CONCURRENCY_OK' /tmp/conc.out
+
+      - name: Existing suites unchanged by 206
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for f in acceptance_200_gl_event_mapping_write_closure.sql \
+                   acceptance_201_manufacturing_settings_permissions.sql \
+                   acceptance_176_rbac_direct_write_closure.sql \
+                   acceptance_200_201_contract_claims.sql \
+                   acceptance_203_stage_wip_mo_lock.sql \
+                   acceptance_204_manufacturing_cost_policies.sql \
+                   acceptance_205_manufacturing_cost_policy_approval.sql \
+                   acceptance_reference_rbac.sql \
+                   acceptance_definer_guard_contract.sql; do
+            createdb -T wardah_206 "reg_${f%.sql}"
+            psql -v ON_ERROR_STOP=1 -q -d "reg_${f%.sql}" -f "scripts/ci/fresh-db/$f" > "/tmp/$f.out" 2>&1 \
+              || { echo "REGRESSION: $f"; tail -5 "/tmp/$f.out"; exit 1; }
+            echo "PASS $f"
+          done
