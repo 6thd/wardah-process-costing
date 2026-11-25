@@ -532,7 +532,7 @@ DECLARE
   v_late_by integer;
   v_pinned_on date;
 BEGIN
-  -- Review item 2 (X6, pending owner decision): a closed (done) order still accepts a late entry;
+  -- Review item 2 (X6, owner decision 2026-11-25): a closed (done) order still accepts a late entry;
   -- it is marked after_close and always needs the late approval.
   IF v_status IS NULL OR v_status NOT IN ('in_progress','on_hold','quality_check','done') THEN
     RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'MFG_PRODUCTION_MO_STATUS_INVALID: ' || COALESCE(v_status, 'null');
@@ -573,7 +573,7 @@ BEGIN
   END IF;
   v_cal_to := wardah_internal.mfg_period_calendar_at_206(p_org, p_to);
   v_local_to := (p_to AT TIME ZONE v_cal_to.timezone)::date;
-  -- Review item 3 (B6, pending owner decision): like a snapshot change, a local month boundary
+  -- Review item 3 (B6, owner decision 2026-11-25): like a snapshot change, a local month boundary
   -- must not fall inside the interval (an end exactly at local midnight is inside the month).
   IF date_trunc('month', ((CASE WHEN p_to > p_from THEN p_to - interval '1 microsecond' ELSE p_to END)
                            AT TIME ZONE v_cal_to.timezone))::date <> date_trunc('month', v_local)::date THEN
