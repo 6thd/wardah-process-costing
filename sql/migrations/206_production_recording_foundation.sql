@@ -474,17 +474,26 @@ AS $fn$
 $fn$;
 
 -- The order, in the caller's org, locked for this transaction's 206 writes.
+-- Codex review (2026-11-25): the status that decides after_close must be the one in force when the
+-- entry commits. After the 206 advisory locks the order row is read again FOR SHARE, so an MO-status
+-- writer (rpc_complete_manufacturing_order locks the row FOR UPDATE) either commits first and is seen
+-- here, or waits until this entry commits. Lock order: 206 advisory keys, then the MO row, then any
+-- work order (read only here), which keeps the M192/M195 MO -> WO order.
 CREATE FUNCTION wardah_internal.mfg_production_mo_206(p_org uuid, p_mo uuid)
 RETURNS public.manufacturing_orders LANGUAGE plpgsql VOLATILE SET search_path = ''
 AS $fn$
 DECLARE v_mo public.manufacturing_orders;
 BEGIN
-  SELECT * INTO v_mo FROM public.manufacturing_orders WHERE id = p_mo AND org_id = p_org;
+  PERFORM 1 FROM public.manufacturing_orders WHERE id = p_mo AND org_id = p_org;
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_MO_NOT_FOUND';
   END IF;
   PERFORM wardah_internal.mfg_production_lock_org_shared_206(p_org);
   PERFORM wardah_internal.mfg_production_lock_mo_206(p_mo);
+  SELECT * INTO v_mo FROM public.manufacturing_orders WHERE id = p_mo AND org_id = p_org FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_MO_NOT_FOUND';
+  END IF;
   RETURN v_mo;
 END
 $fn$;
@@ -793,10 +802,21 @@ BEGIN
     IF p_effective_from <= v_latest.effective_from THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PERIOD_CALENDAR_NOT_AFTER_LATEST';
     END IF;
-    IF EXISTS (SELECT 1 FROM wardah_internal.mfg_production_records_206
-               WHERE org_id = p_org_id AND execution_local_date >= p_effective_from)
-       OR EXISTS (SELECT 1 FROM wardah_internal.mfg_production_inputs_206
-                  WHERE org_id = p_org_id AND execution_local_date >= p_effective_from) THEN
+    -- Codex review (2026-11-25): the new version would take over every instant whose local date in
+    -- ITS timezone is on or after its start. Refuse if any recorded execution (either end) falls
+    -- there, as well as any entry already dated there in the timezone it was recorded in.
+    IF EXISTS (SELECT 1 FROM wardah_internal.mfg_production_records_206 r
+               WHERE r.org_id = p_org_id
+                 AND (r.execution_local_date >= p_effective_from
+                      OR (r.executed_from AT TIME ZONE v_tz)::date >= p_effective_from
+                      OR ((CASE WHEN r.executed_to > r.executed_from THEN r.executed_to - interval '1 microsecond'
+                                ELSE r.executed_to END) AT TIME ZONE v_tz)::date >= p_effective_from))
+       OR EXISTS (SELECT 1 FROM wardah_internal.mfg_production_inputs_206 i
+                  WHERE i.org_id = p_org_id
+                    AND (i.execution_local_date >= p_effective_from
+                         OR (i.executed_from AT TIME ZONE v_tz)::date >= p_effective_from
+                         OR ((CASE WHEN i.executed_to > i.executed_from THEN i.executed_to - interval '1 microsecond'
+                                   ELSE i.executed_to END) AT TIME ZONE v_tz)::date >= p_effective_from)) THEN
       RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'MFG_PERIOD_CALENDAR_RECORDS_EXIST';
     END IF;
   END IF;
@@ -873,6 +893,10 @@ BEGIN
   IF p_idempotency_key IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_IDEMPOTENCY_KEY_REQUIRED';
   END IF;
+  -- Codex review (2026-11-25): the order lock is taken before the idempotency lookup, so a concurrent
+  -- retry with the same key waits for the first call and then replays it instead of failing on the
+  -- unique key (or, for a snapshot, on the open draft).
+  v_mo := wardah_internal.mfg_production_mo_206(p_org_id, p_mo_id);
   SELECT * INTO v_existing FROM wardah_internal.mo_bom_snapshots_206
   WHERE org_id = p_org_id AND idempotency_key = p_idempotency_key;
   IF FOUND THEN
@@ -884,7 +908,6 @@ BEGIN
     END IF;
     RETURN wardah_internal.mo_bom_snapshot_json_206(v_existing.id) || jsonb_build_object('replayed', true);
   END IF;
-  v_mo := wardah_internal.mfg_production_mo_206(p_org_id, p_mo_id);
   IF public.normalize_mo_status(v_mo.status) IN ('done','cancelled') THEN
     RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'MFG_PRODUCTION_MO_STATUS_INVALID: ' || public.normalize_mo_status(v_mo.status);
   END IF;
@@ -944,7 +967,9 @@ BEGIN
     ORDER BY COALESCE(b.bom_version, 0) DESC LIMIT 1;
   ELSE
     SELECT b.* INTO v_bom FROM public.bom_headers b WHERE b.id = p_bom_id AND b.org_id = p_org_id;
-    IF NOT FOUND OR v_bom.item_id NOT IN (v_mo.item_id, v_mo.product_id)
+    -- Codex review (2026-11-25): a positive, NULL-safe match (item_id or product_id may be NULL).
+    IF NOT FOUND OR v_bom.item_id IS NULL
+       OR (v_bom.item_id IS DISTINCT FROM v_mo.item_id AND v_bom.item_id IS DISTINCT FROM v_mo.product_id)
        OR v_bom.status <> 'APPROVED' OR NOT COALESCE(v_bom.is_active, true)
        OR COALESCE(v_bom.effective_date, '-infinity'::date) > v_det THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_BOM_SNAPSHOT_BOM_NOT_ELIGIBLE';
@@ -1078,6 +1103,10 @@ BEGIN
   IF p_idempotency_key IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_IDEMPOTENCY_KEY_REQUIRED';
   END IF;
+  -- Codex review (2026-11-25): the order lock is taken before the idempotency lookup, so a concurrent
+  -- retry with the same key waits for the first call and then replays it instead of failing on the
+  -- unique key (or, for a snapshot, on the open draft).
+  v_mo := wardah_internal.mfg_production_mo_206(p_org_id, p_mo_id);
   SELECT * INTO v_existing FROM wardah_internal.mfg_production_records_206
   WHERE org_id = p_org_id AND idempotency_key = p_idempotency_key;
   IF FOUND THEN
@@ -1097,7 +1126,6 @@ BEGIN
      OR p_good_quantity = 'NaN'::numeric OR COALESCE(p_spoiled_quantity, 0) = 'NaN'::numeric THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_QUANTITY_INVALID';
   END IF;
-  v_mo := wardah_internal.mfg_production_mo_206(p_org_id, p_mo_id);
   v_a := wardah_internal.mfg_production_attribute_206(p_org_id, v_mo, p_operation_sequence, p_executed_from, p_executed_to);
   PERFORM wardah_internal.mfg_production_check_work_order_206(p_org_id, p_mo_id, p_work_order_id,
     (v_a->>'snapshot_id')::uuid, p_operation_sequence);
@@ -1143,6 +1171,10 @@ BEGIN
   IF p_idempotency_key IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_IDEMPOTENCY_KEY_REQUIRED';
   END IF;
+  -- Codex review (2026-11-25): the order lock is taken before the idempotency lookup, so a concurrent
+  -- retry with the same key waits for the first call and then replays it instead of failing on the
+  -- unique key (or, for a snapshot, on the open draft).
+  v_mo := wardah_internal.mfg_production_mo_206(p_org_id, p_mo_id);
   SELECT * INTO v_existing FROM wardah_internal.mfg_production_inputs_206
   WHERE org_id = p_org_id AND idempotency_key = p_idempotency_key;
   IF FOUND THEN
@@ -1167,7 +1199,6 @@ BEGIN
   IF p_quantity IS NULL OR p_quantity <= 0 OR p_quantity = 'NaN'::numeric THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_QUANTITY_INVALID';
   END IF;
-  v_mo := wardah_internal.mfg_production_mo_206(p_org_id, p_mo_id);
   v_a := wardah_internal.mfg_production_attribute_206(p_org_id, v_mo, p_operation_sequence, p_executed_from, p_executed_to);
   INSERT INTO wardah_internal.mfg_production_inputs_206
     (org_id, mo_id, snapshot_id, operation_sequence, stage_id, work_center_id, input_kind, activity, quantity, count_unit,

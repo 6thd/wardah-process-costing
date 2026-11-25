@@ -5,6 +5,9 @@
 #      (MFG_BOM_SNAPSHOT_CHANGE_CONFLICTS_RECORDS) instead of re-attributing the record;
 #   2. change approval first (uncommitted) -> the record waits, then lands on the new snapshot.
 # And a record against a calendar version (order 0): the version waits, then refuses (review item 5).
+# Codex review (2026-11-25): order 3, an identical retry with the same idempotency key while the first
+# call is uncommitted (record, input, snapshot draft) waits and replays; order 4, an order completed
+# while a record waits is seen as done (after_close) instead of the status read before the wait.
 # Usage: PGDATABASE=<db through 206> bash acceptance_206_concurrency.sh   (the database is changed:
 # use a disposable copy).
 set -Eeuo pipefail
@@ -29,7 +32,8 @@ INSERT INTO public.roles (id, org_id, name, name_ar, is_active) VALUES ('5206020
 INSERT INTO public.role_permissions (role_id, permission_id)
 SELECT '52060206-0000-0000-0000-0000000c00c1', id FROM public.permissions
 WHERE permission_key IN ('manufacturing.bom_snapshots.create', 'manufacturing.bom_snapshots.change',
-  'manufacturing.bom_snapshots.approve', 'manufacturing.production_records.record', 'manufacturing.settings.update');
+  'manufacturing.bom_snapshots.approve', 'manufacturing.production_records.record', 'manufacturing.production_inputs.record',
+  'manufacturing.settings.update');
 INSERT INTO public.user_roles (user_id, role_id, org_id)
 SELECT u, '52060206-0000-0000-0000-0000000c00c1', '$ORG' FROM unnest(ARRAY['$PLANNER', '$SNAPAPPR', '$RECORDER']::uuid[]) u;
 INSERT INTO public.work_centers (id, org_id, code, name, is_active) VALUES ('52060206-0000-0000-0000-0000000c00d1', '$ORG', 'WC', 'WC', true);
@@ -153,5 +157,62 @@ wait $B
 GOT=$(psql -X -At -c "SELECT s.snapshot_no FROM wardah_internal.mfg_production_records_206 r JOIN wardah_internal.mo_bom_snapshots_206 s ON s.id = r.snapshot_id WHERE r.notes = 'conc2'")
 [ "$GOT" = "2" ] || { cat "$OUT/a2.out" "$OUT/b2.out"; echo "PR206_CONC_ORDER2_FAILED: snapshot $GOT"; exit 1; }
 echo 'PR206_CONC_ORDER2_OK (record waited for the approval and landed on snapshot 2)'
+
+# ---- Order 3 (Codex review): the same call twice with one idempotency key, the first held open ->
+# the second waits for the order lock, then replays the committed entry.
+same_key() { # $1 label, $2 user, $3 SQL call
+  ( psql -X -q -v ON_ERROR_STOP=1 > "$OUT/k1-$1.out" 2>&1 <<SQL
+BEGIN; $(as_user "$2")
+SELECT $3;
+SELECT pg_sleep(3);
+COMMIT;
+SQL
+  ) &
+  local first=$!
+  sleep 1
+  set +e
+  psql -X -q -v ON_ERROR_STOP=1 > "$OUT/k2-$1.out" 2>&1 <<SQL
+BEGIN; $(as_user "$2")
+SELECT $3;
+COMMIT;
+SQL
+  local rc=$?
+  set -e
+  wait $first
+  [ "$rc" -eq 0 ] && grep -q '"replayed": true' "$OUT/k2-$1.out" \
+    || { cat "$OUT/k1-$1.out" "$OUT/k2-$1.out"; echo "PR206_CONC_ORDER3_FAILED: $1"; exit 1; }
+  grep -q '"replayed": false' "$OUT/k1-$1.out" || { cat "$OUT/k1-$1.out"; echo "PR206_CONC_ORDER3_FIRST_FAILED: $1"; exit 1; }
+}
+FROM3=$(psql -X -At -c "SELECT date_trunc('second', now()) - interval '5 hours'")
+same_key record "$RECORDER" "public.rpc_record_production_206('$ORG', '$MO', 10, NULL, 2, 0, '$FROM3', '$FROM3'::timestamptz + interval '30 minutes', 'conc3', '52060206-0000-0000-0000-0000000c0ab3')"
+same_key input "$RECORDER" "public.rpc_record_production_input_206('$ORG', '$MO', 10, 'labor_hours', 'run', 2, NULL, '$FROM3', '$FROM3'::timestamptz + interval '30 minutes', 'conc3', '52060206-0000-0000-0000-0000000c0ab4')"
+EFF3=$(psql -X -At -c "SELECT date_trunc('minute', now()) - interval '3 hours'")
+same_key snapshot "$PLANNER" "public.rpc_create_mo_bom_snapshot_206('$ORG', '$MO', '52060206-0000-0000-0000-0000000c0104', '$EFF3', 'conc3 change', '52060206-0000-0000-0000-0000000c0ab5')"
+N3=$(psql -X -At -c "SELECT (SELECT count(*) FROM wardah_internal.mfg_production_records_206 WHERE idempotency_key = '52060206-0000-0000-0000-0000000c0ab3')
+  || '/' || (SELECT count(*) FROM wardah_internal.mfg_production_inputs_206 WHERE idempotency_key = '52060206-0000-0000-0000-0000000c0ab4')
+  || '/' || (SELECT count(*) FROM wardah_internal.mo_bom_snapshots_206 WHERE idempotency_key = '52060206-0000-0000-0000-0000000c0ab5')")
+[ "$N3" = "1/1/1" ] || { echo "PR206_CONC_ORDER3_COUNT_FAILED: $N3"; exit 1; }
+echo 'PR206_CONC_ORDER3_OK (same-key retries waited and replayed: record, input, snapshot)'
+
+# ---- Order 4 (Codex review): the order is completed (row locked FOR UPDATE, held open) while a record
+# is entered -> the record waits on the order row and is marked after_close.
+( psql -X -q -v ON_ERROR_STOP=1 > "$OUT/m4.out" 2>&1 <<SQL
+BEGIN;
+UPDATE public.manufacturing_orders SET status = 'done' WHERE id = '$MO';
+SELECT pg_sleep(3);
+COMMIT;
+SQL
+) &
+M=$!
+sleep 1
+psql -X -q -v ON_ERROR_STOP=1 > "$OUT/r4.out" 2>&1 <<SQL
+BEGIN; $(as_user "$RECORDER")
+SELECT public.rpc_record_production_206('$ORG', '$MO', 10, NULL, 4, 0, now() - interval '2 hours', now() - interval '90 minutes', 'conc4', gen_random_uuid());
+COMMIT;
+SQL
+wait $M
+GOT4=$(psql -X -At -c "SELECT after_close || '/' || is_late FROM wardah_internal.mfg_production_records_206 WHERE notes = 'conc4'")
+[ "$GOT4" = "true/true" ] || { cat "$OUT/m4.out" "$OUT/r4.out"; echo "PR206_CONC_ORDER4_FAILED: $GOT4"; exit 1; }
+echo 'PR206_CONC_ORDER4_OK (record waited for the completion and was marked after_close)'
 
 echo 'PRODUCTION_RECORDING_206_CONCURRENCY_OK'

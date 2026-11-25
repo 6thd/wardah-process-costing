@@ -17,6 +17,7 @@
 --   7. B5 late window: unset = only the same local day is on time; exceptional approval needs its own
 --      key and a reason; a configured window is honoured; the setting is audited;
 --   8. B7 inputs: separate approve key; the recorder can never approve or reject their own entry;
+--   8b. B6 again: a later calendar version in a new org timezone cannot take over recorded execution;
 --   9. permissions, org isolation, idempotency, immutability (no update or delete of history).
 -- Rolled back at the end.
 \set ON_ERROR_STOP on
@@ -224,6 +225,8 @@ SELECT set_config('pr.t', (date_trunc('minute', now()) - interval '2 days')::tex
 SELECT set_config('pr.m', ((date_trunc('month', now() AT TIME ZONE 'Asia/Riyadh') - interval '1 month')
                             AT TIME ZONE 'Asia/Riyadh')::text, false);
 SELECT set_config('pr.cal', (date_trunc('month', now() AT TIME ZONE 'Asia/Riyadh') - interval '2 months')::date::text, false);
+-- D1 = local midnight starting today in Riyadh.
+SELECT set_config('pr.d1', ((date_trunc('day', now() AT TIME ZONE 'Asia/Riyadh')) AT TIME ZONE 'Asia/Riyadh')::text, false);
 -- C0 = local midnight starting the calendar's first day (the day before the orders' pin date).
 SELECT set_config('pr.c0', ((current_setting('pr.cal')::date)::timestamp AT TIME ZONE 'Asia/Riyadh')::text, false);
 
@@ -347,6 +350,12 @@ SELECT pg_temp.pr('planner', 'phantom lines not pinned by 206',
   format('public.rpc_create_mo_bom_snapshot_206(%L, %L, NULL, NULL, NULL, gen_random_uuid())',
          '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a4'),
   'MFG_BOM_SNAPSHOT_PHANTOM_UNSUPPORTED: line 1');
+-- Codex review (2026-11-25): an explicit BOM must positively match the order's item. MO-Z has only
+-- item_id (product_id NULL); BOM-3 is an approved BOM of item X.
+SELECT pg_temp.pr('planner', 'explicit BOM of another item refused (NULL product_id)',
+  format('public.rpc_create_mo_bom_snapshot_206(%L, %L, %L, NULL, NULL, gen_random_uuid())',
+         '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a3', '52060206-0000-0000-0000-000000000103'),
+  'MFG_BOM_SNAPSHOT_BOM_NOT_ELIGIBLE');
 SELECT pg_temp.pr('planner', 'B1 draft with yield 98 is created',
   format('public.rpc_create_mo_bom_snapshot_206(%L, %L, NULL, NULL, NULL, gen_random_uuid())',
          '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a2'), 'OK');
@@ -419,7 +428,9 @@ SELECT pg_temp.eq('snapshot 2 qty per unit', (SELECT (qty_per_unit = 0.0612)::te
   WHERE snapshot_id = (SELECT id FROM pr_ids WHERE k = 'snap2')), 'true');
 
 -- After the change: record B processed after T -> snapshot 2.
-SELECT pg_temp.rec('record B post-change', 't', '+1 day', 't', '+1 day +4 hours', 600);
+-- B runs yesterday in company time (D1 = today's local midnight), so it is always entered the day after,
+-- whatever the hour the acceptance runs at (T + 1 day can fall on today's local date in the evening).
+SELECT pg_temp.rec('record B post-change', 'd1', '-1 day +1 hour', 'd1', '-1 day +5 hours', 600);
 SELECT pg_temp.keep('recB', 'id');
 SELECT pg_temp.eq('record B on snapshot 2', pg_temp.last('snapshot_id'), (SELECT id::text FROM pr_ids WHERE k = 'snap2'));
 -- Shift entered late: processed before T, entered after the change -> snapshot 1.
@@ -494,7 +505,7 @@ SELECT pg_temp.eq('A late approval recorded', pg_temp.last('late_approval'), 'tr
 SELECT pg_temp.tr('approver', 'B entered the day after needs approve_late', 'record', 'recB', 'approve', NULL,
                   'MFG_PRODUCTION_PERMISSION_DENIED: manufacturing.production_records.approve_late');
 
--- B5: a configured window. B ended about one day ago, C about two days ago (local dates).
+-- B5: a configured window. B ended yesterday, C about two days ago (local dates).
 SELECT pg_temp.pr('settings', 'late window 2 days',
   format('public.rpc_set_mfg_late_entry_window_206(%L, 2, %L)', '52060206-0000-0000-0000-0000000000a1', 'shift sheets within 2 days'), 'OK');
 SELECT pg_temp.eq('settings audited', (SELECT count(*)::text FROM wardah_internal.mfg_recording_settings_audit_206
@@ -652,6 +663,54 @@ SELECT pg_temp.pr('admin', 'admin records an input',
 SELECT pg_temp.keep('inAdmin', 'id');
 SELECT pg_temp.tr('admin', 'admin submits', 'input', 'inAdmin', 'submit', NULL);
 SELECT pg_temp.tr('admin', 'admin cannot self-approve', 'input', 'inAdmin', 'approve', NULL, 'MFG_PRODUCTION_SELF_APPROVAL_DENIED');
+
+-- ---------------------------------------------------------------------
+-- 8b. Codex review (2026-11-25), B6: a later calendar version in a new org timezone must not take over
+--     recorded execution. E = the month start two months ahead. An entry (fixture copy, as owner) ran
+--     40 to 30 minutes before E's local midnight in Riyadh, so it is dated the day before E. In
+--     Asia/Tokyo (+09:00) the same instant is already on E, so a version from E in Tokyo would move it.
+--     Each case is rolled back to its savepoint.
+-- ---------------------------------------------------------------------
+SELECT set_config('pr.e', (date_trunc('month', now() AT TIME ZONE 'Asia/Riyadh') + interval '2 months')::date::text, false);
+SELECT set_config('pr.ex', ((current_setting('pr.e')::date)::timestamp AT TIME ZONE 'Asia/Riyadh')::text, false);
+-- Control: with the timezone changed and no such entry, the version is accepted.
+SAVEPOINT pr_tz0;
+UPDATE public.organizations SET timezone = 'Asia/Tokyo' WHERE id = '52060206-0000-0000-0000-0000000000a1';
+SELECT pg_temp.pr('settings', 'control: Tokyo version from E with no entry there',
+  format('public.rpc_add_mfg_period_calendar_206(%L, %L, %L)', '52060206-0000-0000-0000-0000000000a1', current_setting('pr.e'), 'tz'), 'OK');
+ROLLBACK TO SAVEPOINT pr_tz0;
+SAVEPOINT pr_tz1;
+CREATE TEMP TABLE pr_tzrec ON COMMIT DROP AS
+  SELECT * FROM wardah_internal.mfg_production_records_206 WHERE id = (SELECT id FROM pr_ids WHERE k = 'recA');
+UPDATE pr_tzrec SET id = gen_random_uuid(), idempotency_key = gen_random_uuid(),
+  executed_from = current_setting('pr.ex')::timestamptz - interval '40 minutes',
+  executed_to = current_setting('pr.ex')::timestamptz - interval '30 minutes',
+  execution_local_date = current_setting('pr.e')::date - 1,
+  execution_period_start = date_trunc('month', current_setting('pr.e')::date - 1)::date;
+INSERT INTO wardah_internal.mfg_production_records_206 SELECT * FROM pr_tzrec;
+UPDATE public.organizations SET timezone = 'Asia/Tokyo' WHERE id = '52060206-0000-0000-0000-0000000000a1';
+SELECT pg_temp.eq('no record is dated on or after E where it was recorded',
+  (SELECT count(*)::text FROM wardah_internal.mfg_production_records_206
+   WHERE org_id = '52060206-0000-0000-0000-0000000000a1' AND execution_local_date >= current_setting('pr.e')::date), '0');
+SELECT pg_temp.pr('settings', 'Tokyo version from E would re-date a record: refused',
+  format('public.rpc_add_mfg_period_calendar_206(%L, %L, %L)', '52060206-0000-0000-0000-0000000000a1', current_setting('pr.e'), 'tz'),
+  'MFG_PERIOD_CALENDAR_RECORDS_EXIST');
+ROLLBACK TO SAVEPOINT pr_tz1;
+SAVEPOINT pr_tz2;
+CREATE TEMP TABLE pr_tzin ON COMMIT DROP AS
+  SELECT * FROM wardah_internal.mfg_production_inputs_206 WHERE id = (SELECT id FROM pr_ids WHERE k = 'inM');
+UPDATE pr_tzin SET id = gen_random_uuid(), idempotency_key = gen_random_uuid(),
+  executed_from = current_setting('pr.ex')::timestamptz - interval '40 minutes',
+  executed_to = current_setting('pr.ex')::timestamptz - interval '30 minutes',
+  execution_local_date = current_setting('pr.e')::date - 1,
+  execution_period_start = date_trunc('month', current_setting('pr.e')::date - 1)::date;
+INSERT INTO wardah_internal.mfg_production_inputs_206 SELECT * FROM pr_tzin;
+UPDATE public.organizations SET timezone = 'Asia/Tokyo' WHERE id = '52060206-0000-0000-0000-0000000000a1';
+SELECT pg_temp.pr('settings', 'Tokyo version from E would re-date an input: refused',
+  format('public.rpc_add_mfg_period_calendar_206(%L, %L, %L)', '52060206-0000-0000-0000-0000000000a1', current_setting('pr.e'), 'tz'),
+  'MFG_PERIOD_CALENDAR_RECORDS_EXIST');
+ROLLBACK TO SAVEPOINT pr_tz2;
+SELECT pg_temp.eq('org timezone restored', (SELECT timezone FROM public.organizations WHERE id = '52060206-0000-0000-0000-0000000000a1'), 'Asia/Riyadh');
 
 -- ---------------------------------------------------------------------
 -- 9. Idempotency, reads, immutability.
