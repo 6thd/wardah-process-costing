@@ -901,7 +901,9 @@ BEGIN
   WHERE org_id = p_org_id AND idempotency_key = p_idempotency_key;
   IF FOUND THEN
     IF v_existing.mo_id <> p_mo_id OR v_existing.created_by <> auth.uid()
-       OR v_existing.reason IS DISTINCT FROM p_reason
+       -- Codex review (2026-11-26): compare with the value as stored (btrim, '' -> NULL), so a padded
+       -- retry replays instead of conflicting.
+       OR v_existing.reason IS DISTINCT FROM NULLIF(btrim(COALESCE(p_reason, '')), '')
        OR v_existing.effective_from_at IS DISTINCT FROM COALESCE(p_effective_from, '-infinity'::timestamptz)
        OR (p_bom_id IS NOT NULL AND v_existing.source_bom_id <> p_bom_id) THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_IDEMPOTENCY_CONFLICT';
@@ -1025,12 +1027,17 @@ BEGIN
                                  WHERE mo_id = v_s.mo_id AND status = 'approved') THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_BOM_SNAPSHOT_EFFECTIVE_NOT_AFTER_LATEST';
     END IF;
+    -- Codex review (2026-11-26): a point execution (executed_from = executed_to = T) is attributed to the
+    -- new snapshot (snapshot_at takes effective_from <= T), so executions starting at or after T conflict
+    -- too. A nonempty interval ending exactly at T stays on the earlier snapshot and is allowed.
     SELECT count(*) INTO v_n FROM (
       SELECT 1 FROM wardah_internal.mfg_production_records_206
-      WHERE mo_id = v_s.mo_id AND status IN ('draft','submitted','approved') AND executed_to > v_s.effective_from_at
+      WHERE mo_id = v_s.mo_id AND status IN ('draft','submitted','approved')
+        AND (executed_to > v_s.effective_from_at OR executed_from >= v_s.effective_from_at)
       UNION ALL
       SELECT 1 FROM wardah_internal.mfg_production_inputs_206
-      WHERE mo_id = v_s.mo_id AND status IN ('draft','submitted','approved') AND executed_to > v_s.effective_from_at) x;
+      WHERE mo_id = v_s.mo_id AND status IN ('draft','submitted','approved')
+        AND (executed_to > v_s.effective_from_at OR executed_from >= v_s.effective_from_at)) x;
     IF v_n > 0 THEN
       RAISE EXCEPTION USING ERRCODE = '55000',
         MESSAGE = format('MFG_BOM_SNAPSHOT_CHANGE_CONFLICTS_RECORDS: %s record(s) end after the effective time', v_n);
@@ -1183,7 +1190,9 @@ BEGIN
        OR v_existing.input_kind IS DISTINCT FROM p_input_kind
        OR v_existing.activity IS DISTINCT FROM p_activity
        OR v_existing.quantity IS DISTINCT FROM p_quantity
-       OR v_existing.count_unit IS DISTINCT FROM p_count_unit
+       -- Codex review (2026-11-26): compare with the value as stored (btrim, '' -> NULL), so a padded
+       -- unit or an empty one on a non-count input replays instead of conflicting.
+       OR v_existing.count_unit IS DISTINCT FROM NULLIF(btrim(COALESCE(p_count_unit, '')), '')
        OR v_existing.executed_from IS DISTINCT FROM p_executed_from
        OR v_existing.executed_to IS DISTINCT FROM p_executed_to THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MFG_PRODUCTION_IDEMPOTENCY_CONFLICT';

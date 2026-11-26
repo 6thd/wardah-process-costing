@@ -413,15 +413,46 @@ SELECT pg_temp.pr('planner', 'change needs bom, time and reason',
   format('public.rpc_create_mo_bom_snapshot_206(%L, %L, %L, %s, NULL, gen_random_uuid())',
          '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a1',
          '52060206-0000-0000-0000-000000000104', pg_temp.at('t', '0')), 'MFG_BOM_SNAPSHOT_CHANGE_INCOMPLETE');
+-- The reason is sent padded: it is stored trimmed, and (Codex review 2026-11-26) the same padded retry replays.
 SELECT pg_temp.pr('planner', 'change snapshot draft (BOM-4 from T)',
-  format('public.rpc_create_mo_bom_snapshot_206(%L, %L, %L, %s, %L, gen_random_uuid())',
+  format('public.rpc_create_mo_bom_snapshot_206(%L, %L, %L, %s, %L, %L)',
          '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a1',
-         '52060206-0000-0000-0000-000000000104', pg_temp.at('t', '0'), 'film gauge change (BOM-4)'), 'OK');
+         '52060206-0000-0000-0000-000000000104', pg_temp.at('t', '0'), ' film gauge change (BOM-4) ',
+         '52060206-0000-0000-0000-00000000ccc3'), 'OK');
 SELECT pg_temp.keep('snap2', 'id');
+SELECT pg_temp.eq('change reason stored trimmed',
+  (SELECT reason FROM wardah_internal.mo_bom_snapshots_206 WHERE id = (SELECT id FROM pr_ids WHERE k = 'snap2')),
+  'film gauge change (BOM-4)');
+SELECT pg_temp.pr('planner', 'same padded change request replays',
+  format('public.rpc_create_mo_bom_snapshot_206(%L, %L, %L, %s, %L, %L)',
+         '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a1',
+         '52060206-0000-0000-0000-000000000104', pg_temp.at('t', '0'), ' film gauge change (BOM-4) ',
+         '52060206-0000-0000-0000-00000000ccc3'), 'OK');
+SELECT pg_temp.eq('padded change retry replayed', pg_temp.last('replayed') || '/' || pg_temp.last('id'),
+  'true/' || (SELECT id::text FROM pr_ids WHERE k = 'snap2'));
 SELECT pg_temp.pr('snapappr', 'change refused while record D ends after T',
   format('public.rpc_approve_mo_bom_snapshot_206(%L, %s)', '52060206-0000-0000-0000-0000000000a1', pg_temp.id('snap2')),
   'MFG_BOM_SNAPSHOT_CHANGE_CONFLICTS_RECORDS: 1 record(s)');
 SELECT pg_temp.tr('recorder', 'withdraw record D', 'record', 'recD', 'withdraw', 'entered on the wrong BOM');
+-- Codex review (2026-11-26): a point execution (executed_from = executed_to = T) belongs to the change
+-- snapshot from T (snapshot_at uses effective_from <= T), so it must block the change like D did.
+SELECT pg_temp.rec('point record at T before change approval', 't', '0', 't', '0', 5);
+SELECT pg_temp.keep('recP', 'id');
+SELECT pg_temp.pr('snapappr', 'change refused while a point record sits at T',
+  format('public.rpc_approve_mo_bom_snapshot_206(%L, %s)', '52060206-0000-0000-0000-0000000000a1', pg_temp.id('snap2')),
+  'MFG_BOM_SNAPSHOT_CHANGE_CONFLICTS_RECORDS: 1 record(s)');
+SELECT pg_temp.tr('recorder', 'withdraw point record', 'record', 'recP', 'withdraw', 'point at T');
+SELECT pg_temp.pr('recorder', 'point input at T before change approval',
+  format('public.rpc_record_production_input_206(%L, %L, 10, %L, %L, 1, NULL, %s, %s, NULL, gen_random_uuid())',
+         '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a1', 'labor_hours', 'run',
+         pg_temp.at('t', '0'), pg_temp.at('t', '0')), 'OK');
+SELECT pg_temp.keep('inP', 'id');
+SELECT pg_temp.pr('snapappr', 'change refused while a point input sits at T',
+  format('public.rpc_approve_mo_bom_snapshot_206(%L, %s)', '52060206-0000-0000-0000-0000000000a1', pg_temp.id('snap2')),
+  'MFG_BOM_SNAPSHOT_CHANGE_CONFLICTS_RECORDS: 1 record(s)');
+SELECT pg_temp.tr('recorder', 'withdraw point input', 'input', 'inP', 'withdraw', 'point at T');
+-- A nonempty interval ending exactly at T stays on snapshot 1 and does not block the change.
+SELECT pg_temp.rec('record ending exactly at T', 't', '-1 hour', 't', '0', 5);
 SELECT pg_temp.pr('snapappr', 'change snapshot approved',
   format('public.rpc_approve_mo_bom_snapshot_206(%L, %s)', '52060206-0000-0000-0000-0000000000a1', pg_temp.id('snap2')), 'OK');
 SELECT pg_temp.eq('snapshot 2 qty per unit', (SELECT (qty_per_unit = 0.0612)::text FROM wardah_internal.mo_bom_snapshot_lines_206
@@ -661,6 +692,32 @@ SELECT pg_temp.pr('admin', 'admin records an input',
          '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a1', 'labor_hours', 'setup',
          pg_temp.at('t', '+1 day'), pg_temp.at('t', '+1 day +1 hour')), 'OK');
 SELECT pg_temp.keep('inAdmin', 'id');
+-- Codex review (2026-11-26): a retry is compared with the stored, normalised payload (btrim on the
+-- count unit, '' -> NULL), so the same request replays instead of conflicting.
+SELECT pg_temp.pr('recorder', 'count input with a padded unit',
+  format('public.rpc_record_production_input_206(%L, %L, 20, %L, NULL, 3, %L, %s, %s, NULL, %L)',
+         '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a1', 'count', ' pieces ',
+         pg_temp.at('t', '+1 day'), pg_temp.at('t', '+1 day +1 hour'), '52060206-0000-0000-0000-00000000ccc1'), 'OK');
+SELECT pg_temp.eq('unit stored trimmed', pg_temp.last('count_unit'), 'pieces');
+SELECT pg_temp.pr('recorder', 'same padded request replays',
+  format('public.rpc_record_production_input_206(%L, %L, 20, %L, NULL, 3, %L, %s, %s, NULL, %L)',
+         '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a1', 'count', ' pieces ',
+         pg_temp.at('t', '+1 day'), pg_temp.at('t', '+1 day +1 hour'), '52060206-0000-0000-0000-00000000ccc1'), 'OK');
+SELECT pg_temp.eq('padded retry replayed', pg_temp.last('replayed'), 'true');
+SELECT pg_temp.pr('recorder', 'same key other unit conflicts',
+  format('public.rpc_record_production_input_206(%L, %L, 20, %L, NULL, 3, %L, %s, %s, NULL, %L)',
+         '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a1', 'count', 'cartons',
+         pg_temp.at('t', '+1 day'), pg_temp.at('t', '+1 day +1 hour'), '52060206-0000-0000-0000-00000000ccc1'),
+  'MFG_PRODUCTION_IDEMPOTENCY_CONFLICT');
+SELECT pg_temp.pr('recorder', 'hours input with an empty unit',
+  format('public.rpc_record_production_input_206(%L, %L, 10, %L, %L, 2, %L, %s, %s, NULL, %L)',
+         '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a1', 'labor_hours', 'run', '',
+         pg_temp.at('t', '+1 day'), pg_temp.at('t', '+1 day +2 hours'), '52060206-0000-0000-0000-00000000ccc2'), 'OK');
+SELECT pg_temp.pr('recorder', 'same empty-unit request replays',
+  format('public.rpc_record_production_input_206(%L, %L, 10, %L, %L, 2, %L, %s, %s, NULL, %L)',
+         '52060206-0000-0000-0000-0000000000a1', '52060206-0000-0000-0000-0000000003a1', 'labor_hours', 'run', '',
+         pg_temp.at('t', '+1 day'), pg_temp.at('t', '+1 day +2 hours'), '52060206-0000-0000-0000-00000000ccc2'), 'OK');
+SELECT pg_temp.eq('empty-unit retry replayed', pg_temp.last('replayed'), 'true');
 SELECT pg_temp.tr('admin', 'admin submits', 'input', 'inAdmin', 'submit', NULL);
 SELECT pg_temp.tr('admin', 'admin cannot self-approve', 'input', 'inAdmin', 'approve', NULL, 'MFG_PRODUCTION_SELF_APPROVAL_DENIED');
 
