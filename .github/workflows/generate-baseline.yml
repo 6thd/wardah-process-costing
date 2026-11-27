@@ -16,6 +16,12 @@ jobs:
   generate-baseline:
     name: Generate reviewed baseline from Production
     runs-on: ubuntu-latest
+    # The attempt that produced the review branch. Outputs of a successful
+    # job are kept when only failed jobs are re-run, so a guard-only retry
+    # (e.g. after opening the review PR manually) still looks for the
+    # branch this job actually pushed, not one named after the new attempt.
+    outputs:
+      producing_attempt: ${{ steps.publish.outputs.producing_attempt }}
 
     services:
       postgres:
@@ -341,6 +347,7 @@ jobs:
             --repo-max "$REPO_MAX"
 
       - name: Create review branch and pull request
+        id: publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUTOFF: ${{ steps.ledger.outputs.live_cutoff }}
@@ -353,6 +360,7 @@ jobs:
           # attempts, so the attempt must be part of the identity; otherwise one
           # run can leave multiple indistinguishable cutoff branches behind.
           BRANCH="automation/baseline-cutoff-${CUTOFF}-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "producing_attempt=${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
           git switch -c "$BRANCH"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -402,3 +410,19 @@ jobs:
           path: baseline-diagnostics/
           if-no-files-found: warn
           retention-days: 30
+
+  # Replaces the former `workflow_run` trigger on the guard. `needs` keeps the
+  # old semantics: the guard runs only after a successful generation. The
+  # attempt comes from the producing job's output, not github.run_attempt,
+  # because "Re-run failed jobs" advances run_attempt without regenerating.
+  publication-guard:
+    name: Baseline PR publication guard
+    needs: generate-baseline
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/baseline-pr-publication-guard.yml
+    with:
+      source_run_id: ${{ github.run_id }}
+      source_run_attempt: ${{ needs.generate-baseline.outputs.producing_attempt }}
