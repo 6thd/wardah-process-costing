@@ -7,6 +7,10 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   sonarqube:
     name: SonarQube Scan
@@ -54,9 +58,12 @@ jobs:
           GITHUB_EVENT_BEFORE: ${{ github.event.before }}
         run: node scripts/ci/check-new-source-sonar-coverage.mjs
 
+      # SonarSource/sonarcloud-github-action is archived; its maintained
+      # successor is sonarqube-scan-action (serves SonarQube Cloud when
+      # SONAR_HOST_URL is unset). Pinned to the v8.4.1 commit.
       - name: SonarCloud Scan
         if: steps.sonar_cfg.outputs.configured == 'true'
-        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8
+        uses: SonarSource/sonarqube-scan-action@e805d875275f728fac1885b413934be6d7c63f65 # v8.4.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

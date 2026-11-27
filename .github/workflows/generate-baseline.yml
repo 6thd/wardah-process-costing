@@ -402,3 +402,18 @@ jobs:
           path: baseline-diagnostics/
           if-no-files-found: warn
           retention-days: 30
+
+  # Replaces the former `workflow_run` trigger on the guard. `needs` keeps the
+  # old semantics: the guard runs only after a successful generation. Inside
+  # a reusable workflow github.run_id/run_attempt are this caller run's.
+  publication-guard:
+    name: Baseline PR publication guard
+    needs: generate-baseline
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/baseline-pr-publication-guard.yml
+    with:
+      source_run_id: ${{ github.run_id }}
+      source_run_attempt: ${{ github.run_attempt }}

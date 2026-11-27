@@ -4,11 +4,28 @@ name: Baseline PR Publication Guard
 # No pull_request trigger is intentional: PR events do not carry the source
 # Generate Schema Baseline run identity, so they cannot produce a meaningful
 # verdict for this contract.
+#
+# Trigger model: this workflow used to listen on `workflow_run`, which runs
+# with the base repository's token and secrets after another workflow
+# finishes and is flagged as a dangerous trigger. It is now a reusable
+# workflow called as the final job of "Generate Schema Baseline" (so it only
+# runs after a successful generation, exactly as the old
+# `conclusion == 'success'` filter did), plus a manual workflow_dispatch for
+# re-validating a past run. It never checks out or executes repository code;
+# it only reads branch and PR metadata through the API.
 
 on:
-  workflow_run:
-    workflows: ["Generate Schema Baseline"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      source_run_id:
+        description: "Generate Schema Baseline workflow run id to validate"
+        required: true
+        type: string
+      source_run_attempt:
+        description: "Run attempt that produced the generated branch"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -24,18 +41,18 @@ permissions:
 jobs:
   require-review-pr:
     name: Require generated baseline review PR
-    if: >-
-      ${{ (github.event_name == 'workflow_run'
-           && github.event.workflow_run.conclusion == 'success')
-          || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     steps:
       - name: Resolve generated branch and require PR
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SOURCE_RUN_ID: ${{ inputs.source_run_id || github.event.workflow_run.id }}
-          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -51,9 +68,9 @@ jobs:
             exit 1
           fi
 
-          # workflow_dispatch has no workflow_run payload. Resolve the latest
-          # attempt from the immutable numeric run id; workflow_run supplies the
-          # attempt that actually caused this guard invocation.
+          # workflow_dispatch has no attempt input. Resolve the latest attempt
+          # from the immutable numeric run id; the workflow_call from the
+          # generator passes the attempt that actually produced the branch.
           if [ -z "$SOURCE_RUN_ATTEMPT" ]; then
             SOURCE_RUN_ATTEMPT=$(gh api "repos/${REPO}/actions/runs/${SOURCE_RUN_ID}" --jq '.run_attempt')
           fi
