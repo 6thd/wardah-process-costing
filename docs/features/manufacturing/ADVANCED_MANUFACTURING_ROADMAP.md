@@ -17,6 +17,13 @@
 > - صف «MES: بدء/إكمال/إيقاف عملية» كذلك: `start_operation` و`complete_operation` يفشلان لكل مستدعٍ داخل trigger `update_mo_status_from_work_orders` (`completed_quantity` ملتبس). وسلوك ذلك الـtrigger المقصود نفسه تجاوزٌ للإكمال (#230/#154).
 > - MFG-P1 يجب أن يُغلق قبل أن يعامل #230 تكلفة المراحل كمصدر معتمد.
 
+> **مواءمة 2026-10-21 (بعد #320 و#324، ولم يُدمج أيٌّ منهما بعد) — تتقدّم على الملاحظة السابقة وعلى صفَّي «شاشة تكاليف المراحل» و«مسار بديل يستدعي RPC» في 1.2 حيث تختلف:**
+>
+> - مسار شاشة تكاليف المراحل (`stage-costing-panel.tsx` ← `stage-costing-actions.js` ← `process-costing-service.ts`) لم يعد يحسب `unitCost` في العميل ولا يكتب شيئًا. ترفض `applyLaborTime` و`applyOverhead` و`upsertStageCost` بالرمز `STAGE_COSTING_UNAVAILABLE_PENDING_260` قبل إرسال أي طلب (#320). أما القراءة (`getStageCosts`) فباقية.
+> - حُذف `src/ui/events.ts` (#324). لم يكن يستورده أي ملف، فلم يكن مسارًا حيًا. نظام `data-action` الحي هو `src/ui/events.js`.
+> - ما زال في المستودع مسار ثانٍ غير موصول: `ProcessCostingAppService` مع `SupabaseProcessCostingRepository`. فيهما كتابة مباشرة إلى `labor_time_logs` و`moh_applied` و`stage_costs`، لكن لا يستدعي أي ملف في `src` أو `e2e` الدالة `getProcessCostingService()`. لم يُغيَّر هذا المسار هنا.
+> - هذا رفض مؤقت وليس إصلاحًا. لا يغلق #260 ولا #230. #260 ما زال يحتاج إصلاح محرك التكلفة في قاعدة البيانات أولًا، وينتظر قرارات المالك D-LAB/D-OH وD-STAGE. و#230 ما زال يحتاج مسار إكمال ذريًا واحدًا.
+
 ---
 
 ## 0) الهدف والمعيار الذهبي
@@ -65,8 +72,8 @@
 
 | القدرة | العيب الحالي |
 |--------|--------------|
-| شاشة تكاليف المراحل | تحسب في العميل `unitCost = totalCost / goodQty` وتكتب `stage_costs` مباشرة (`process-costing-service.ts`) — **تتجاوز** محرك EUP/FIFO/Scrap |
-| مسار بديل يستدعي RPC | موجود في `src/ui/events.ts` (`stage-recalc`) لكنه **ليس** مسار زر الحساب الأساسي |
+| شاشة تكاليف المراحل | منذ #320 يرفض تسجيل العمل والتكاليف غير المباشرة وإعادة الحساب بالرمز `STAGE_COSTING_UNAVAILABLE_PENDING_260` قبل أي طلب. لم يعد هناك حساب `unitCost` في العميل ولا كتابة إلى `stage_costs` من هذا المسار، والقراءة باقية. لكن الشاشة **لا تحسب شيئًا** حتى يُصلَح المحرك في #260 |
+| مسار بديل يستدعي RPC | حُذف `src/ui/events.ts` في #324، ولم يكن يستورده أي ملف. والاسم `upsert_stage_cost` لا يرد في كود `src` غير الاختباري إلا في الأنواع المولَّدة (`database.generated.ts`) وفي تعليق صفحة EU (`equivalent-units-dashboard.tsx`) |
 | Capacity / Efficiency | تعتمد على بيانات shop وcalendars؛ البنية موجودة، النضج التشغيلي ناقص |
 | `wip_by_stage` | مبسّط (migration `109`)؛ لا يعكس EUP المرحلي الكامل ولا جداول أجور/أوفرهيد المفقودة في ذلك المسار |
 | MES | كونسول أوامر عمل؛ بلا واجهة حية لـ downtime / operator sessions / QC / clock-in |
