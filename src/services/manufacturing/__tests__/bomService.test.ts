@@ -188,7 +188,8 @@ describe('BOM Service', () => {
         quantity: 5,
         unit_of_measure: 'PC',
         line_type: 'COMPONENT',
-        scrap_factor: 0.02,
+        // scrap_factor is a percent 0..100: 2 means 2% (owner decision B2, Migration 206).
+        scrap_factor: 2,
         is_critical: true,
         yield_percentage: 98,
         effective_from: '2025-01-01',
@@ -197,6 +198,8 @@ describe('BOM Service', () => {
 
       expect(line.line_type).toBe('COMPONENT');
       expect(line.is_critical).toBe(true);
+      expect(line.scrap_factor).toBeGreaterThanOrEqual(0);
+      expect(line.scrap_factor).toBeLessThanOrEqual(100);
     });
 
     it('should support all BOM status values', () => {
