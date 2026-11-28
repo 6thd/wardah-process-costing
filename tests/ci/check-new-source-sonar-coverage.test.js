@@ -158,4 +158,11 @@ describe('matchesAnyGlob', () => {
     // negative: an unrelated directory that only shares a suffix
     expect(matchesAnyGlob('src/features/inventory/components/StockAdjustmentSections.tsx', globs)).toBe(false)
   })
+
+  it('keeps HR page coordinators excluded without hiding nested report helpers', () => {
+    const globs = ['**/src/features/hr/pages/*.tsx']
+
+    expect(matchesAnyGlob('src/features/hr/pages/ReportsPage.tsx', globs)).toBe(true)
+    expect(matchesAnyGlob('src/features/hr/pages/reports/report-builders.ts', globs)).toBe(false)
+  })
 })
